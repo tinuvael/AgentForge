@@ -6,6 +6,7 @@ Phase 01 established the architectural contract and package skeleton. Phase 02
 implements Provider contracts, validated Worker configuration and the Ollama HTTP
 adapter, including health, generation and streaming. Phase 03 implements the
 Project Registry, SQLAlchemy persistence and the initial Alembic migration.
+Issue #14 adds a deterministic Python Project Index and compact repository map.
 Other runtime components below remain **planned**. There are no application
 endpoints, repository tools, task execution or dashboard behavior yet.
 
@@ -69,6 +70,7 @@ models, or arbitrary OpenAI-compatible endpoints.
 | --- | --- |
 | `core/` | Provider/Worker inference domain contracts; future application coordination and Task Engine |
 | `projects/` | Project Registry: stable project identity, repository/workspace location, context and permitted operations |
+| `index/` | Deterministic Python structure, explicit refresh, graph queries and bounded textual maps |
 | `providers/` | Ollama inference adapter; translate calls and failures for the backend |
 | `workers/` | Validated configuration loading for concrete inference targets |
 | `agents/` | Behavior definitions and eventual runtime integration with explicitly selected workers and tools |
@@ -80,8 +82,8 @@ models, or arbitrary OpenAI-compatible endpoints.
 | `web/` | Jinja2 templates and HTMX monitoring interactions |
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
-Packages other than `core/`, `providers/`, `workers/`, `projects/` and `db/` remain
-placeholders. Alembic configuration and revision scripts live in `alembic.ini`
+Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/` and `db/`
+remain placeholders. Alembic configuration and revision scripts live in `alembic.ini`
 and `migrations/` at the repository root.
 
 ### Provider and Worker foundation (Phase 02)
@@ -163,8 +165,9 @@ no project-specific assumptions.
 `projects.service.ProjectRegistry` exposes synchronous, transport-independent
 `register_project(name, root_path)`, `list_projects()`, `get_project(id)`,
 `remove_project(id)` and `inspect_project(id)`. IDs accept UUIDs or UUID strings.
-Removal deletes registration only. Configuration remains retrievable/removable
-when its directory is unavailable; inspection validates that the root still exists.
+Removal deletes registration and its cached index, never repository files.
+Configuration remains retrievable/removable when its directory is unavailable;
+inspection validates that the root still exists.
 Important failures have explicit `ProjectError` subclasses, including invalid
 paths/names, duplicate roots, missing IDs, unsafe candidates and storage failures.
 SQLAlchemy errors and database statements are not exposed as service errors.
@@ -218,10 +221,106 @@ in a local Alembic configuration for another database. Pass the same URL to
 down. The initial revision creates only project configuration. Tests migrate
 temporary SQLite databases and verify upgrade/downgrade and database reopening.
 
-The future Project Index (#14) can consume stable identity, the canonical root,
-fresh HEAD observations and containment validation. Indexes, symbols, graphs,
-summaries and repository read tools are outside this phase. Project-specific
-configuration stays with registry entries, separate from generic runtime behavior.
+Project-specific configuration stays with registry entries, separate from generic
+runtime behavior. Repository read tools and architecture summaries remain deferred.
+
+### Deterministic Project Index (Issue #14)
+
+`index.service.ProjectIndex` consumes the existing `ProjectRegistry` and
+`db.index.IndexRepository`. Wire both repositories with a session factory for the
+same migrated database. The service is synchronous and transport-independent:
+`refresh_index(id)`, `get_index_status(id)`, `find_symbol(id, query)`,
+`get_symbol(id, symbol_id)`, `get_dependencies`, `get_dependents`,
+`get_related_symbols`, `get_relationships` and
+`render_project_map(id, focus=None, max_tokens=3000)`. No HTTP/MCP adapter, source
+content tool, agent runtime, or worker is involved.
+
+The boundary is Python bytes → built-in AST → small immutable extraction records
+→ SQLite → queries/maps. `index.python_parser` owns definitions, line locations,
+lexical containment and import/call facts; it never executes source. Its
+`parse_python(relative_path, bytes) -> ParsedFile` boundary allows another parser
+later without a plugin framework or storage redesign. `index.scanner` owns safe
+file reads/exclusions. `db.index` owns transaction-scoped replacement and link
+resolution; `index.render` owns deterministic relevance and bounded rendering.
+No LLM, embeddings, vector database or graph library builds structural facts.
+
+Alembic revision `0002_project_index` follows the shipped `0001_projects` revision.
+Four small tables store project snapshot metadata, eligible files, symbols and
+relationships. Files carry observed and last successfully parsed SHA-256 hashes;
+raw source/bodies are not persisted. Module symbols act as containment roots and
+import targets; only unambiguous, unshadowed module-level definitions are eligible
+definition import targets. Definition IDs hash the relative path, kind, lexical
+qualified name and start line, so duplicate and nested definitions stay distinct.
+IDs can change when definitions move. IDs are scoped to a Project, with no
+cross-project semantic identity. Module names follow paths relative to the
+registered root, with package `__init__.py` mapped to its directory. A root
+initializer uses the display namespace `__root__`, without assuming an absolute
+package name; its relative imports of indexed child modules can still link.
+The index does not infer Python installation layouts, `sys.path` or `src/` roots.
+
+Refresh explicitly scans `.py` files one at a time, compares content hashes and
+reuses unchanged extraction records. New/changed files replace their structure;
+deleted files are removed. Import links are recomputed from cached facts against
+the complete current symbol set, including unchanged importers. A fresh registry
+Git observation records HEAD when available, but never determines freshness:
+dirty working trees and non-Git projects use the same hash checks.
+`get_index_status` performs an explicit live hash scan and reports changed paths,
+counts, snapshot time, observed HEAD and parse failures. Other queries read cached
+structure; callers check status or request refresh when they need current data.
+
+One database transaction covers the complete refresh. Filesystem, unexpected
+parser or storage failures roll back all changes. Invalid Python syntax/encoding
+is a per-file failure: its observed hash and a safe diagnostic are stored, while
+its previous valid symbols/relationships remain available, flagged `stale` and
+marked in maps. A newly invalid file has no structural records. Unchanged invalid
+files retain their diagnostic without reparsing; edits retry parsing. Status keeps
+reporting these failures, so a partial index is never presented as fully current.
+SQLite connections enable foreign keys and transaction control covering reads;
+cascades clean file-owned facts and all index tables when the registry removes a
+Project. Resolved target IDs are checked and rebuilt transactionally rather than
+defining a generic graph ORM.
+
+The registry's stored canonical root and `validate_registered_root` remain
+authoritative. Traversal skips **all** symlinks (including internal aliases), special
+files and fixed cache/build/vendor/IDE/secret directories, including `.git`, virtual
+environments, `site-packages`, `node_modules`, `dist`, `build`, `vendor`,
+`third_party` and `.secrets`; no configurable ignore engine is added. POSIX
+no-follow descriptors anchor root ancestors, directory traversal and regular-file
+reads, closing the validation/I/O symlink race. Unsupported descriptor capabilities
+fail closed.
+Root/directory replacement and changes during a file read abort refresh. The
+repository is strictly read-only, and index operations never access the network.
+As with Git inspection, a changing filesystem is not an atomic source snapshot;
+explicit hash checks/refresh detect subsequent edits.
+
+Relationships retain their kinds and direction: `contains`, `imports`, `calls`.
+Dependencies are outgoing resolved edges, dependents incoming resolved edges, and
+related symbols return their union as typed edges. `get_relationships` also exposes
+unresolved textual imports/simple calls with a null target. Imports link only
+unambiguous root-relative indexed modules/definitions; external imports, wildcards,
+unknown exports and ambiguous names are not guessed. Call links describe syntactic
+lexical targets, not guaranteed runtime dispatch: unique plain local definitions
+and straightforward `self.method()` within a plain class without bases, metaclass,
+class decorators or custom attribute lookup. Parameters, assignments,
+imports, duplicate/conditional/decorated definitions and explicit receiver/method
+rebinding block uncertain links. Arbitrary `obj.method()`, inherited dispatch,
+imported-alias calls, lambdas/comprehensions, dynamic exports, monkeypatching and
+full type inference are deliberately unsupported. No general reference analysis
+or graph path operation is implemented. `find_symbol` returns all case-insensitive
+exact simple/qualified matches, falling back to qualified-name substrings; it never
+selects one ambiguous definition silently.
+
+Maps contain paths, classes/functions/methods and start lines, without bodies or
+AI summaries. Focus ranks exact names, qualified names, substrings/path matches
+and direct import/call neighbors. General maps use relationship degree, top-level
+definition counts and shallow paths before stable lexical tie-breaks. Rendering
+uses whole structural lines, with necessary parent context, and a strict UTF-8
+byte cap of `3 * max_tokens`; `ceil(bytes / 3)` is the documented approximate token
+estimator, not a model-tokenizer guarantee. Zero or too-small budgets return an
+empty map; negative/noninteger budgets are rejected. Future repository tools and
+local agents may request exact source regions from these paths/line spans. Future
+architecture summaries may consume these deterministic facts, but summaries,
+visualizations, routing and execution remain separate, unimplemented capabilities.
 
 ### Tasks and repository tools
 
