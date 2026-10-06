@@ -1,0 +1,14 @@
+# Copy and edit for your deployment; this file is not loaded automatically.
+[[workers]]
+id = "local-4080"
+provider = "ollama"
+model = "gpt-oss:20b"
+endpoint = "http://localhost:11434"
+context_window = 32768
+supports_streaming = true
+# Tool-use support is unknown unless configured; tool execution is a later phase.
+deployment_label = "RTX 4080"
+timeout_seconds = 120.0
+
+[workers.options]
+temperature = 0.1
