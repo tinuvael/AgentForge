@@ -1,1 +1,1 @@
-"""Planned execution events and observations."""
+"""Persisted metadata observations; telemetry never routes Tasks."""

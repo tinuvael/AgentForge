@@ -10,7 +10,9 @@ Issue #14 adds a deterministic Python Project Index and compact repository map.
 Phase 04 adds bounded, read-only repository tools. Phase 05 adds generic Agent
 behavior and bounded in-process execution, starting with `repo_explorer`. Phase 06
 adds durable Tasks, controlled lifecycle and a bounded in-process Task Engine.
-Telemetry, application endpoints and dashboard behavior remain **planned**.
+Phase 07 adds terminal Task telemetry, normalized backend timing observations and
+transport-independent comparison queries. Application endpoints and dashboard
+behavior remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -35,7 +37,7 @@ flowchart LR
     A --> W[Explicitly selected worker]
     W --> V[Provider protocol adapter]
     V --> I[External inference service]
-    E --> T[Durable Task history / planned telemetry]
+    E --> T[Durable Task history / telemetry]
     T --> U[Planned monitoring UI]
     E -->|Result and evidence via MCP| D
 ```
@@ -86,8 +88,9 @@ models, or arbitrary OpenAI-compatible endpoints.
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
 Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/`,
-`tools/`, `agents/`, `tasks/` and `db/` remain placeholders. Alembic configuration
-and revision scripts live in `alembic.ini` and `migrations/` at the repository root.
+`tools/`, `agents/`, `tasks/`, `telemetry/` and `db/` remain placeholders. Alembic
+configuration and revision scripts live in `alembic.ini` and `migrations/` at the
+repository root.
 
 ### Provider and Worker foundation (Phase 02)
 
@@ -120,7 +123,8 @@ Phase 05 adds normalized structured tool calling and opaque assistant reasoning
 state for protocol/history preservation, described below. Multimodal input remains
 unsupported. Results contain content, model identity, optional finish reason,
 normalized token usage and optional
-provider-specific usage/timing dictionaries for backward compatibility. Raw Ollama
+`GenerationTiming` backend durations in seconds. Optional provider-specific
+usage/timing dictionaries remain for backward compatibility. Raw Ollama
 token counts retain their API names, and duration values retain their API names and nanosecond units;
 missing observations remain absent rather than estimated.
 
@@ -752,7 +756,8 @@ requests and normal final answers are intentionally persisted user/model content
 the database is private runtime state, not a general-purpose content scrubber.
 Trace/result storage occurs at terminal checkpoints, not incrementally: after a
 crash, partial in-memory trace and counts are unavailable and are not invented.
-Retention, streaming and telemetry aggregation remain future work.
+Retention and live streaming remain future work. Phase 07 telemetry aggregation
+uses these terminal boundaries, as described below.
 
 Topology does not affect Task Engine behavior. `local-4080`, `home-i5`, `ai395` and
 `future-cloud-worker` are equivalent logical bindings. The central AgentForge host
@@ -762,12 +767,145 @@ Workers receive inference messages and explicitly gathered tool evidence, never
 require Project filesystem access, and receive no copied repository/shared mount.
 Existing platform limitations of descriptor-backed tools remain unchanged.
 
-### Telemetry, MCP and dashboard
+### Task telemetry (Phase 07)
 
-Telemetry will record task identity, selected project/agent/worker, execution
-events, timings and failures, with usage data only where providers expose it.
-Do not assume all providers expose identical token or cost information. Retention,
-storage schema and event delivery are future decisions.
+Telemetry **observes and never routes Tasks**. Every binding still comes from the
+external director. Local `local-4080`, network `home-i5`, `ai395` and future API
+Workers use the same metadata path. No health probes, endpoint assumptions, shared
+Project filesystem, hardware estimates, ranking, fallback or selection policy is
+introduced. A selected unreachable Worker fails under its own identity.
+
+Migration `0005_task_telemetry` follows `0004_tasks` without changing historical
+migrations. It adds configured `provider`/`model`, a nullable monotonic queue
+duration and `telemetry_status` to Tasks, plus one `task_telemetry` row per terminal
+Task execution. There are no JSON blobs, per-turn child tables or cascading foreign
+keys. Historical identifiers and observations survive Project deregistration,
+Worker edits and even Task deletion. Identity/time indexes support dashboard
+filters. Retention/deletion policy and live event delivery remain future work.
+
+Normal `TaskEngine.submit` snapshots the selected Worker's configured provider and
+model. Claim refreshes that snapshot from the runtime which will execute the Task:
+queued work surviving a restart can use changed configuration under the same
+explicit Worker ID. Once running, this execution identity is immutable. A missing
+Worker at claim has unknown provider/model; the ID is still retained. Queued
+cancellation records the submitted target, with no inference attempted. The model
+is the **configured execution target**, not arbitrary text from the backend's model
+label. No endpoint, credentials or Worker options are stored in telemetry.
+
+`AgentRuntime` records a bounded `ModelTurnObservation` for each attempted
+non-streaming `generate()`, including errors and local asyncio cancellation. Only
+normalized `TokenUsage`, `GenerationTiming` and client request duration are retained.
+Successful `ExecutionResult` metadata includes these observations; the executor
+also holds an ephemeral `ExecutionObservations` checkpoint for shutdown, when the
+runtime propagates cancellation instead of returning a result. Existing sanitized
+`TraceEvent` tool duration evidence supplies tool aggregates; tools are not timed
+again. Neither another execution loop nor a second trace store is introduced.
+
+Terminal transitions, queued cancellation and startup orphan recovery automatically
+record telemetry within the existing short Task transaction. No DB session remains
+open during inference. The terminal Task write precedes a telemetry savepoint. A
+telemetry construction/insert failure rolls back that savepoint, retains the Task
+outcome/result and commits `telemetry_status="unavailable"`. Successful recording
+commits `"recorded"`; pending Tasks use `"pending"`. A complete Task transaction or
+commit failure retains existing `TaskStorageError` behavior; storage outages cannot
+guarantee any persistence. Duplicate finishes/cancels never replace terminal facts.
+No raw persistence exceptions are exposed or logged by this path.
+
+Pre-Phase-07 terminal Tasks are marked `unavailable`, with no fabricated backfill.
+Existing queued/running Tasks can pass through current lifecycle checkpoints; unknown
+historical provider/model or elapsed observations remain null. Startup marks running
+orphans `execution_interrupted`, records their previously persisted identity and
+queue duration, and leaves lost counters and execution timings unknown. Work is
+never replayed automatically.
+
+All elapsed fields are **seconds**; persisted lifecycle timestamps use UTC wall
+clock. Runtime and engine elapsed measurements use monotonic clocks, independent
+of wall-clock adjustments. Definitions for every persisted telemetry column:
+
+| Columns | Exact meaning |
+| --- | --- |
+| `task_id`, `project_id`, `agent_id`, `worker_id` | Durable explicitly selected execution identity; no mutable configuration joins needed. |
+| `provider`, `model` | Configured execution target captured as above; null when unknown. |
+| `state`, `reason`, `error_category` | Terminal Task state, safe termination code, and Task failure code (null for completed/cancelled outcomes). |
+| `created_at`, `started_at`, `finished_at` | UTC Task lifecycle checkpoints; queued cancellation has no start. Recovery finish is when interruption is discovered, not a guessed process-death time. |
+| `queue_duration_seconds` | Monotonic interval from submission immediately before its DB insert to immediately before claim, or queued cancellation. Available only to the submitting engine while it retains that clock origin. Restart/resumed queues or direct repository claims leave this null; no wall-clock subtraction substitutes for it. Includes submission persistence overhead, excludes claim persistence overhead. |
+| `execution_duration_seconds` | Engine monotonic interval from successful claim return to the terminal checkpoint invocation, including runtime validation, model calls, tool work and cancellation cleanup. Excludes queue and terminal persistence. Zero for queued cancellation; null after process loss. |
+| `total_duration_seconds` | Sum of known queue and execution durations. Null if either is unknown. Claim and terminal DB overhead are excluded; this is not a wall-clock lifecycle subtraction. |
+| `model_call_count` | Number of attempted `generate()` calls from runtime request evidence, including failed/cancelled attempts. A step failing before request construction completes does not count as a call. Zero when no call occurred; null when process loss destroyed evidence. |
+| `model_request_duration_seconds` | Sum of monotonic client durations bracketing `generate()` awaits, including failure/cancellation cleanup and transport overhead; excludes prompt construction, tools and response processing. Null when any call observation is absent. A known execution with no calls has zero. |
+| `backend_total_duration_seconds` | Sum of backend-reported total request durations, only if every attempted call supplied one. May include loading/prompt/output work; never added to its component durations. |
+| `model_load_duration_seconds` | Sum of backend-reported model loading times, only with observations for every attempted call. |
+| `prompt_evaluation_duration_seconds` | Sum of backend-reported input/prompt evaluation durations, only with observations for every attempted call. |
+| `generation_duration_seconds` | Sum of backend-reported output token evaluation/generation durations, excluding prompt evaluation, only with observations for every attempted call. It is not total request latency. |
+| `prompt_tokens`, `completion_tokens` | Independent input/output sums only when **every attempted call** supplied that count and at least one call occurred. Otherwise null. Observed zero counts are valid; missing counts are never zero-filled. |
+| `total_tokens` | Input plus output total only when both complete Task totals are known; otherwise null. |
+| `observed_prompt_tokens`, `observed_completion_tokens` | Partial sums of genuinely observed per-call counts, even when another call is unknown. Null when no count of that kind was observed. These are not complete Task totals. |
+| `prompt_observed_turns`, `completion_observed_turns` | Number of calls contributing each observed token sum. Zero means no observations, including an interrupted execution; compare with nullable `model_call_count` to assess coverage. |
+| `token_usage_complete` | True only when both input/output counts cover every attempted call and at least one call occurred; false for empty, partial or lost evidence. |
+| `ttft_seconds` | Always null in normal Phase 07 execution. Non-streaming `generate()` cannot measure client-observed TTFT; backend total/prompt/load durations do not establish a TTFT equivalent. Future streaming may supply an explicit observation. |
+| `tokens_per_second` | `sum(observed output tokens) / sum(corresponding backend output generation seconds)`, only if every attempted call supplies output count and a strictly positive output duration with the normalized semantics. Otherwise null. Input counts need not be available. Never divide by queue, Task runtime or client request latency. |
+| `tool_call_count` | Runtime attempted tool calls after turn permission/count validation, including recoverable errors; null after evidence loss. |
+| `total_tool_duration_seconds` | Sum of existing `tool_result.duration_seconds` if a duration exists for every counted tool call. Null if cancellation/security boundaries left any result event absent; zero for a known execution with no tools. Includes the runtime's argument/policy/result framing work covered by that existing timer. |
+| `tool_output_bytes` | Runtime byte counter for accepted UTF-8 framed tool outputs, respecting its output limits; excludes rejected over-budget results. No output text is copied. Null after evidence loss. |
+
+Provider normalization adds only `GenerationTiming(total_seconds, load_seconds,
+prompt_seconds, output_seconds)`. Ollama's already validated `/api/chat` response
+fields `total_duration`, `load_duration`, `prompt_eval_duration`, `eval_duration`
+map respectively by dividing nanoseconds by `1_000_000_000`. Missing fields remain
+`None`; no fields at all yields no timing observation. Existing normalized
+`prompt_eval_count` → input and `eval_count` → output mappings remain unchanged.
+Generic runtime/telemetry layers never inspect Ollama JSON or raw compatibility
+usage/timing dictionaries. They never infer counts from content or hardware.
+
+Failures retain stable existing runtime/Task codes, not backend messages:
+`provider_error`, `provider_timeout`, `timeout`, `invalid_configuration`,
+`invalid_response`, `security_error`, `tool_not_allowed`, `tool_error`, `max_steps`,
+`max_tool_calls`, `tool_result_limit`, `tool_output_limit`, `context_limit`,
+`execution_interrupted`, `executor_cancelled`, `runtime_error`,
+`invalid_runtime_result`. Completed/cancelled Tasks use their same-named reason
+and no error category. Executor shutdown remains failed `executor_cancelled`
+unless a durable explicit cancellation already won. Recoverable tool failures
+still count as tool attempts and need not fail the whole Task.
+
+Wire `TelemetryRepository(sessions)` → `TelemetryService(repository)` with the
+same migrated database as Tasks. Queries are synchronous and transport-independent:
+
+- `get_for_task(task_id)` returns terminal metadata, raises `TelemetryNotFound`
+  for absent/pending telemetry and `TelemetryUnavailable` for a Task whose telemetry
+  could not be recorded or for safe storage failure. Callers can inspect
+  `Task.telemetry_status` to distinguish missing coverage.
+- `list_telemetry(project_id=..., agent_id=..., worker_id=..., provider=...,
+  model=..., state=..., created_from=..., created_before=..., limit=100, offset=0)`
+  combines filters with AND. Time range selects **creation time**, inclusive lower
+  and exclusive upper bounds, requiring aware timestamps. Results order by
+  creation time descending, then Task UUID descending. Limit is 1–1000, offset is
+  nonnegative. Offset pagination is deterministic for a fixed history; newly
+  terminal Tasks can change pages. Failed recordings appear through Task status,
+  not as invented metric rows.
+- `compare(group_by="worker_id" | "model" | "provider", ...same filters/bounds)`
+  uses SQL grouping, ordered by group identity (null first), never performance.
+  Output includes terminal execution count, completed/failed/cancelled counts,
+  `success_rate = completed / all terminal executions`, runtime observation count
+  and arithmetic average of known execution durations, observed partial token
+  sums, count of executions with complete token usage, and throughput coverage.
+  Comparison `tokens_per_second` is the ratio of output-token and output-duration
+  sums **only across Tasks with valid complete per-Task throughput**; the explicit
+  `throughput_execution_count` identifies that subset. Entirely missing numeric
+  observations remain null, never a SQL zero-fill. No median is implemented.
+
+Comparisons describe actual delegated workloads and observation coverage. They do
+not control for different prompts/models/tools, constitute a benchmark or recommend
+the next Worker. Directors/operators interpret these facts themselves.
+
+Telemetry's privacy boundary is identifiers, fixed safe codes, counts and timings.
+It never stores prompts, reasoning/thinking, assistant text, repository contents,
+tool arguments/results, exception repr/messages, raw responses, credentials,
+endpoint userinfo or URLs. Task's existing intentional request/result/trace storage
+is separate. Telemetry adds no logging/export infrastructure or heavyweight dependency.
+The manual Repo Explorer smoke script prints persisted telemetry after execution;
+it remains opt-in and is not run by the test suite.
+
+### Planned MCP and dashboard
 
 MCP is the director-facing boundary. Future tools will accept explicit identifiers
 and requests and return task results/status and relevant evidence. The MCP adapter

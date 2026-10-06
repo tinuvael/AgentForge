@@ -854,6 +854,7 @@ def test_task_migration_from_previous_head_and_metadata_match(database):
         assert "tasks" not in inspect(connection).get_table_names()
         command.upgrade(config, "0004_tasks")
         assert "tasks" in inspect(connection).get_table_names()
+        command.upgrade(config, "head")
         command.check(config)
 
 

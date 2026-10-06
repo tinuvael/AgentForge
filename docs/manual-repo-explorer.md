@@ -63,6 +63,12 @@ for another request. The script submits a durable Task and waits for completion.
 It prints Task JSON with UUID, lifecycle/timestamps and an `execution_result`
 containing the answer, explicit identities, usage when supplied, counts, sanitized
 trace and termination reason. History remains in the selected database.
+It then prints the terminal telemetry record, including provider/model identity,
+observed tokens, timings and tool aggregates. Inspect `telemetry_status` on the
+Task if telemetry could not be recorded. Missing metrics remain null; TTFT is
+unavailable for this non-streaming runtime. Throughput uses observed output tokens
+and backend output evaluation duration, never whole-Task runtime. The same record
+can later be read with `TelemetryService(TelemetryRepository(sessions)).get_for_task(id)`.
 Successful exploration should show focused source/test reads and a final answer
 with path/line citations. A model answer without sufficient reads is a model
 quality limitation: the director still evaluates evidence and sufficiency.
@@ -78,8 +84,8 @@ adapter as `thinking` on subsequent tool-result turns. AgentRuntime never
 interprets this state as an instruction, tool call, authorization or final answer.
 It counts against context but is excluded from execution-result JSON, trace
 content and sanitized errors. Missing/null state stays absent on the wire;
-non-string/non-null thinking fails safely. No reasoning UI, telemetry or
-persistence of reasoning is implemented.
+non-string/non-null thinking fails safely. No reasoning UI or persistence of
+reasoning is implemented; telemetry stores metadata only.
 A known Worker tool capability of `False` rejects the Agent before inference;
 unknown capability allows an attempt without claiming support.
 
@@ -96,5 +102,5 @@ Synchronous repository calls cannot be interrupted mid-call and are checked afte
 returning. Startup fails orphaned running Tasks as `execution_interrupted` and
 resumes queued Tasks; started work is never replayed. The script owns the sole
 Task Engine for this database; do not run it beside another control-plane process
-using the same database. Telemetry, MCP, external schedulers, shell, repository
+using the same database. MCP, external schedulers, shell, repository
 mutation and Agent-driven test execution remain outside this phase.

@@ -70,6 +70,10 @@ class Task(BaseModel):
     reason: TaskReason | None = None
     error_code: TaskReason | None = None
     execution_result: ExecutionResult | None = None
+    provider: str | None = None
+    model: str | None = None
+    telemetry_status: Literal["pending", "recorded", "unavailable"] = "pending"
+    queue_duration_seconds: float | None = None
 
     @property
     def final_answer(self) -> str | None:

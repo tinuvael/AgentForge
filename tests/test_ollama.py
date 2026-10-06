@@ -6,7 +6,12 @@ import json
 import httpx
 import pytest
 
-from agentforge.core.inference import GenerationRequest, Message, Provider
+from agentforge.core.inference import (
+    GenerationRequest,
+    GenerationTiming,
+    Message,
+    Provider,
+)
 from agentforge.core.provider_errors import (
     BackendUnavailable,
     InvalidProviderResponse,
@@ -85,6 +90,41 @@ def test_generate_normalizes_response_and_configured_request(
     assert result.finish_reason == "stop"
     assert result.usage == {"prompt_eval_count": 10, "eval_count": 4}
     assert result.timing == {"total_duration": 12345, "eval_duration": 6789}
+    assert result.generation_timing == GenerationTiming(
+        total_seconds=0.000012345, output_seconds=0.000006789
+    )
+
+
+@pytest.mark.parametrize(
+    "fields,expected",
+    [
+        ({}, None),
+        ({"eval_duration": 0}, GenerationTiming(output_seconds=0.0)),
+        ({"load_duration": 500_000_000}, GenerationTiming(load_seconds=0.5)),
+        ({"prompt_eval_duration": 2_000_000_000}, GenerationTiming(prompt_seconds=2.0)),
+        (
+            {
+                "total_duration": 9_000_000_000,
+                "load_duration": 1_000_000_000,
+                "prompt_eval_duration": 3_000_000_000,
+                "eval_duration": 5_000_000_000,
+            },
+            GenerationTiming(
+                total_seconds=9.0,
+                load_seconds=1.0,
+                prompt_seconds=3.0,
+                output_seconds=5.0,
+            ),
+        ),
+    ],
+)
+def test_normalized_backend_timings_missing_and_exact_mapping(
+    worker, generation_request, fields, expected
+):
+    provider = provider_for(lambda _: httpx.Response(200, json=chat_response(**fields)))
+    result = asyncio.run(provider.generate(worker, generation_request))
+    assert result.generation_timing == expected
+    assert result.token_usage is None  # Timings must never manufacture counts.
 
 
 def test_one_provider_serves_multiple_explicit_targets(worker, generation_request):
@@ -279,6 +319,7 @@ def test_stream_normalizes_deltas_and_final_metadata(worker, generation_request)
     assert chunks[-1].finish_reason == "stop"
     assert chunks[-1].usage == {"eval_count": 2}
     assert chunks[-1].timing == {"total_duration": 123}
+    assert chunks[-1].generation_timing == GenerationTiming(total_seconds=0.000000123)
     assert stream.closed
 
 
