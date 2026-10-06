@@ -15,6 +15,7 @@ from agentforge.db.index import IndexRepository
 from agentforge.db.models import (
     IndexedFileRecord,
     IndexStateRecord,
+    ProjectRecord,
     RelationshipRecord,
     SymbolRecord,
 )
@@ -24,8 +25,14 @@ from agentforge.index.models import IndexRefreshError, IndexStorageError, Symbol
 from agentforge.index.render import approximate_tokens
 from agentforge.index.scanner import EXCLUDED_DIRECTORIES
 from agentforge.index.service import ProjectIndex
-from agentforge.projects.errors import InvalidProjectPath, ProjectNotFound
+from agentforge.projects import service as registry_service
+from agentforge.projects.errors import (
+    InvalidProjectPath,
+    ProjectNotFound,
+    UnsafeProjectPath,
+)
 from agentforge.projects.service import ProjectRegistry
+from agentforge.tools.service import RepositoryTools
 
 
 @pytest.fixture
@@ -443,6 +450,123 @@ def test_replaced_root_is_rejected_and_previous_index_survives(indexed, tmp_path
     assert not index.find_symbol(project.id, "secret")
 
 
+def test_ordinary_root_replacement_rejected_after_reopen(
+    indexed, registry, database, tmp_path, monkeypatch
+):
+    index, project, root = indexed
+    write(root, "module.py", "def original(): pass\n")
+    index.refresh_index(project.id)
+    sessions = create_session_factory(database[0])
+    before = IndexRepository(sessions).read(project.id)
+    before_map = index.render_project_map(project.id)
+    root.rename(tmp_path / "registered-directory")
+    root.mkdir()
+    write(root, "replacement.py", "def unauthorized_replacement(): pass\n")
+    assert root.stat().st_ino != project.root_inode
+
+    def unexpected_git(*args):
+        pytest.fail("Replaced roots must be rejected before Git inspection")
+
+    monkeypatch.setattr(registry_service, "inspect_git", unexpected_git)
+
+    def assert_rejected(active_registry, active_index, active_sessions):
+        with pytest.raises(UnsafeProjectPath):
+            active_registry.inspect_project(project.id)
+        with pytest.raises(UnsafeProjectPath):
+            active_index.refresh_index(project.id)
+        with pytest.raises(UnsafeProjectPath):
+            active_index.get_index_status(project.id)
+        tools = RepositoryTools(active_registry)
+        with pytest.raises(UnsafeProjectPath):
+            tools.list_files(project.id)
+        with pytest.raises(UnsafeProjectPath):
+            tools.read_file(project.id, "replacement.py")
+        assert active_index.render_project_map(project.id) == before_map
+        assert one(active_index, project, "original")
+        assert not active_index.find_symbol(project.id, "unauthorized_replacement")
+        assert IndexRepository(active_sessions).read(project.id) == before
+
+    assert_rejected(registry, index, sessions)
+    engine, url = database
+    engine.dispose()
+    reopened = create_database_engine(url)
+    try:
+        sessions = create_session_factory(reopened)
+        new_registry = ProjectRegistry(
+            ProjectRepository(sessions), base_directory=tmp_path
+        )
+        new_index = ProjectIndex(new_registry, IndexRepository(sessions))
+        assert_rejected(new_registry, new_index, sessions)
+    finally:
+        reopened.dispose()
+
+
+def test_legacy_identity_rejects_live_index_access_but_keeps_snapshot(
+    indexed, registry, database, tmp_path, monkeypatch
+):
+    index, project, root = indexed
+    write(root, "module.py", "def cached(): pass\n")
+    index.refresh_index(project.id)
+    before = index.render_project_map(project.id)
+    sessions = create_session_factory(database[0])
+    with sessions.begin() as session:
+        record = session.get(ProjectRecord, project.id)
+        record.root_device = record.root_inode = None
+    write(root, "new.py", "def must_not_be_authorized(): pass\n")
+
+    def unexpected_git(*args):
+        pytest.fail("Legacy registration must not authorize Git inspection")
+
+    monkeypatch.setattr(registry_service, "inspect_git", unexpected_git)
+    # Reopen the database so no in-memory registration identity can hide NULLs.
+    engine, url = database
+    engine.dispose()
+    reopened = create_database_engine(url)
+    try:
+        sessions = create_session_factory(reopened)
+        registry = ProjectRegistry(ProjectRepository(sessions), base_directory=tmp_path)
+        index = ProjectIndex(registry, IndexRepository(sessions))
+        for operation in (
+            registry.inspect_project,
+            index.refresh_index,
+            index.get_index_status,
+            RepositoryTools(registry).list_files,
+        ):
+            with pytest.raises(UnsafeProjectPath, match="re-registered"):
+                operation(project.id)
+        assert index.render_project_map(project.id) == before
+        assert one(index, project, "cached")
+        assert not index.find_symbol(project.id, "must_not_be_authorized")
+    finally:
+        reopened.dispose()
+
+
+def test_root_replacement_during_refresh_rolls_back(
+    indexed, database, tmp_path, monkeypatch
+):
+    index, project, root = indexed
+    source = write(root, "module.py", "def original(): pass\n")
+    index.refresh_index(project.id)
+    repository = IndexRepository(create_session_factory(database[0]))
+    before = repository.read(project.id)
+    source.write_text("def changed(): pass\n")
+    original_parse = service.parse_python
+
+    def replacing_parse(path, content):
+        root.rename(tmp_path / "moved-during-refresh")
+        root.mkdir()
+        write(root, "replacement.py", "def unauthorized_replacement(): pass\n")
+        return original_parse(path, content)
+
+    monkeypatch.setattr(service, "parse_python", replacing_parse)
+    with pytest.raises(UnsafeProjectPath):
+        index.refresh_index(project.id)
+    assert repository.read(project.id) == before
+    assert one(index, project, "original")
+    assert not index.find_symbol(project.id, "changed")
+    assert not index.find_symbol(project.id, "unauthorized_replacement")
+
+
 def test_file_replaced_by_symlink_between_stat_and_open(indexed, tmp_path, monkeypatch):
     index, project, root = indexed
     file = write(root, "module.py", "def original(): pass\n")
@@ -611,7 +735,17 @@ def test_new_migration_follows_registry_and_preserves_registration(
         assert "indexed_files" not in inspect(connection).get_table_names()
         command.upgrade(config, "head")
         command.check(config)
-    assert registry.get_project(project.id) == project
+    # Downgrading to Phase 03 drops the later directory identity. The stable
+    # registration survives; safe repository tools require re-registration.
+    restored = registry.get_project(project.id)
+    assert (restored.id, restored.name, restored.root_path, restored.created_at) == (
+        project.id,
+        project.name,
+        project.root_path,
+        project.created_at,
+    )
+    assert restored.root_device is None
+    assert restored.root_inode is None
 
 
 def test_database_errors_are_translated(indexed, database):

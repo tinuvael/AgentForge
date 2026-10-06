@@ -13,6 +13,8 @@ class Project:
     name: str
     root_path: Path
     created_at: datetime
+    root_device: int | None = None
+    root_inode: int | None = None
 
 
 @dataclass(frozen=True)

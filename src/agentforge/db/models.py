@@ -28,6 +28,8 @@ class ProjectRecord(Base):
     name: Mapped[str] = mapped_column(String(255))
     root_path: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    root_device: Mapped[str | None] = mapped_column(Text)
+    root_inode: Mapped[str | None] = mapped_column(Text)
 
 
 class IndexStateRecord(Base):

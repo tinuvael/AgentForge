@@ -8,14 +8,8 @@ from pathlib import Path
 from agentforge.projects.models import GitMetadata
 
 
-def inspect_git(root: Path) -> GitMetadata:
-    """Observe worktrees (including linked worktrees) and bare repositories.
-
-    No inherited GIT_* setting may redirect discovery to another repository.
-    Global/system configuration and optional locks are disabled. These separate
-    reads are best effort, not an atomic snapshot of a concurrently changing repo.
-    """
-    observed_at = datetime.now(UTC)
+def git_environment() -> dict[str, str]:
+    """Shared Git isolation: no inherited Git redirection/configuration."""
     env = {
         key: value for key, value in os.environ.items() if not key.startswith("GIT_")
     }
@@ -24,8 +18,29 @@ def inspect_git(root: Path) -> GitMetadata:
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_TERMINAL_PROMPT="0",
         GIT_OPTIONAL_LOCKS="0",
+        GIT_NO_LAZY_FETCH="1",
+        GIT_ALLOW_PROTOCOL="",
+        GIT_ATTR_NOSYSTEM="1",
+        GIT_PAGER="cat",
         LC_ALL="C",
     )
+    return env
+
+
+def inspect_git(root_fd: int) -> GitMetadata:
+    """Observe Git through an already-authorized registered directory descriptor.
+
+    No inherited GIT_* setting may redirect discovery to another repository.
+    Global/system configuration and optional locks are disabled. These separate
+    reads are best effort, not an atomic snapshot of a concurrently changing repo.
+    """
+    observed_at = datetime.now(UTC)
+    env = git_environment()
+    root = Path(f"/proc/self/fd/{root_fd}")
+    if not root.is_dir():
+        # No pathname fallback: Git is observationally unavailable without a
+        # descriptor-backed cwd, rather than inspecting an unverified replacement.
+        return GitMetadata(status="unavailable", observed_at=observed_at)
 
     def run(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -37,6 +52,7 @@ def inspect_git(root: Path) -> GitMetadata:
             errors="replace",
             timeout=2,
             check=False,
+            pass_fds=(root_fd,),
         )
 
     try:
