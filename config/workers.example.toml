@@ -6,7 +6,8 @@ model = "gpt-oss:20b"
 endpoint = "http://localhost:11434"
 context_window = 32768
 supports_streaming = true
-# Tool-use support is unknown unless configured; tool execution is a later phase.
+# Explicitly configured native tool-use capability; the director selects this Worker.
+supports_tools = true
 deployment_label = "RTX 4080"
 timeout_seconds = 120.0
 

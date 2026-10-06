@@ -7,9 +7,9 @@ implements Provider contracts, validated Worker configuration and the Ollama HTT
 adapter, including health, generation and streaming. Phase 03 implements the
 Project Registry, SQLAlchemy persistence and the initial Alembic migration.
 Issue #14 adds a deterministic Python Project Index and compact repository map.
-Phase 04 adds bounded, read-only repository tools. Other runtime components below
-remain **planned**. There are no application endpoints, task execution or dashboard
-behavior yet.
+Phase 04 adds bounded, read-only repository tools. Phase 05 adds generic Agent
+behavior and bounded in-process execution, starting with `repo_explorer`. Durable
+Tasks, telemetry, application endpoints and dashboard behavior remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -74,7 +74,7 @@ models, or arbitrary OpenAI-compatible endpoints.
 | `index/` | Deterministic Python structure, explicit refresh, graph queries and bounded textual maps |
 | `providers/` | Ollama inference adapter; translate calls and failures for the backend |
 | `workers/` | Validated configuration loading for concrete inference targets |
-| `agents/` | Behavior definitions and eventual runtime integration with explicitly selected workers and tools |
+| `agents/` | Agent behavior, bounded in-process execution and typed Project-bound tool wrappers |
 | `tools/` | Repository operations constrained by project roots and permissions |
 | `telemetry/` | Execution events, timing, errors and available usage observations |
 | `db/` | SQLAlchemy persistence and Alembic migrations, using SQLite initially |
@@ -83,9 +83,9 @@ models, or arbitrary OpenAI-compatible endpoints.
 | `web/` | Jinja2 templates and HTMX monitoring interactions |
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
-Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/` and `db/`
-remain placeholders. Alembic configuration and revision scripts live in `alembic.ini`
-and `migrations/` at the repository root.
+Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/`,
+`tools/`, `agents/` and `db/` remain placeholders. Alembic configuration and revision
+scripts live in `alembic.ini` and `migrations/` at the repository root.
 
 ### Provider and Worker foundation (Phase 02)
 
@@ -107,16 +107,18 @@ protocol without importing the concrete Ollama adapter.
 name, model, HTTP(S) endpoint, optional context window and deployment label,
 configured streaming/tool-use capabilities, timeout and provider options. Unknown
 tool-use support is `None`; streaming defaults to disabled until configured.
-Advertising tool support does not implement tool calls or execution in this phase.
+Phase 05 uses the configured tool capability: explicit `False` rejects a tool-using
+Agent; `None` permits an attempt without claiming observed support.
 Endpoints cannot embed credentials, queries or fragments. `WorkerHealth.available`
 requires both backend connectivity and observed model availability.
 
 `GenerationRequest` contains conversational messages, an optional prepended system
 instruction, optional temperature, provider options and optional timeout override.
-The text-only contract does not normalize tools, multimodal input or reasoning
-channels. Results contain content, model identity, optional finish reason and
-optional provider-specific usage/timing dictionaries. Ollama token counts retain
-their API names, and duration values retain their API names and nanosecond units;
+Phase 05 adds normalized structured tool calling, described below. Multimodal
+input and reasoning channels remain unsupported. Results contain content, model
+identity, optional finish reason, normalized token usage and optional
+provider-specific usage/timing dictionaries for backward compatibility. Raw Ollama
+token counts retain their API names, and duration values retain their API names and nanosecond units;
 missing observations remain absent rather than estimated.
 
 `providers.ollama.OllamaProvider` uses httpx with `/api/chat` for generation and
@@ -242,8 +244,9 @@ same migrated database. The service is synchronous and transport-independent:
 `refresh_index(id)`, `get_index_status(id)`, `find_symbol(id, query)`,
 `get_symbol(id, symbol_id)`, `get_dependencies`, `get_dependents`,
 `get_related_symbols`, `get_relationships` and
-`render_project_map(id, focus=None, max_tokens=3000)`. No HTTP/MCP adapter, source
-content tool, agent runtime, or worker is involved.
+`render_project_map(id, focus=None, max_tokens=3000)`. Index operations themselves
+involve no HTTP/MCP adapter or Worker; the Phase 05 Agent wrappers consume these
+public queries for structural navigation.
 
 The boundary is Python bytes → built-in AST → small immutable extraction records
 → SQLite → queries/maps. `index.python_parser` owns definitions, line locations,
@@ -353,8 +356,9 @@ fallback would violate explicit worker selection.
 transport-independent `list_files`, `read_file`, `search_code`, `git_grep`,
 `git_status` and `git_diff`. Every operation requires a registered Project UUID;
 there is no arbitrary root/path API, generic command runner, shell, write tool,
-MCP wrapper or Agent Runtime. Tools do not require a refreshed index. The Index
-supplies symbols, relationships and maps; tools supply exact source and Git state.
+MCP wrapper or execution loop inside the service. Phase 05 wraps these methods
+without duplicating their implementations. Tools do not require a refreshed index.
+The Index supplies symbols, relationships and maps; tools supply exact source and Git state.
 
 Filesystem authorization remains the registry's canonical Project root, using
 `open_root(id)` and shared no-follow descriptors for root ancestors, traversal
@@ -442,6 +446,147 @@ Git tools on this subdirectory boundary and verify byte-for-byte read-only behav
 Public errors reuse Project identity/path failures and add invalid argument,
 missing file, unsupported text, sensitive path, I/O, non-Git, unavailable Git,
 timeout and safe backend failure types; OS/SQL/Git stderr details are not exposed.
+
+### Agent Runtime and Repo Explorer (Phase 05)
+
+`agents.models.Agent` defines behavior (`id`, name, description, system prompt,
+allowed tool names and default `RuntimeLimits`). It contains no endpoint, model,
+Provider or Worker selection policy. Agent definitions and Workers are supplied
+separately to `agents.runtime.AgentRuntime`, along with explicit Provider and tool
+mappings and the existing Project Registry. There is no plugin loader. The caller
+must supply `project_id`, `agent_id`, `worker_id` and `task` to `run()`; no Worker
+argument has a default. The runtime looks up exactly that configured Worker and
+its Provider. It never probes health for selection, routes, scores, retries on a
+different model, or falls back when inference fails.
+
+Execution is async and in-process, without durable Tasks. It uses non-streaming
+`Provider.generate()`: system prompt + original task → assistant text and/or tool
+calls → sequential validated tool results → next model turn → final answer.
+Multiple tool calls in a turn retain their order and correlation IDs. Entire-turn
+permission, ID uniqueness and tool-count checks happen before executing any tool.
+An assistant turn with text and tools continues the loop; nonblank text without
+tools completes it; an empty response terminates as `invalid_response`.
+Streaming remains available on Providers; live Agent streaming and scheduling are
+deferred until lifecycle adapters need them.
+
+The inference contract adds `ToolDefinition(name, description, parameters)` with
+machine-readable JSON Schema, `ToolCall(id, name, arguments)` with JSON object
+arguments, assistant `Message.tool_calls`, and tool-role Messages with
+`tool_call_id` and `tool_name`. `GenerationRequest.tools` and
+`GenerationResult.tool_calls` use these normalized types. `TokenUsage` contains
+optional observed input/output counts. The runtime retains one optional usage
+observation per successful model turn, rather than fabricating totals when some
+counts are missing. Existing raw Provider usage/timing fields remain compatible.
+
+Ollama translates definitions into native `type: function` chat tools and parses
+native `message.tool_calls[].function` objects. It never parses textual pseudo-tool
+commands. Native Ollama generally omits call IDs and correlates tool results by
+`tool_name`; the adapter creates unique local IDs when absent and preserves any
+supplied IDs in normalized results. It sends assistant function objects and native
+tool-role messages with `tool_name`. IDs remain intact inside the generic runtime;
+Ollama's native wire correlation is isolated in the adapter, including sequential
+results for repeated calls to the same tool. Model-specific reasoning fields are
+ignored, not treated as final answers or commands. Malformed function objects are
+safe Provider failures. Tool-use quality depends on the configured model/Ollama
+version; no `gpt-oss` workaround contaminates the runtime.
+
+`agents.tools.repository_toolset()` explicitly maps twelve read-only tools:
+`get_project_map`, `find_symbol`, `get_symbol`, `get_dependencies`,
+`get_dependents`, `get_related_symbols`, `list_files`, `read_file`, `search_code`,
+`git_grep`, `git_status`, `git_diff`. Each has its own strict Pydantic argument
+model, disallows extra keys and validates safe syntax before service calls.
+The Project UUID is bound by the execution request, never accepted in model tool
+arguments. Only `Agent.allowed_tools` are advertised and authorized; unknown or
+disallowed tools terminate as `tool_not_allowed`. No dynamic attribute lookup,
+filesystem opening, shell, arbitrary Git, subprocess or network operation is
+implemented in the wrappers. They reuse Project Index and RepositoryTools.
+
+The Registry's identity-checked `open_root` is verified before model operations,
+before/after authorized tool operations and before accepting a final answer.
+RepositoryTools still owns descriptor-anchored filesystem/Git access. Cached
+Index calls also require live root authorization in Agent execution. Index output
+is filtered with RepositoryTools' sensitive-path policy so cached symbols cannot
+bypass denied-file access; map rendering accepts an optional caller-side path
+filter without changing existing unfiltered Index callers. Structural lookup
+lists have explicit result counts and truncation metadata.
+
+| Runtime limit | Default | Hard upper bound |
+| --- | --- | --- |
+| Model turns (`max_steps`) | 12 | 100 |
+| Single overall deadline | 120 seconds | 600 seconds |
+| Attempted authorized tool calls | 24 | 200 |
+| Serialized individual tool result | 12,000 UTF-8 bytes | 65,536 bytes |
+| Accumulated serialized tool results | 48,000 UTF-8 bytes | 524,288 bytes |
+| Approximate conversation contribution | 24,000 tokens | 200,000 tokens |
+
+The caller can supply validated per-execution limits; otherwise the Agent defaults
+apply. Conversation capacity is also capped by a known Worker context window.
+The deterministic approximation is `ceil(serialized UTF-8 bytes / 3)`, including
+system prompt, original task, all assistant text, tool calls/arguments, tool
+results, correlation fields, JSON framing and advertised schemas. It is a
+conservative size heuristic, not a tokenizer guarantee. The runtime checks the
+initial request and each appended contribution. It never silently discards or
+summarizes evidence. Source bytes are additionally bounded by existing service
+limits. Wrappers request at most half the remaining per-result/aggregate budget
+for source output, reserving room for JSON escaping and metadata; the runtime then
+checks the actual complete serialized result. Oversized JSON is rejected rather
+than clipped. Less than 256 bytes remaining ends execution before another tool.
+Repeated reads cannot grow conversation or accumulated output without bound.
+
+Limit termination names are distinct: `max_steps`, `max_tool_calls`,
+`tool_result_limit`, `tool_output_limit`, `context_limit`, `timeout` and
+`provider_timeout`. One monotonic deadline includes the whole interaction;
+inference receives `min(Worker timeout, remaining deadline)` and is additionally
+wrapped in `asyncio.timeout`. The synchronous Index/RepositoryTools calls cannot
+be interrupted mid-call: cancellation and elapsed time are checked at boundaries,
+and Git retains its existing two-second per-subprocess timeout. A long synchronous
+scan may therefore return after the Agent deadline, at which point its result is
+rejected. No background tool work or executor pool is introduced.
+
+`CancellationToken` wraps a thread-safe event. It is checked before/after model
+calls, before/after tool calls and between iterations, returning structured
+`cancelled` state. Token cancellation during an awaited inference operation is
+observed when that operation returns or times out; callers needing immediate
+interruption may cancel the asyncio execution task. `CancelledError` propagates
+and Provider resource cleanup remains intact. Phase 06 can connect Task
+cancellation to this token/task boundary without replacing the runtime.
+
+Recoverable errors are bounded JSON objects with fixed safe codes: invalid
+arguments or safe-path syntax, denied sensitive paths, missing files/symbols,
+unsupported text/binary, repository I/O, non-Git, unavailable Git, Git timeout and
+Git backend failure. The model may recover with another permitted query. Unsafe
+identity/descriptor failures raised during service access are terminal
+`security_error`; storage/unexpected service faults are terminal `tool_error`.
+Provider faults are terminal with no fallback. Errors never serialize exception
+messages, traceback, SQL, backend bodies or Git stderr. Invalid configuration,
+cancellation and global limits also terminate. The registered root remains
+fail-closed even when only cached navigation is requested.
+
+`ExecutionResult` returns final answer (only on completion), Agent/Worker/Project
+IDs, state, termination reason, step/attempted-call counts, accumulated output
+bytes, observed usage and an in-memory ordered trace. The trace records model and
+tool boundaries, call IDs, authorized names, validated argument shape with free
+text redacted, success/fixed failure codes, result byte sizes, elapsed durations
+and termination. It deliberately omits source bodies, assistant prose, raw invalid
+arguments and backend diagnostics. No result/trace is persisted or emitted to a
+metrics subsystem. This is execution evidence, not Phase 07 telemetry.
+
+`repo_explorer` requires inspecting evidence before repository claims, treats the
+Index as cached navigation rather than source truth, asks for exact source/tests
+with focused queries, distinguishes evidence from hypothesis/inference and
+acknowledges insufficient evidence. It cannot claim to inspect unseen code or
+invent paths/symbols/tests. Answers should cite repository paths and relevant line
+ranges. Source/model output is untrusted and cannot expand permissions. There
+are no write/shell/test-execution tools, external network queries, delegated
+Agents or Worker-selection capabilities. The instructions do not embed this
+architecture document.
+
+Runtime tests use scripted Providers, injected clocks and synthetic projects.
+Ollama protocol tests use httpx mock transports. The existing suite-wide socket
+and DNS guards cover these tests: no automated test runs Ollama, uses a GPU or
+accesses live networking. See [the manual smoke instructions](manual-repo-explorer.md)
+for the opt-in real Ollama path. Phase 06 owns durable execution, Task history,
+scheduling and lifecycle integration; Phase 07 owns telemetry; Phase 08 owns MCP.
 
 ### Telemetry, MCP and dashboard
 

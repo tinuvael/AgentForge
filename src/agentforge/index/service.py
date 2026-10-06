@@ -1,6 +1,7 @@
 """Transport-independent refresh, structural queries and compact map operations."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from dataclasses import replace
 from uuid import UUID
 
 from agentforge.db.index import IndexRepository
@@ -160,7 +161,25 @@ class ProjectIndex:
         return list(snapshot.relationships)
 
     def render_project_map(
-        self, project_id: UUID | str, focus: str | None = None, max_tokens: int = 3000
+        self,
+        project_id: UUID | str,
+        focus: str | None = None,
+        max_tokens: int = 3000,
+        *,
+        path_filter: Callable[[str], bool] | None = None,
     ) -> str:
         _, snapshot = self._snapshot(project_id)
+        if path_filter is not None:
+            symbols = tuple(s for s in snapshot.symbols if path_filter(s.relative_path))
+            ids = {s.id for s in symbols}
+            snapshot = replace(
+                snapshot,
+                symbols=symbols,
+                relationships=tuple(
+                    e
+                    for e in snapshot.relationships
+                    if e.source_id in ids
+                    and (e.target_id is None or e.target_id in ids)
+                ),
+            )
         return render_map(snapshot, focus, max_tokens)
