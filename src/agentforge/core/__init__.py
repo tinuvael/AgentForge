@@ -1,1 +1,1 @@
-"""Planned project-agnostic domain and application coordination."""
+"""Project-agnostic inference contracts and future application coordination."""

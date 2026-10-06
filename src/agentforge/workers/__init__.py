@@ -1,1 +1,1 @@
-"""Planned configuration for concrete model and inference targets."""
+"""Configuration loading for concrete inference targets."""

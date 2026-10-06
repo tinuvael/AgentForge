@@ -1,1 +1,1 @@
-"""Planned inference protocol adapters."""
+"""Inference protocol adapters for explicitly configured Workers."""

@@ -5,9 +5,34 @@ The director chooses projects, agents and workers and evaluates their results.
 AgentForge supplies the execution platform; it does not intelligently route tasks
 in v1.
 
-Phase 01 establishes architecture and an importable Python package skeleton.
-There is no running API, model integration, task engine, MCP server or dashboard yet.
+Phase 02 adds validated Workers and an async Ollama Provider with health checks,
+generation and streaming. There is no running API, task engine, MCP server or
+dashboard yet. Worker selection is always explicit; configuration starts with
+[the TOML example](config/workers.example.toml).
 See [the architecture](docs/architecture.md) and [coding instructions](AGENTS.md).
+
+Use the foundation directly from Python (inside your own async function):
+
+```python
+from agentforge.core.inference import GenerationRequest, Message
+from agentforge.providers.ollama import OllamaProvider
+from agentforge.workers.config import load_workers
+
+config = load_workers("config/workers.example.toml")
+worker = next(worker for worker in config.workers if worker.id == "local-4080")
+provider = OllamaProvider()
+request = GenerationRequest(messages=[Message(role="user", content="Hello")])
+
+health = await provider.health(worker)
+result = await provider.generate(worker, request)
+async with provider.stream(worker, request) as chunks:
+    async for chunk in chunks:
+        print(chunk.content, end="", flush=True)
+```
+
+Edit the example for your deployment. Inference requires a reachable Ollama backend
+with that model installed; tests use only mocks. Streams must stay inside the async
+context manager so an early stop or cancellation closes the request.
 
 ## Development
 

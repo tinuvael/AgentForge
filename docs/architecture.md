@@ -2,10 +2,11 @@
 
 ## Status and purpose
 
-Phase 01 establishes this architectural contract, repository rules, dependency
-configuration and importable package placeholders. All runtime components below
-are **planned**, not implemented. There are no endpoints, database models,
-migrations, inference calls, tools, task execution or dashboard behavior yet.
+Phase 01 established the architectural contract and package skeleton. Phase 02
+implements Provider contracts, validated Worker configuration and the Ollama HTTP
+adapter, including health, generation and streaming. Other runtime components
+below remain **planned**. There are no application endpoints, database models,
+migrations, repository tools, task execution or dashboard behavior yet.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -61,14 +62,14 @@ configuration, not a core assumption. Later configurations may use Ryzen AI Max+
 395 with a large local model, other local inference servers, free or paid cloud
 models, or arbitrary OpenAI-compatible endpoints.
 
-## Planned components and repository layout
+## Components and repository layout
 
-| Package under `src/agentforge/` | Responsibility when implemented |
+| Package under `src/agentforge/` | Responsibility |
 | --- | --- |
-| `core/` | Project-agnostic domain contracts and application coordination, including the future Task Engine |
+| `core/` | Provider/Worker inference domain contracts; future application coordination and Task Engine |
 | `projects/` | Project Registry: stable project identity, repository/workspace location, context and permitted operations |
-| `providers/` | Inference protocol adapters; translate calls and failures for each backend |
-| `workers/` | Concrete inference target configuration and lookup |
+| `providers/` | Ollama inference adapter; translate calls and failures for the backend |
+| `workers/` | Validated configuration loading for concrete inference targets |
 | `agents/` | Behavior definitions and eventual runtime integration with explicitly selected workers and tools |
 | `tools/` | Repository operations constrained by project roots and permissions |
 | `telemetry/` | Execution events, timing, errors and available usage observations |
@@ -78,8 +79,75 @@ models, or arbitrary OpenAI-compatible endpoints.
 | `web/` | Jinja2 templates and HTMX monitoring interactions |
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
-Placeholders contain only package docstrings. This phase does not define base
-classes, abstract interfaces, service wiring or data models.
+Packages other than `core/`, `providers/` and `workers/` remain placeholders.
+
+### Provider and Worker foundation (Phase 02)
+
+`core.inference.Provider` is a single structural Python protocol:
+
+- `health(worker) -> WorkerHealth` is async and observes backend connectivity and
+  configured model availability separately. It is a snapshot, not persisted state
+  or a guarantee that the next generation succeeds.
+- `generate(worker, request) -> GenerationResult` is async.
+- `stream(worker, request)` returns an async context manager containing an async
+  iterator of `GenerationChunk` values. Content is a delta, and a terminal chunk
+  has `done=True` and any available final metadata.
+
+All operations require an explicitly supplied Worker. There is no provider
+registry, worker selection, routing or fallback. Future callers can accept the
+protocol without importing the concrete Ollama adapter.
+
+`core.worker.Worker` is a validated configuration model containing ID, provider
+name, model, HTTP(S) endpoint, optional context window and deployment label,
+configured streaming/tool-use capabilities, timeout and provider options. Unknown
+tool-use support is `None`; streaming defaults to disabled until configured.
+Advertising tool support does not implement tool calls or execution in this phase.
+Endpoints cannot embed credentials, queries or fragments. `WorkerHealth.available`
+requires both backend connectivity and observed model availability.
+
+`GenerationRequest` contains conversational messages, an optional prepended system
+instruction, optional temperature, provider options and optional timeout override.
+The text-only contract does not normalize tools, multimodal input or reasoning
+channels. Results contain content, model identity, optional finish reason and
+optional provider-specific usage/timing dictionaries. Ollama token counts retain
+their API names, and duration values retain their API names and nanosecond units;
+missing observations remain absent rather than estimated.
+
+`providers.ollama.OllamaProvider` uses httpx with `/api/chat` for generation and
+newline-delimited JSON streaming, and `/api/tags` for health/model presence checks.
+Each operation owns and closes its HTTP client; streaming also owns the response
+and iterator. Incomplete or malformed responses raise `InvalidProviderResponse`;
+connectivity failures raise `BackendUnavailable`, timeouts raise `ProviderTimeout`,
+and HTTP/model rejections raise `ProviderRejected` with an optional HTTP status.
+Error messages omit backend bodies, endpoint secrets and input payloads. Health
+reports safe error codes instead of raising backend failures; invalid adapter/Worker
+pairings are rejected before HTTP work.
+
+Callers must consume streams inside `async with`. Exiting the block closes the
+HTTP request on completion, early break, caller error or cancellation. Cancelling
+the executing asyncio task propagates `CancelledError` and closes local resources.
+Ollama offers no task-ID cancellation primitive here: closing the request does not
+guarantee that remote generation has stopped. No Task Engine is implemented.
+
+The Worker timeout defaults to 120 seconds; request overrides apply to generation
+and streaming. It is a total wall-clock execution budget as well as an HTTP I/O
+timeout, with connection attempts capped at 10 seconds. For streaming, this budget
+includes caller processing within the context block. Health is bounded by the
+smaller of five seconds and the Worker timeout.
+
+`workers.config.load_workers(path)` reads one explicitly supplied TOML file into
+`WorkersConfig`, validating each Worker and rejecting duplicate IDs/unknown fields.
+Multiple Workers can share one provider implementation. There is no automatic
+config discovery, environment loader, plugin framework or application wiring.
+`config/workers.example.toml` defines the illustrative `local-4080` target; it is
+not loaded by default. Worker options are merged with request options, then a known
+Worker context window sets Ollama `num_ctx`, and explicit request temperature takes
+precedence. The model and endpoint always come from the supplied Worker. Secrets
+belong in local secret configuration; authentication integration is deferred.
+
+Tests use httpx mock transports and fake byte streams. A suite-wide guard rejects
+live network connections and DNS resolution, so no GPU, Ollama or Internet is
+needed to run them.
 
 ### Registry, tasks and repository tools
 
