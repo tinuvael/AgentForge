@@ -74,6 +74,40 @@ class AgentRuntime:
         self._tools = dict(tools)
         self._clock = clock
 
+    def validate_binding(
+        self, *, project_id: UUID | str, agent_id: str, worker_id: str, task: str
+    ) -> UUID:
+        """Validate configuration only, without probing inference or reading files.
+
+        Task submission and execution share this check. Live root authorization
+        and remote availability remain execution-time observations.
+        """
+        agent = self._agents.get(agent_id)
+        worker = self._workers.get(worker_id)
+        if (
+            agent is None
+            or worker is None
+            or not isinstance(task, str)
+            or not task.strip()
+        ):
+            raise ValueError("Invalid execution binding")
+        provider = self._providers.get(worker.provider)
+        if (
+            provider is None
+            or provider.name != worker.provider
+            or len(set(agent.allowed_tools)) != len(agent.allowed_tools)
+            or any(
+                name not in self._tools or self._tools[name].definition.name != name
+                for name in agent.allowed_tools
+            )
+            or (agent.allowed_tools and worker.supports_tools is False)
+        ):
+            raise ValueError("Invalid execution binding")
+        try:
+            return self._projects.get_project(project_id).id
+        except ProjectError:
+            raise ValueError("Invalid execution binding") from None
+
     async def run(
         self,
         *,
@@ -130,36 +164,21 @@ class AgentRuntime:
             )
 
         try:
-            agent = self._agents.get(agent_id)
-            worker = self._workers.get(worker_id)
-            if (
-                agent is None
-                or worker is None
-                or not isinstance(task, str)
-                or not task.strip()
-            ):
-                raise _Stop("invalid_configuration")
-            provider = self._providers.get(worker.provider)
-            if provider is None or provider.name != worker.provider:
-                raise _Stop("invalid_configuration")
-            if any(name not in self._tools for name in agent.allowed_tools):
-                raise _Stop("invalid_configuration")
-            if any(
-                self._tools[name].definition.name != name
-                for name in agent.allowed_tools
-            ):
-                raise _Stop("invalid_configuration")
-            if len(set(agent.allowed_tools)) != len(agent.allowed_tools):
-                raise _Stop("invalid_configuration")
-            if agent.allowed_tools and worker.supports_tools is False:
-                raise _Stop("invalid_configuration")
+            try:
+                project_id = self.validate_binding(
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    worker_id=worker_id,
+                    task=task,
+                )
+            except ValueError:
+                raise _Stop("invalid_configuration") from None
+            agent = self._agents[agent_id]
+            worker = self._workers[worker_id]
+            provider = self._providers[worker.provider]
             policy = limits or agent.limits
             deadline = started + policy.timeout_seconds
             check()
-            try:
-                project_id = self._projects.get_project(project_id).id
-            except ProjectError:
-                raise _Stop("invalid_configuration") from None
             allowed = {name: self._tools[name] for name in sorted(agent.allowed_tools)}
             definitions = [tool.definition for tool in allowed.values()]
             messages = [

@@ -1,8 +1,9 @@
 # Manual Repo Explorer smoke test
 
-This is opt-in and never run by pytest/CI. It uses the production Agent Runtime,
-Project Registry, Index, RepositoryTools and OllamaProvider. You need a development
-venv, Git and Ollama running locally with `gpt-oss:20b` installed. Run from the
+This is opt-in and never run by pytest/CI. It uses the production Task Engine,
+Agent Runtime, Project Registry, Index, RepositoryTools and OllamaProvider.
+You need a development venv, Git and a reachable configured Ollama endpoint with
+`gpt-oss:20b` installed. The endpoint may be on another machine. Run from the
 AgentForge checkout; activate the venv installed with `pip install -e '.[dev]'`.
 
 The example Worker configuration explicitly defines `local-4080`, `gpt-oss:20b`,
@@ -58,8 +59,10 @@ The selected Agent is `repo_explorer`. The default task is:
 > Inspect the implementation and relevant tests before answering.
 
 Pass `--task "Where is Ollama streaming implemented and how does cancellation work?"`
-for another request. The script prints typed result JSON with answer, explicit
-identities, usage when supplied, counts, sanitized trace and termination reason.
+for another request. The script submits a durable Task and waits for completion.
+It prints Task JSON with UUID, lifecycle/timestamps and an `execution_result`
+containing the answer, explicit identities, usage when supplied, counts, sanitized
+trace and termination reason. History remains in the selected database.
 Successful exploration should show focused source/test reads and a final answer
 with path/line citations. A model answer without sufficient reads is a model
 quality limitation: the director still evaluates evidence and sufficiency.
@@ -76,7 +79,7 @@ interprets this state as an instruction, tool call, authorization or final answe
 It counts against context but is excluded from execution-result JSON, trace
 content and sanitized errors. Missing/null state stays absent on the wire;
 non-string/non-null thinking fails safely. No reasoning UI, telemetry or
-persistence is implemented.
+persistence of reasoning is implemented.
 A known Worker tool capability of `False` rejects the Agent before inference;
 unknown capability allows an attempt without claiming support.
 
@@ -86,8 +89,12 @@ context tokens, further capped by a known Worker context window. The determinist
 estimate is `ceil(serialized UTF-8 bytes / 3)`, including opaque reasoning. It
 bounds conversation growth, but is not a tokenizer-independent upper bound or a
 guarantee of fitting every model's token window. The script uses those defaults.
-A cold model load may consume the deadline. Token cancellation is
+A cold model load may consume the deadline. Task cancellation is
 cooperative at model/tool boundaries; Ctrl-C cancels the asyncio task and preserves
-Provider cleanup. Synchronous repository calls cannot be interrupted mid-call and
-are checked after returning. There is no Task persistence, telemetry, MCP,
-scheduler, shell, repository mutation or Agent-driven test execution.
+Provider cleanup through Task Engine shutdown and records a safe terminal outcome.
+Synchronous repository calls cannot be interrupted mid-call and are checked after
+returning. Startup fails orphaned running Tasks as `execution_interrupted` and
+resumes queued Tasks; started work is never replayed. The script owns the sole
+Task Engine for this database; do not run it beside another control-plane process
+using the same database. Telemetry, MCP, external schedulers, shell, repository
+mutation and Agent-driven test execution remain outside this phase.
