@@ -1,1 +1,1 @@
-"""Planned registry of external projects and their access boundaries."""
+"""Project Registry: persisted configuration and live repository observations."""
