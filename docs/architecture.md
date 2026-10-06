@@ -184,9 +184,11 @@ check. A stored root replaced by a symlink to another location is rejected.
 Validation alone is a point-in-time check. Phase 04 adds `open_root(id)` for
 descriptor-anchored access and persists new registrations' directory device/inode
 identity. Migration `0003_project_root_identity` leaves these fields null for
-legacy registrations: repository tools fail closed until those projects are
-removed and re-registered. Migration never observes or authorizes a replacement
-directory. Creation semantics for nonexistent paths remain unimplemented.
+legacy registrations: live Registry inspection, Index refresh/status scans and
+repository tools fail closed until those projects are removed and re-registered.
+Configuration retrieval/removal and cached Index queries remain available.
+Migration never observes or authorizes a replacement directory. Creation semantics
+for nonexistent paths remain unimplemented.
 
 `inspect_project` returns `ProjectInspection(project, git)`. `GitMetadata` is a
 fresh, nonpersisted observation with an observation timestamp, discovery status,
@@ -194,9 +196,13 @@ repository/worktree root, optional branch and optional HEAD commit. Status is
 `repository`, `not_repository` or `unavailable`; unavailable discovery does not
 assert that the directory is non-Git. Detached HEAD has no branch; an unborn
 repository has no commit. Git failures/timeouts are best effort and do not prevent
-registration. Inspection uses bounded, read-only `rev-parse`/`symbolic-ref` calls
-with an explicit working directory, sanitized Git environment, disabled optional
-locks and no network or repository mutation. Separate reads are not an atomic
+registration. `inspect_project` first opens the identity-checked registered root
+through `open_root`; boundary failures propagate Project errors, not best-effort
+Git metadata. Inspection uses bounded, read-only `rev-parse`/`symbolic-ref` calls
+with the verified descriptor inherited as Linux `/proc/self/fd` cwd, a sanitized
+Git environment, disabled optional locks and no network or repository mutation.
+Without descriptor-backed Git cwd, Git is observationally `unavailable`; no
+pathname fallback may inspect a replacement. Separate reads are not an atomic
 snapshot of a concurrently changing repository. An observed Git root may be an
 ancestor of a registered subdirectory; it never expands the approved boundary.
 
@@ -285,8 +291,16 @@ cascades clean file-owned facts and all index tables when the registry removes a
 Project. Resolved target IDs are checked and rebuilt transactionally rather than
 defining a generic graph ORM.
 
-The registry's stored canonical root and `validate_registered_root` remain
-authoritative. Traversal skips **all** symlinks (including internal aliases), special
+The Registry's `open_root(project_id)` is authoritative for both Index filesystem
+operations and repository tools: it validates the canonical root and its persisted
+device/inode identity. `ProjectIndex._scan` keeps that context open while its scanner
+consumes the verified root descriptor, never reopening a root pathname. Refresh
+consumes the scan, including root exit validation, inside the database transaction
+so replacement during parsing rolls back changes. `inspect_project` checks the
+same identity before refresh's Git observation. Legacy NULL identity rows require
+re-registration for live refresh/status scans; cached symbols, relationships and
+maps need no live root authorization and remain queryable.
+Traversal skips **all** symlinks (including internal aliases), special
 files and fixed cache/build/vendor/IDE/secret directories, including `.git`, virtual
 environments, `site-packages`, `node_modules`, `dist`, `build`, `vendor`,
 `third_party` and `.secrets`; no configurable ignore engine is added. POSIX

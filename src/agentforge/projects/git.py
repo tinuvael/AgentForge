@@ -27,8 +27,8 @@ def git_environment() -> dict[str, str]:
     return env
 
 
-def inspect_git(root: Path) -> GitMetadata:
-    """Observe worktrees (including linked worktrees) and bare repositories.
+def inspect_git(root_fd: int) -> GitMetadata:
+    """Observe Git through an already-authorized registered directory descriptor.
 
     No inherited GIT_* setting may redirect discovery to another repository.
     Global/system configuration and optional locks are disabled. These separate
@@ -36,6 +36,11 @@ def inspect_git(root: Path) -> GitMetadata:
     """
     observed_at = datetime.now(UTC)
     env = git_environment()
+    root = Path(f"/proc/self/fd/{root_fd}")
+    if not root.is_dir():
+        # No pathname fallback: Git is observationally unavailable without a
+        # descriptor-backed cwd, rather than inspecting an unverified replacement.
+        return GitMetadata(status="unavailable", observed_at=observed_at)
 
     def run(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -47,6 +52,7 @@ def inspect_git(root: Path) -> GitMetadata:
             errors="replace",
             timeout=2,
             check=False,
+            pass_fds=(root_fd,),
         )
 
     try:

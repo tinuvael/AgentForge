@@ -175,7 +175,10 @@ def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch
     before = {p: p.read_bytes() for p in (git_root / ".git").rglob("*") if p.is_file()}
 
     def checked_run(args, **kwargs):
-        assert args[:4] == ["git", "--no-optional-locks", "-C", str(git_root)]
+        assert args[:3] == ["git", "--no-optional-locks", "-C"]
+        (fd,) = kwargs["pass_fds"]
+        assert args[3] == f"/proc/self/fd/{fd}"
+        assert os.path.samefile(args[3], git_root)
         assert args[4] in {"rev-parse", "symbolic-ref"}
         assert kwargs["timeout"] == 2
         assert kwargs["env"]["GIT_OPTIONAL_LOCKS"] == "0"
@@ -198,3 +201,28 @@ def test_git_refusal_is_unavailable(registry, tmp_path, monkeypatch):
     monkeypatch.setattr(git_module.subprocess, "run", refused)
     project = registry.register_project("Refused", tmp_path)
     assert registry.inspect_project(project.id).git.status == "unavailable"
+
+
+def test_git_inspection_pins_verified_root_during_path_swap(
+    registry, git_root, tmp_path, monkeypatch
+):
+    from agentforge.projects.errors import UnsafeProjectPath
+
+    project = registry.register_project("Pinned", git_root)
+    original_run = subprocess.run
+    moved = tmp_path / "moved-git-root"
+    pinned_stats = []
+
+    def swapping_run(args, **kwargs):
+        if not pinned_stats:
+            git_root.rename(moved)
+            git_root.mkdir()
+        (fd,) = kwargs["pass_fds"]
+        assert os.path.samefile(args[3], moved)
+        pinned_stats.append(os.fstat(fd))
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr(git_module.subprocess, "run", swapping_run)
+    with pytest.raises(UnsafeProjectPath):
+        registry.inspect_project(project.id)
+    assert pinned_stats

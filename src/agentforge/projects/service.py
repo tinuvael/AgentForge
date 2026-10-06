@@ -19,7 +19,6 @@ from agentforge.projects.models import Project, ProjectInspection
 from agentforge.projects.paths import (
     canonical_project_root,
     resolve_project_path,
-    validate_registered_root,
 )
 
 
@@ -65,9 +64,9 @@ class ProjectRegistry:
             raise ProjectNotFound("Project ID is not registered")
 
     def inspect_project(self, project_id: UUID | str) -> ProjectInspection:
-        project = self.get_project(project_id)
-        root = validate_registered_root(project.root_path)
-        return ProjectInspection(project=project, git=inspect_git(root))
+        with self.open_root(project_id) as (project, root_fd):
+            inspection = ProjectInspection(project=project, git=inspect_git(root_fd))
+        return inspection
 
     def resolve_path(self, project_id: UUID | str, candidate: str | Path) -> Path:
         return resolve_project_path(self.get_project(project_id).root_path, candidate)

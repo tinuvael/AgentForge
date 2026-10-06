@@ -1,5 +1,6 @@
 """Transport-independent refresh, structural queries and compact map operations."""
 
+from collections.abc import Iterator
 from uuid import UUID
 
 from agentforge.db.index import IndexRepository
@@ -27,12 +28,17 @@ class ProjectIndex:
         project = self._registry.get_project(project_id)
         return project.id, self._repository.read(project.id)
 
+    def _scan(self, project_id: UUID | str) -> Iterator[tuple[str, bytes]]:
+        # Consumed inside refresh's transaction, including root exit validation.
+        with self._registry.open_root(project_id) as (_, root_fd):
+            yield from scan_python_files(root_fd)
+
     def refresh_index(self, project_id: UUID | str) -> IndexStatus:
         inspection = self._registry.inspect_project(project_id)
         project = inspection.project
 
         def updates(hashes: dict[str, str]):
-            for path, content in scan_python_files(project.root_path):
+            for path, content in self._scan(project.id):
                 digest = content_hash(content)
                 if hashes.get(path) == digest:
                     yield FileUpdate(path, digest)
@@ -76,10 +82,7 @@ class ProjectIndex:
         project = self._registry.get_project(project_id)
         snapshot = self._repository.read(project.id)
         stored = {f.relative_path: f.observed_hash for f in snapshot.files}
-        live = {
-            path: content_hash(content)
-            for path, content in scan_python_files(project.root_path)
-        }
+        live = {path: content_hash(content) for path, content in self._scan(project.id)}
         changed = tuple(
             sorted(
                 path
