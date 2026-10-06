@@ -1,0 +1,72 @@
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+.python-version
+
+# Test, lint, coverage and type-checker caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local editors and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local databases, runtime state and logs
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+/runtime/
+/state/
+/logs/
+*.log
+*.pid
+
+# Local credentials; sanitized examples/templates remain tracked
+.env
+.env.*
+!.env.example
+!.env.template
+/secrets/
+*.key
+*.pem
+
+# Temporary files
+/tmp/
+/temp/
+*.tmp
+*.bak
