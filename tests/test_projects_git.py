@@ -106,6 +106,7 @@ def test_unborn_repository(registry, tmp_path, git):
     assert metadata.head_commit is None
 
 
+@pytest.mark.posix
 def test_linked_worktree(registry, tmp_path, git_root, git):
     worktree = tmp_path / "linked"
     git(git_root, "worktree", "add", "-b", "linked-branch", str(worktree))
@@ -125,6 +126,7 @@ def test_nested_git_root_does_not_expand_boundary(registry, git_root):
     assert inspection.git.repository_root == git_root
 
 
+@pytest.mark.posix
 def test_bare_repository(registry, tmp_path, git):
     root = tmp_path / "bare"
     root.mkdir()
@@ -137,6 +139,7 @@ def test_bare_repository(registry, tmp_path, git):
 
 
 @pytest.mark.parametrize("failure", [FileNotFoundError, PermissionError, "timeout"])
+@pytest.mark.posix
 def test_git_unavailable_is_observational(registry, tmp_path, monkeypatch, failure):
     def unavailable(*args, **kwargs):
         if failure == "timeout":
@@ -169,6 +172,7 @@ def test_inherited_git_settings_do_not_redirect_inspection(
     assert registry.inspect_project(git_project.id).git.branch == "trunk"
 
 
+@pytest.mark.posix
 def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch):
     original_run = subprocess.run
     invocations = []
@@ -194,6 +198,7 @@ def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch
     assert len(invocations) == 4
 
 
+@pytest.mark.posix
 def test_git_refusal_is_unavailable(registry, tmp_path, monkeypatch):
     def refused(args, **kwargs):
         return subprocess.CompletedProcess(args, 128, "", "fatal: dubious ownership")
@@ -203,6 +208,7 @@ def test_git_refusal_is_unavailable(registry, tmp_path, monkeypatch):
     assert registry.inspect_project(project.id).git.status == "unavailable"
 
 
+@pytest.mark.posix
 def test_git_inspection_pins_verified_root_during_path_swap(
     registry, git_root, tmp_path, monkeypatch
 ):

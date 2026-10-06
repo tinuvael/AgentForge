@@ -36,7 +36,7 @@ from agentforge.tools.service import RepositoryTools
 def write(root, path, content):
     target = root / path
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    target.write_text(content, encoding="utf-8", newline="")
     return target
 
 
@@ -169,6 +169,7 @@ def test_non_text_rejected_and_search_skips(tools, data):
     assert result.matches == () and result.skipped_binary_files == 1
 
 
+@pytest.mark.posix
 def test_missing_directory_and_special_file(tools):
     service, project, root = tools
     with pytest.raises(PathNotFound):
@@ -210,6 +211,7 @@ def test_untrusted_paths_rejected_by_all_tools(tools, path):
             call()
 
 
+@pytest.mark.posix
 def test_common_prefix_sibling_and_symlinks(tools, tmp_path):
     service, project, root = tools
     sibling = tmp_path / "project-private"
@@ -231,6 +233,7 @@ def test_common_prefix_sibling_and_symlinks(tools, tmp_path):
     assert service.search_code(project, "SECRET").matches == ()
 
 
+@pytest.mark.posix
 def test_file_symlink_swap_between_check_and_open(tools, tmp_path, monkeypatch):
     service, project, root = tools
     file = write(root, "race.txt", "safe")
@@ -249,6 +252,7 @@ def test_file_symlink_swap_between_check_and_open(tools, tmp_path, monkeypatch):
         service.read_file(project, "race.txt")
 
 
+@pytest.mark.posix
 def test_directory_replacement_on_early_search_exit(tools, tmp_path, monkeypatch):
     service, project, root = tools
     write(root, "sub/a.txt", "needle\nneedle\n")
@@ -266,6 +270,7 @@ def test_directory_replacement_on_early_search_exit(tools, tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize("symlink", [False, True])
+@pytest.mark.posix
 def test_root_replacement_after_registration(tools, tmp_path, symlink):
     service, project, root = tools
     write(root, "safe.txt", "safe")
@@ -287,6 +292,7 @@ def test_root_replacement_after_registration(tools, tmp_path, symlink):
             call()
 
 
+@pytest.mark.posix
 def test_root_identity_persisted_and_legacy_fails_closed(registry, database, tmp_path):
     root = tmp_path / "persisted"
     root.mkdir()
@@ -405,6 +411,7 @@ def test_non_git_behavior(tools, method):
         getattr(service, method)(project, *(["needle"] if method == "git_grep" else []))
 
 
+@pytest.mark.posix
 def test_git_grep_is_cached_literal_and_bounded(git_tools, local_git):
     service, project, root = git_tools
     result = service.git_grep(project, "needle")
@@ -521,6 +528,7 @@ def test_git_subproject_never_exposes_siblings(registry, tmp_path, local_git):
             service.git_grep(project.id, "needle", path=path)
 
 
+@pytest.mark.posix
 def test_git_failures_are_safe_and_timeout_translated(git_tools, monkeypatch):
     service, project, _ = git_tools
 
@@ -560,6 +568,7 @@ def test_git_failures_are_safe_and_timeout_translated(git_tools, monkeypatch):
         service.git_status(project)
 
 
+@pytest.mark.posix
 def test_git_environment_no_shell_no_mutation_and_no_drivers(
     git_tools, local_git, monkeypatch
 ):
@@ -636,6 +645,7 @@ def test_git_backend_failure_does_not_leak_stderr(git_tools, monkeypatch):
     assert "PRIVATE" not in str(error.value)
 
 
+@pytest.mark.posix
 def test_git_symlink_read_and_root_race_fail_closed(git_tools, tmp_path, monkeypatch):
     service, project, root = git_tools
     file = root / "source.py"
@@ -681,6 +691,7 @@ def test_conflicts_are_structured_and_diff_reports_omission(git_tools, local_git
     assert service.git_diff(project).truncated
 
 
+@pytest.mark.posix
 def test_metadata_only_diff_is_visible(git_tools):
     service, project, root = git_tools
     (root / "source.py").chmod(0o755)
@@ -698,6 +709,7 @@ def test_git_query_is_data_and_file_paths_are_literal(git_tools, local_git):
         )
 
 
+@pytest.mark.posix
 def test_filesystem_read_detects_in_place_edits(tools, monkeypatch):
     service, project, root = tools
     target = write(root, "source.py", "old\n")
@@ -758,6 +770,7 @@ def test_git_sensitivity_and_rename_across_boundary(registry, tmp_path, local_gi
     assert "-allowed" in diff and "secret/" not in diff and "PRIVATE" not in diff
 
 
+@pytest.mark.posix
 def test_unsupported_descriptor_platform_fails_closed(tools, monkeypatch):
     service, project, _ = tools
     monkeypatch.setattr(os, "supports_dir_fd", set())

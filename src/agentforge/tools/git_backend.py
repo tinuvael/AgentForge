@@ -1,12 +1,12 @@
 """Private bounded Git backend. No caller-supplied options or command API."""
 
 import os
-import signal
 import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from agentforge.projects.backends import backend_for
 from agentforge.projects.errors import UnsafeProjectPath
 from agentforge.projects.git import git_environment
 from agentforge.tools.errors import (
@@ -16,7 +16,7 @@ from agentforge.tools.errors import (
     InvalidToolArgument,
     NotGitRepository,
 )
-from agentforge.tools.policy import automatic, relative_path
+from agentforge.tools.policy import relative_path
 
 GIT_TIMEOUT = 2
 
@@ -31,13 +31,13 @@ class _Output:
 class _Git:
     def __init__(self, root: Path, root_fd: int):
         self.fd = root_fd
-        # Inherited descriptor pins cwd even if the pathname is swapped. Unsupported
-        # platforms fail closed rather than falling back to a racy pathname cwd.
-        cwd = f"/proc/self/fd/{root_fd}"
-        if not Path(cwd).is_dir():
-            raise GitUnavailable("Git tools require Linux descriptor-backed cwd")
+        self.backend = backend_for(root_fd)
+        # POSIX inherits a pinned directory descriptor; Windows builds and pins an
+        # authorized private snapshot. Unsupported capabilities fail closed.
+        self.location = self.backend.git_location(root, root_fd)
+        cwd = self.location.cwd
         self.argv = [
-            "git",
+            self.location.executable,
             "--no-optional-locks",
             "--no-pager",
             "--literal-pathspecs",
@@ -68,7 +68,11 @@ class _Git:
             raise GitFailure("Git worktree discovery failed")
         try:
             repository_root = Path(discovered.data.decode("utf-8").rstrip("\n"))
-            self.prefix = root.relative_to(repository_root).as_posix()
+            self.prefix = (
+                self.location.prefix
+                if self.location.isolated
+                else root.relative_to(repository_root).as_posix()
+            )
             if self.prefix == ".":
                 self.prefix = ""
         except (ValueError, UnicodeError):
@@ -107,17 +111,13 @@ class _Git:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
-                pass_fds=(self.fd,),
-                start_new_session=True,
+                **self.location.process_options(),
             ) as process:
                 buffers = [bytearray(), bytearray()]
                 exceeded = [threading.Event(), threading.Event()]
 
                 def stop():
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                    self.location.stop(process)
 
                 def drain(stream, index, cap):
                     while chunk := stream.read(8192):
@@ -166,14 +166,18 @@ class _Git:
     def _scoped(self, repository_path: str) -> str | None:
         try:
             parts = relative_path(repository_path)
+            self.backend.validate_parts(parts)
         except (UnsafeProjectPath, InvalidToolArgument):
             return None
         if self.prefix:
             prefix = tuple(self.prefix.split("/"))
-            if parts[: len(prefix)] != prefix:
+            if len(parts) < len(prefix) or not all(
+                self.backend.same_component(a, b)
+                for a, b in zip(parts, prefix, strict=False)
+            ):
                 return None
             parts = parts[len(prefix) :]
-        if not parts or not automatic(parts):
+        if not parts or not self.backend.automatic(parts):
             return None
         return "/".join(parts)
 
@@ -225,6 +229,46 @@ class _Git:
         )
 
     def staged_diff(self, paths: list[str], budget: int):
+        if self.location.isolated:
+            # A pathspec for a file may also expand a HEAD directory at that name.
+            # The immutable snapshot allows validation BEFORE releasing a patch,
+            # including directory-to-file changes containing sensitive children.
+            names = self._run(
+                [
+                    "diff",
+                    "--cached",
+                    "--raw",
+                    "-z",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--relative",
+                    "--ignore-submodules=all",
+                    "--",
+                    *paths,
+                ],
+                64 * 1024,
+            )
+            try:
+                records = names.data.split(b"\0")[:-1]
+                if len(records) % 2:
+                    raise ValueError
+                returned = []
+                for metadata, name in zip(records[::2], records[1::2], strict=True):
+                    fields = metadata.decode("ascii").split(" ")
+                    if (
+                        len(fields) != 5
+                        or not fields[0].startswith(":")
+                        or fields[0][1:] not in {"000000", "100644", "100755"}
+                        or fields[1] not in {"000000", "100644", "100755"}
+                        or fields[4] not in {"A", "D", "M", "T"}
+                    ):
+                        raise ValueError
+                    returned.append(name.decode("utf-8"))
+            except (UnicodeError, ValueError):
+                raise GitFailure("Git diff paths could not be decoded") from None
+            if names.truncated or any(name not in paths for name in returned):
+                raise GitFailure("Git diff expanded outside the approved files")
         return self._run(
             [
                 "diff",

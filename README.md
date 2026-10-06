@@ -43,9 +43,10 @@ python -m agentforge.mcp.server --database-url sqlite:///agentforge.db --workers
 See [MCP setup, schemas, errors and optional smoke](docs/mcp.md). The shared
 application owns one TaskEngine and database; Workers remain inference endpoints
 while repository/index tools execute on the central host. MCP stdio supports
-Windows, but existing repository tools require POSIX no-follow descriptors and
-fail closed on native Windows. The MCP guide documents that limitation and the
-supported central-host smoke procedure.
+native Windows. Repository tools and Index select POSIX descriptors or a native
+Windows NTFS handle backend, with fail-closed path/reparse/identity checks. See
+[Windows security](docs/windows-repository-security.md) and the
+[native Windows MCP smoke](docs/native-windows-smoke.md).
 
 Use the foundation directly from Python (inside your own async function):
 

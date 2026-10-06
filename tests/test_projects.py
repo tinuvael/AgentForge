@@ -83,6 +83,7 @@ def test_persistence_reopen(registry, database, tmp_path):
     assert registry.list_projects() == []
 
 
+@pytest.mark.posix
 def test_canonical_relative_paths_and_duplicates(registry, tmp_path, monkeypatch):
     root = tmp_path / "project"
     child = root / "child"
@@ -139,6 +140,7 @@ def test_missing_id(registry, project_id):
             operation(project_id)
 
 
+@pytest.mark.posix
 def test_symlink_registration(registry, tmp_path):
     root = tmp_path / "project"
     root.mkdir()
@@ -154,6 +156,7 @@ def test_symlink_registration(registry, tmp_path):
         registry.register_project("Broken", broken)
 
 
+@pytest.mark.posix
 def test_containment(registry, tmp_path):
     root = tmp_path / "project"
     child = root / "sub" / "file.py"
@@ -186,6 +189,7 @@ def test_containment(registry, tmp_path):
         registry.resolve_path(project.id, loop)
 
 
+@pytest.mark.posix
 def test_changed_root_fails_closed(registry, tmp_path):
     root = tmp_path / "project"
     root.mkdir()

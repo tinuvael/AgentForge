@@ -27,7 +27,13 @@ def git_environment() -> dict[str, str]:
     return env
 
 
-def inspect_git(root_fd: int) -> GitMetadata:
+def inspect_git(root_fd) -> GitMetadata:
+    from agentforge.projects.backends import backend_for
+
+    return backend_for(root_fd).inspect_git(root_fd)
+
+
+def _inspect_posix_git(root_fd: int) -> GitMetadata:
     """Observe Git through an already-authorized registered directory descriptor.
 
     No inherited GIT_* setting may redirect discovery to another repository.

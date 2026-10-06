@@ -33,6 +33,7 @@ class ProjectRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     root_device: Mapped[str | None] = mapped_column(Text)
     root_inode: Mapped[str | None] = mapped_column(Text)
+    root_identity: Mapped[dict | None] = mapped_column(JSON)
 
 
 class IndexStateRecord(Base):

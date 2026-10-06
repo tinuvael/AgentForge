@@ -1,5 +1,6 @@
 """Fail immediately if any test attempts live networking, including DNS."""
 
+import os
 import socket
 from pathlib import Path
 
@@ -11,6 +12,18 @@ from sqlalchemy.engine import URL
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.projects import ProjectRepository
 from agentforge.projects.service import ProjectRegistry
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        if item.get_closest_marker("windows") and os.name != "nt":
+            item.add_marker(
+                pytest.mark.skip(reason="Requires native Windows; not emulated")
+            )
+        if item.get_closest_marker("posix") and os.name == "nt":
+            item.add_marker(
+                pytest.mark.skip(reason="POSIX-specific security regression")
+            )
 
 
 @pytest.fixture(autouse=True)

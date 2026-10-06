@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from agentforge.db.models import ProjectRecord
 from agentforge.projects.errors import ProjectAlreadyRegistered, ProjectStorageError
+from agentforge.projects.identity import RootIdentity
 from agentforge.projects.models import Project
 
 
@@ -25,6 +26,9 @@ def _project(record: ProjectRecord) -> Project:
         created_at.astimezone(UTC),
         int(record.root_device) if record.root_device is not None else None,
         int(record.root_inode) if record.root_inode is not None else None,
+        RootIdentity.from_json(record.root_identity)
+        if record.root_identity is not None
+        else None,
     )
 
 
@@ -46,6 +50,9 @@ class ProjectRepository:
                         else None,
                         root_inode=str(project.root_inode)
                         if project.root_inode is not None
+                        else None,
+                        root_identity=project.root_identity.as_json()
+                        if project.root_identity is not None
                         else None,
                     )
                 )

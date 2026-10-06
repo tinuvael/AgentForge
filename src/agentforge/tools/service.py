@@ -12,6 +12,7 @@ from agentforge.tools.errors import (
     InvalidToolArgument,
     PathNotFound,
     RepositoryIOError,
+    SensitivePath,
     UnsupportedTextFile,
 )
 from agentforge.tools.git_backend import _Git
@@ -51,6 +52,21 @@ class RepositoryTools:
     def __init__(self, registry: ProjectRegistry):
         self._registry = registry
 
+    def _parts(self, path):
+        parts = relative_path(path)
+        self._registry.filesystem.validate_parts(parts)
+        self._registry.filesystem.require_public(parts)
+        return parts
+
+    def public_index_path(self, path: str) -> bool:
+        from agentforge.projects.errors import UnsafeProjectPath
+
+        try:
+            self._parts(path)
+        except (UnsafeProjectPath, InvalidToolArgument, SensitivePath):
+            return False
+        return True
+
     @contextmanager
     def _root(self, project_id: UUID | str):
         try:
@@ -69,7 +85,7 @@ class RepositoryTools:
     ) -> FileList:
         limit(max_results, HARD_FILES, "max_results")
         limit(max_bytes, HARD_OUTPUT_BYTES, "max_bytes")
-        parts = relative_path(path)
+        parts = self._parts(path)
         paths = []
         used = 0
         truncated = False
@@ -104,7 +120,7 @@ class RepositoryTools:
             limit(end_line, 1_000_000, "end_line")
             if end_line < start_line:
                 raise InvalidToolArgument("end_line must not precede start_line")
-        parts = relative_path(path)
+        parts = self._parts(path)
         require_public(parts)
         if not parts:
             raise InvalidToolArgument("read_file requires a file path")
@@ -154,7 +170,7 @@ class RepositoryTools:
             or any(ord(c) < 32 or ord(c) == 127 for c in glob)
         ):
             raise InvalidToolArgument("glob must contain 1 to 256 UTF-8 bytes")
-        parts = relative_path(path)
+        parts = self._parts(path)
         needle = query if case_sensitive else query.casefold()
         matches = []
         used = scanned = visited = skipped = 0
@@ -197,9 +213,8 @@ class RepositoryTools:
                 traversal.close()
         return SearchResult(tuple(matches), truncated, skipped)
 
-    @staticmethod
-    def _git_scope(path: str | None) -> str:
-        parts = relative_path(path)
+    def _git_scope(self, path: str | None) -> str:
+        parts = self._parts(path)
         require_public(parts)
         return "/".join(parts) or "."
 

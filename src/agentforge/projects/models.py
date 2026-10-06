@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
+from agentforge.projects.identity import RootIdentity
+
 
 @dataclass(frozen=True)
 class Project:
@@ -15,6 +17,15 @@ class Project:
     created_at: datetime
     root_device: int | None = None
     root_inode: int | None = None
+    root_identity: RootIdentity | None = None
+
+    @property
+    def filesystem_identity(self) -> RootIdentity | None:
+        if self.root_identity is not None:
+            return self.root_identity
+        if self.root_device is not None and self.root_inode is not None:
+            return RootIdentity("posix", str(self.root_device), str(self.root_inode))
+        return None
 
 
 @dataclass(frozen=True)
