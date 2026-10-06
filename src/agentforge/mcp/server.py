@@ -1,0 +1,299 @@
+"""Official SDK stdio adapter; no inference, filesystem or scheduling logic."""
+
+import argparse
+import logging
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from functools import partial
+from importlib.metadata import version
+
+import anyio
+from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.stdio import stdio_server
+from pydantic import BaseModel, ValidationError
+from sqlalchemy.exc import SQLAlchemyError
+
+from agentforge.application.contracts import (
+    AgentsPage,
+    Capabilities,
+    DelegateArguments,
+    NoArguments,
+    PageArguments,
+    ProjectsPage,
+    SafeError,
+    Status,
+    TaskArguments,
+    TaskSnapshot,
+    WorkersPage,
+)
+from agentforge.application.service import Application, ServiceError
+from agentforge.projects.errors import ProjectNotFound, ProjectStorageError
+from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidationError
+
+_MESSAGES = {
+    "invalid_arguments": "Supply arguments matching the tool schema.",
+    "project_not_found": "Select a registered project_id from list_projects.",
+    "worker_not_found": "Select a configured worker_id from list_workers.",
+    "agent_not_found": "Select a configured agent_id from list_agents.",
+    "invalid_execution_binding": (
+        "Check the Agent tools and selected Worker/Provider configuration."
+    ),
+    "task_not_found": "No durable Task exists for this task_id.",
+    "storage_unavailable": (
+        "Storage is unavailable; check database configuration and migrations."
+    ),
+    "service_unavailable": (
+        "The Task service is unavailable; check the server lifecycle."
+    ),
+    "internal_error": "The operation could not be completed.",
+}
+
+
+def safe_error(error: Exception) -> SafeError:
+    if isinstance(error, ServiceError):
+        code = error.code
+    elif isinstance(error, ProjectNotFound):
+        code = "project_not_found"
+    elif isinstance(error, TaskNotFound):
+        code = "task_not_found"
+    elif isinstance(error, (ProjectStorageError, TaskStorageError, SQLAlchemyError)):
+        code = "storage_unavailable"
+    elif isinstance(error, TaskValidationError):
+        code = "invalid_execution_binding"
+    else:
+        code = "internal_error"
+    return SafeError(code=code, message=_MESSAGES[code])
+
+
+@dataclass(frozen=True)
+class ToolContract:
+    name: str
+    operation: str
+    description: str
+    arguments: type[BaseModel]
+    response: type[BaseModel]
+    read_only: bool = True
+
+
+TOOL_CONTRACTS = (
+    ToolContract(
+        "agentforge_status",
+        "status",
+        "Compact control-plane status; no Worker probes.",
+        NoArguments,
+        Status,
+    ),
+    ToolContract(
+        "describe_capabilities",
+        "capabilities",
+        "Factual capabilities and limitations; no routing advice.",
+        NoArguments,
+        Capabilities,
+    ),
+    ToolContract(
+        "list_projects",
+        "list_projects",
+        "Page of registered Projects; roots for the trusted local director; "
+        "Git not probed.",
+        PageArguments,
+        ProjectsPage,
+    ),
+    ToolContract(
+        "list_workers",
+        "list_workers",
+        "Configured Worker capabilities in ID order; no endpoints, health "
+        "probes or ranking.",
+        PageArguments,
+        WorkersPage,
+    ),
+    ToolContract(
+        "list_agents",
+        "list_agents",
+        "Actual Agent definitions, allowed tools and runtime limits.",
+        PageArguments,
+        AgentsPage,
+    ),
+    ToolContract(
+        "delegate_task",
+        "delegate_task",
+        "Submit an explicit Project/Agent/Worker request; return queued "
+        "durable identity promptly.",
+        DelegateArguments,
+        TaskSnapshot,
+        False,
+    ),
+    ToolContract(
+        "get_task",
+        "get_task",
+        "Durable snapshot and completed answer; no trace or reasoning.",
+        TaskArguments,
+        TaskSnapshot,
+    ),
+    ToolContract(
+        "cancel_task",
+        "cancel_task",
+        "Cancel queued work or request cooperative running cancellation; "
+        "never force-kill remote inference.",
+        TaskArguments,
+        TaskSnapshot,
+        False,
+    ),
+)
+
+
+def create_server(application_factory: Callable[[], Application]) -> Server:
+    """Own one shared Application during the SDK server lifespan.
+
+    Use lowlevel SDK primitives so all tool validation/operation errors cross our
+    safe boundary. SDK default validation diagnostics can include caller payloads.
+    No custom JSON-RPC, HTTP transport or per-request service construction.
+    """
+    application: Application | None = None
+
+    @asynccontextmanager
+    async def lifespan(_server):
+        nonlocal application
+        if application is not None:
+            raise ServiceError("service_unavailable")
+        app = application_factory()
+        application = app
+        try:
+            await app.start()
+            yield app
+        finally:
+            try:
+                with anyio.CancelScope(shield=True):
+                    await app.close()
+            finally:
+                application = None
+
+    server = Server(
+        "AgentForge",
+        version=version("agentforge"),
+        lifespan=lifespan,
+        instructions=(
+            "The director explicitly selects Project, Agent and "
+            "Worker. Delegate submits; poll get_task or cancel_task."
+        ),
+    )
+    contracts = {tool.name: tool for tool in TOOL_CONTRACTS}
+
+    @server.list_tools()
+    async def list_tools():
+        return [
+            types.Tool(
+                name=t.name,
+                description=t.description,
+                inputSchema=t.arguments.model_json_schema(),
+                outputSchema=t.response.model_json_schema(),
+                annotations=types.ToolAnnotations(
+                    readOnlyHint=t.read_only,
+                    destructiveHint=False,
+                    idempotentHint=t.name != "delegate_task",
+                    openWorldHint=t.name == "delegate_task",
+                ),
+            )
+            for t in TOOL_CONTRACTS
+        ]
+
+    @server.call_tool(validate_input=False)
+    async def call_tool(name, arguments):
+        try:
+            contract = contracts.get(name)
+            if contract is None:
+                raise ServiceError("invalid_arguments")
+            try:
+                validated = contract.arguments.model_validate(arguments)
+            except ValidationError:
+                raise ServiceError("invalid_arguments") from None
+            if application is None:
+                raise ServiceError("service_unavailable")
+            # Synchronous application calls stay on TaskEngine's owning thread.
+            response = getattr(application, contract.operation)(
+                **{
+                    field: getattr(validated, field)
+                    for field in contract.arguments.model_fields
+                }
+            )
+            response = contract.response.model_validate(response)
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(type="text", text=response.model_dump_json())
+                ],
+                structuredContent=response.model_dump(mode="json"),
+                isError=False,
+            )
+        except Exception as error:
+            failure = safe_error(error)
+            # Actual failed MCP tool result, never a fake successful Task snapshot.
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(type="text", text=failure.model_dump_json())
+                ],
+                isError=True,
+            )
+
+    return server
+
+
+async def run_stdio(*, database_url: str, workers_path: str, concurrency: int):
+    server = create_server(
+        lambda: Application.from_config(
+            database_url=database_url,
+            workers_path=workers_path,
+            concurrency=concurrency,
+        )
+    )
+    async with stdio_server() as (read, write):
+        await server.run(read, write, server.create_initialization_options())
+
+
+class _SafeDiagnostics(logging.Filter):
+    """SDK protocol validation logs can include caller payloads or exceptions."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != __name__:
+            record.msg = "service_unavailable: MCP protocol/service diagnostic."
+            record.args = ()
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
+        return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="AgentForge local trusted MCP stdio server"
+    )
+    parser.add_argument("--database-url", required=True)
+    parser.add_argument("--workers", required=True)
+    parser.add_argument("--concurrency", type=int, choices=range(1, 33), default=1)
+    arguments = parser.parse_args()
+    diagnostics = logging.StreamHandler()  # Default stream is stderr.
+    diagnostics.addFilter(_SafeDiagnostics())
+    logging.basicConfig(level=logging.WARNING, handlers=[diagnostics], force=True)
+    try:
+        anyio.run(
+            partial(
+                run_stdio,
+                database_url=arguments.database_url,
+                workers_path=arguments.workers,
+                concurrency=arguments.concurrency,
+            )
+        )
+    except KeyboardInterrupt:
+        return 0
+    except Exception:
+        # Startup/shutdown failures can contain secrets, SQL and local paths.
+        logging.getLogger(__name__).error(
+            "service_unavailable: MCP server stopped; check configuration "
+            "and migrations."
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

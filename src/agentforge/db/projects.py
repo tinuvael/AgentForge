@@ -4,7 +4,7 @@ from datetime import UTC
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -80,13 +80,21 @@ class ProjectRepository:
         except SQLAlchemyError:
             raise ProjectStorageError("Could not read project") from None
 
-    def list(self) -> list[Project]:
+    def count(self) -> int:
+        try:
+            with self._sessions() as session:
+                return session.scalar(select(func.count()).select_from(ProjectRecord))
+        except SQLAlchemyError:
+            raise ProjectStorageError("Could not count projects") from None
+
+    def list(self, *, limit: int | None = None, offset: int = 0) -> list[Project]:
         try:
             with self._sessions() as session:
                 records = session.scalars(
-                    select(ProjectRecord).order_by(
-                        ProjectRecord.created_at, ProjectRecord.id
-                    )
+                    select(ProjectRecord)
+                    .order_by(ProjectRecord.created_at, ProjectRecord.id)
+                    .limit(limit)
+                    .offset(offset)
                 )
                 return [_project(record) for record in records]
         except SQLAlchemyError:

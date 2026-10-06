@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -169,6 +169,16 @@ class TaskRepository:
             return [
                 _task(row) for row in session.scalars(query.limit(limit).offset(offset))
             ]
+
+    def active_counts(self) -> dict[TaskState, int]:
+        with self._session() as session:
+            return dict(
+                session.execute(
+                    select(TaskRecord.state, func.count())
+                    .where(TaskRecord.state.in_(("queued", "running")))
+                    .group_by(TaskRecord.state)
+                ).all()
+            )
 
     def next_queued_id(self) -> UUID | None:
         with self._session() as session:

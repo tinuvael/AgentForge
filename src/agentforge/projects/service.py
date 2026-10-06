@@ -50,8 +50,17 @@ class ProjectRegistry:
             )
         )
 
-    def list_projects(self) -> list[Project]:
-        return self._repository.list()
+    def count_projects(self) -> int:
+        return self._repository.count()
+
+    def list_projects(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> list[Project]:
+        if (
+            limit is not None and (type(limit) is not int or not 1 <= limit <= 1000)
+        ) or (type(offset) is not int or offset < 0):
+            raise ValueError("Invalid Project list bounds")
+        return self._repository.list(limit=limit, offset=offset)
 
     def get_project(self, project_id: UUID | str) -> Project:
         project = self._repository.get(self._id(project_id))
