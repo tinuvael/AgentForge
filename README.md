@@ -6,7 +6,7 @@ AgentForge supplies the execution platform; it does not intelligently route task
 in v1.
 
 Phase 02 adds validated Workers and an async Ollama Provider with health checks,
-generation and streaming. There is no running API, task engine, MCP server or
+generation and streaming. There is no running API, MCP server or
 dashboard yet. Worker selection is always explicit; configuration starts with
 [the TOML example](config/workers.example.toml).
 See [the architecture](docs/architecture.md) and [coding instructions](AGENTS.md).
@@ -15,6 +15,13 @@ Phase 03 adds a persistent Project Registry for external local directories, with
 canonical root validation and live Git inspection. Its transport-independent API
 and explicit Alembic setup are documented in
 [Project Registry and persistence](docs/architecture.md#project-registry-and-persistence-phase-03).
+
+Phase 06 adds a durable Task Engine around the bounded Phase 05 AgentRuntime.
+Normal delegated execution uses explicit Project/Agent/Worker IDs through
+`submit`, `get_task`, `list_tasks` and `cancel_task`, with bounded background
+execution and conservative restart recovery. See
+[Task Engine and durable history](docs/architecture.md#task-engine-and-durable-history-phase-06).
+The [manual smoke script](docs/manual-repo-explorer.md) executes through Task Engine.
 
 Use the foundation directly from Python (inside your own async function):
 

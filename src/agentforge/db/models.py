@@ -4,7 +4,9 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -99,3 +101,36 @@ class RelationshipRecord(Base):
     target_key: Mapped[str | None] = mapped_column(Text)
     # Recomputed transactionally after file replacement, never trusted as a FK.
     target_id: Mapped[str | None] = mapped_column(Text)
+
+
+class TaskRecord(Base):
+    __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+            name="ck_tasks_state",
+        ),
+        Index("ix_tasks_created", "created_at", "task_id"),
+        Index("ix_tasks_state_created", "state", "created_at", "task_id"),
+        Index("ix_tasks_project", "project_id"),
+        Index("ix_tasks_agent", "agent_id"),
+        Index("ix_tasks_worker", "worker_id"),
+    )
+
+    task_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    # Historical identity survives Project deregistration; intentionally no FK.
+    project_id: Mapped[UUID] = mapped_column(Uuid)
+    agent_id: Mapped[str] = mapped_column(String(100))
+    worker_id: Mapped[str] = mapped_column(Text)
+    request: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    reason: Mapped[str | None] = mapped_column(String(40))
+    error_code: Mapped[str | None] = mapped_column(String(40))
+    execution_result: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))

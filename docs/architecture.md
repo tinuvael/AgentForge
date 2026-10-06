@@ -8,8 +8,9 @@ adapter, including health, generation and streaming. Phase 03 implements the
 Project Registry, SQLAlchemy persistence and the initial Alembic migration.
 Issue #14 adds a deterministic Python Project Index and compact repository map.
 Phase 04 adds bounded, read-only repository tools. Phase 05 adds generic Agent
-behavior and bounded in-process execution, starting with `repo_explorer`. Durable
-Tasks, telemetry, application endpoints and dashboard behavior remain **planned**.
+behavior and bounded in-process execution, starting with `repo_explorer`. Phase 06
+adds durable Tasks, controlled lifecycle and a bounded in-process Task Engine.
+Telemetry, application endpoints and dashboard behavior remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -28,13 +29,13 @@ not a routing decision.
 ```mermaid
 flowchart LR
     D[External director] -->|Explicit execution request| M[Planned MCP adapter]
-    M --> E[Planned application / Task Engine]
+    M --> E[Task Engine]
     E --> P[Registered project and scoped tools]
     E --> A[Agent behavior]
     A --> W[Explicitly selected worker]
     W --> V[Provider protocol adapter]
     V --> I[External inference service]
-    E --> T[Task state and telemetry]
+    E --> T[Durable Task history / planned telemetry]
     T --> U[Planned monitoring UI]
     E -->|Result and evidence via MCP| D
 ```
@@ -69,7 +70,8 @@ models, or arbitrary OpenAI-compatible endpoints.
 
 | Package under `src/agentforge/` | Responsibility |
 | --- | --- |
-| `core/` | Provider/Worker inference domain contracts; future application coordination and Task Engine |
+| `core/` | Provider/Worker inference domain contracts |
+| `tasks/` | Durable Task lifecycle, explicit execution binding and bounded scheduling |
 | `projects/` | Project Registry: stable project identity, repository/workspace location, context and permitted operations |
 | `index/` | Deterministic Python structure, explicit refresh, graph queries and bounded textual maps |
 | `providers/` | Ollama inference adapter; translate calls and failures for the backend |
@@ -84,8 +86,8 @@ models, or arbitrary OpenAI-compatible endpoints.
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
 Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/`,
-`tools/`, `agents/` and `db/` remain placeholders. Alembic configuration and revision
-scripts live in `alembic.ini` and `migrations/` at the repository root.
+`tools/`, `agents/`, `tasks/` and `db/` remain placeholders. Alembic configuration
+and revision scripts live in `alembic.ini` and `migrations/` at the repository root.
 
 ### Provider and Worker foundation (Phase 02)
 
@@ -136,7 +138,8 @@ Callers must consume streams inside `async with`. Exiting the block closes the
 HTTP request on completion, early break, caller error or cancellation. Cancelling
 the executing asyncio task propagates `CancelledError` and closes local resources.
 Ollama offers no task-ID cancellation primitive here: closing the request does not
-guarantee that remote generation has stopped. No Task Engine is implemented.
+guarantee that remote generation has stopped. Task Engine shutdown preserves this
+local cleanup boundary; ordinary Task cancellation uses the runtime token.
 
 The Worker timeout defaults to 120 seconds; request overrides apply to generation
 and streaming. It is a total wall-clock execution budget as well as an HTTP I/O
@@ -342,16 +345,16 @@ byte cap of `3 * max_tokens`; `ceil(bytes / 3)` is the documented approximate to
 estimator, not a model-tokenizer guarantee. Zero or too-small budgets return an
 empty map; negative/noninteger budgets are rejected. Future repository tools and
 local agents may request exact source regions from these paths/line spans. Future
-architecture summaries may consume these deterministic facts, but summaries,
-visualizations, routing and execution remain separate, unimplemented capabilities.
+architecture summaries may consume these deterministic facts. The Index itself
+does not execute Tasks, route Workers or generate architecture summaries.
 
 ### Tasks and repository tools
 
-The future Task Engine will validate explicit bindings, persist execution requests
-and lifecycle state, coordinate execution, and make outcomes retrievable. Detailed
-states, cancellation, retries and concurrency policy belong to their implementation
-issues. Infrastructure errors must be reported to the director; automatic model
-fallback would violate explicit worker selection.
+The Task Engine validates explicit bindings, persists execution requests and
+lifecycle state, coordinates bounded execution, and makes outcomes retrievable.
+See [Phase 06](#task-engine-and-durable-history-phase-06) for lifecycle and recovery.
+Infrastructure errors are reported to the director; automatic model fallback
+would violate explicit worker selection.
 
 `tools.service.RepositoryTools(ProjectRegistry)` supplies synchronous,
 transport-independent `list_files`, `read_file`, `search_code`, `git_grep`,
@@ -460,15 +463,15 @@ argument has a default. The runtime looks up exactly that configured Worker and
 its Provider. It never probes health for selection, routes, scores, retries on a
 different model, or falls back when inference fails.
 
-Execution is async and in-process, without durable Tasks. It uses non-streaming
+The runtime itself is async and in-process; Task Engine owns its durable lifecycle.
+It uses non-streaming
 `Provider.generate()`: system prompt + original task → assistant text and/or tool
 calls → sequential validated tool results → next model turn → final answer.
 Multiple tool calls in a turn retain their order and correlation IDs. Entire-turn
 permission, ID uniqueness and tool-count checks happen before executing any tool.
 An assistant turn with text and tools continues the loop; nonblank text without
 tools completes it; an empty response terminates as `invalid_response`.
-Streaming remains available on Providers; live Agent streaming and scheduling are
-deferred until lifecycle adapters need them.
+Streaming remains available on Providers; live Agent streaming is deferred.
 
 The inference contract adds `ToolDefinition(name, description, parameters)` with
 machine-readable JSON Schema, `ToolCall(id, name, arguments)` with JSON object
@@ -569,8 +572,8 @@ calls, before/after tool calls and between iterations, returning structured
 `cancelled` state. Token cancellation during an awaited inference operation is
 observed when that operation returns or times out; callers needing immediate
 interruption may cancel the asyncio execution task. `CancelledError` propagates
-and Provider resource cleanup remains intact. Phase 06 can connect Task
-cancellation to this token/task boundary without replacing the runtime.
+and Provider resource cleanup remains intact. Phase 06 connects Task cancellation
+to the token and shutdown to asyncio cancellation without replacing the runtime.
 
 Recoverable errors are bounded JSON objects with fixed safe codes: invalid
 arguments or safe-path syntax, denied sensitive paths, missing files/symbols,
@@ -589,8 +592,9 @@ bytes, observed usage and an in-memory ordered trace. The trace records model an
 tool boundaries, call IDs, authorized names, validated argument shape with free
 text redacted, success/fixed failure codes, result byte sizes, elapsed durations
 and termination. It deliberately omits source bodies, assistant prose, reasoning
-state, raw invalid arguments and backend diagnostics. No result/trace is persisted
-or emitted to a metrics subsystem. This is execution evidence, not Phase 07 telemetry.
+state, raw invalid arguments and backend diagnostics. Task Engine persists this
+sanitized result/trace at termination; no metrics subsystem is implemented.
+This is execution evidence, not Phase 07 telemetry.
 
 `repo_explorer` requires inspecting evidence before repository claims, treats the
 Index as cached navigation rather than source truth, asks for exact source/tests
@@ -606,8 +610,157 @@ Runtime tests use scripted Providers, injected clocks and synthetic projects.
 Ollama protocol tests use httpx mock transports. The existing suite-wide socket
 and DNS guards cover these tests: no automated test runs Ollama, uses a GPU or
 accesses live networking. See [the manual smoke instructions](manual-repo-explorer.md)
-for the opt-in real Ollama path. Phase 06 owns durable execution, Task history,
-scheduling and lifecycle integration; Phase 07 owns telemetry; Phase 08 owns MCP.
+for the opt-in real Ollama path through Task Engine. Phase 07 owns telemetry;
+Phase 08 owns MCP.
+
+### Task Engine and durable history (Phase 06)
+
+`tasks.engine.TaskEngine(TaskRepository, AgentRuntime, concurrency=1)` is the
+transport-independent entry point for normal delegated Agent execution. The manual
+smoke script uses it. Direct `AgentRuntime.run()` remains the bounded mechanism
+and a useful isolated runtime test boundary, rather than application scheduling.
+The director chooses the Project, Agent and Worker. Task Engine persists and
+executes those exact logical IDs; AgentRuntime performs bounded execution; the
+Worker performs inference; AgentForge tools access Project files centrally.
+
+`tasks.models.Task` is an immutable snapshot. Alembic revision `0004_tasks` follows
+`0003_project_root_identity` and creates `tasks` with:
+
+| Fields | Stored meaning |
+| --- | --- |
+| `task_id` | Generated stable UUID; each submit is a new execution request |
+| `project_id`, `agent_id`, `worker_id` | Immutable, explicit logical binding |
+| `request` | Original unmodified request text |
+| `state` | queued, running, completed, failed or cancelled |
+| `created_at`, `updated_at`, `started_at`, `finished_at` | UTC lifecycle checkpoints; unobserved timestamps remain null |
+| `cancellation_requested_at` | Durable cooperative cancellation request |
+| `reason`, `error_code` | Runtime termination reason or fixed safe engine diagnostic; error code only on failure |
+| `execution_result` | Nullable JSON representation of the existing Phase 05 `ExecutionResult`, including ordered trace and observed usage |
+
+`Task.final_answer` exposes the result's answer only for completed Tasks;
+`failure_diagnostic` derives text from the fixed error code. Summary counts
+(`steps`, `tool_call_count`, `tool_output_bytes`) and one optional `TokenUsage` per
+successful model turn remain inside `execution_result`. Unknown usage remains
+unknown. There is no second runtime outcome schema or fabricated aggregate.
+Project identity deliberately has no cascading foreign key: deregistration
+removes configuration/index, but retains Task history. A queued Task whose Project
+was removed fails runtime configuration validation; it never changes Project.
+
+The service provides synchronous operations on its owning thread (and owning event
+loop while executing):
+
+- `submit(project_id=..., agent_id=..., worker_id=..., task=...) -> Task` commits a
+  queued Task before any runtime work. All bindings are required. Shared
+  `AgentRuntime.validate_binding()` checks Project registration, Agent/Worker IDs,
+  matching configured Provider, tool definitions/permissions and known tool-use
+  incompatibility. It does not probe health or access live Project files.
+- `get_task(task_id) -> Task` reads durable state, including after database reopen.
+- `list_tasks(state=None, project_id=None, agent_id=None, worker_id=None,
+  limit=100, offset=0)` combines optional filters. Limit is 1–1000, offset is
+  nonnegative; ordering is descending creation timestamp, then descending UUID.
+  Pagination is deterministic for an unchanged history, not a snapshot across
+  concurrent submissions.
+- `cancel_task(task_id) -> Task` returns the durable snapshot after the request.
+  Missing/invalid IDs raise safe `TaskNotFound`; terminal cancellation is an
+  idempotent read and does not change timestamps or outcome.
+
+Configuration checks repeat at execution time, and live Project root authorization
+remains in AgentRuntime/tools. An unavailable or replaced root can therefore fail
+after a valid submit. Remote inference availability can also change; an unavailable
+Worker fails the Task associated with that Worker, with no selection or fallback.
+Definitions/configurations are supplied by the host when wiring the runtime;
+queued Tasks store logical IDs, not snapshots of endpoints or Agent definitions.
+Administrators must preserve the meaning of those IDs across restarts.
+
+Transitions are centralized in `validate_transition()` and enforced by conditional
+database updates. There is no public operation for arbitrary state mutation:
+
+```mermaid
+stateDiagram-v2
+    queued --> running: committed claim
+    queued --> cancelled: cancel before claim
+    running --> completed: successful result
+    running --> failed: runtime / executor / recovery failure
+    running --> cancelled: cooperative cancellation
+```
+
+Completed, failed and cancelled Tasks are terminal and cannot be requeued or
+claimed. Repeated submit intentionally creates distinct UUIDs; there is no request
+deduplication/idempotency key. Duplicate claim/finish calls cannot replay or replace
+terminal executions. A conditional queued-to-running update commits before invoking
+the runtime, so two claim attempts can produce only one winner.
+
+`await start()` first resolves orphaned running Tasks, then starts exactly the
+configured number of long-lived asyncio executor loops (1–32, default 1). Each
+loop claims the oldest queued Task with UUID tie-breaking and runs it to completion
+before claiming another. Async events wake idle loops; there is no per-submission
+asyncio task, broker or external scheduler. Concurrent inference can complete out
+of order. Use `async with TaskEngine(...)` to own startup/shutdown;
+`await wait_task(id)` waits for a terminal snapshot without owning execution.
+Cancelling that waiter does not cancel the Task. A process-local ownership guard
+rejects a second active engine for the same SQLite database before recovery;
+deployments must run only one control-plane process per database. There are no
+cross-process leases or exactly-once distributed guarantees.
+
+Queued cancellation commits `cancelled` before execution and prevents claiming.
+Running cancellation commits `cancellation_requested_at` and signals the active
+Phase 05 `CancellationToken`. State stays running until runtime returns and local
+cleanup completes. Tokens are registered without an await between claim and
+registration, so cancellation cannot miss that boundary on the owning loop.
+The runtime checks cancellation at model/tool boundaries. An awaited remote call
+may continue until return/timeout; synchronous tools cannot be interrupted mid-call.
+No remote force-kill is claimed.
+
+The first committed database operation decides completion/cancellation races.
+A cancellation request committed while running wins over any later runtime
+outcome: Task/result become cancelled and a late answer is discarded. If the
+runtime had already returned another reason, its trace metadata is retained and
+an explicit cancelled termination event is appended. A terminal commit that wins
+first is unchanged by a later cancellation. Repeated pending cancellations retain
+the original request timestamp.
+
+`await close()` stops claims, signals active tokens, cancels local executor
+coroutines and awaits Provider cleanup. Active Tasks without an explicit cancel
+request fail with `executor_cancelled`; explicit pending cancellation wins as above.
+Queued Tasks remain queued. Cleanup is shielded from cancellation of the close
+caller; ownership remains held until cleanup finishes. Storage/executor failures
+surface through safe service errors, rather than silently presenting success.
+If storage itself is unavailable, a terminal checkpoint may not be writable;
+the next successful startup applies recovery.
+
+Startup conservatively marks every pre-existing running Task failed with
+`execution_interrupted`, including unobserved cancellation requests, without
+re-executing it. A started run/tool call may already have produced effects and is
+not replay-safe. Queued Tasks resume in deterministic claim order: they have never
+passed the committed claim boundary and no runtime work has started. Terminal
+history is unchanged. These guarantees assume callers use Task Engine and the
+single-process deployment contract; they do not imply exactly-once remote inference.
+
+`db.tasks.TaskRepository` owns operation-scoped sessions and short transactions for
+submission, claim, cancellation, result storage and recovery. No database session
+or transaction spans inference, remote HTTP, repository tools or the whole runtime.
+Schema creation/upgrade is explicit via Alembic, never startup. Downgrading below
+`0004_tasks` drops Task history, consistent with schema downgrade conventions.
+
+Only sanitized Phase 05 result fields are serialized. Task Engine verifies result
+binding/state and discards invalid outcomes with `invalid_runtime_result`;
+unexpected runtime exceptions become `runtime_error` without messages/repr.
+Runtime failure codes and metadata are preserved, with no raw backend responses,
+credentials, SQL, tracebacks, Git diagnostics or source/tool bodies added to trace.
+Opaque reasoning/thinking and conversation history remain memory-only. Original
+requests and normal final answers are intentionally persisted user/model content;
+the database is private runtime state, not a general-purpose content scrubber.
+Trace/result storage occurs at terminal checkpoints, not incrementally: after a
+crash, partial in-memory trace and counts are unavailable and are not invented.
+Retention, streaming and telemetry aggregation remain future work.
+
+Topology does not affect Task Engine behavior. `local-4080`, `home-i5`, `ai395` and
+`future-cloud-worker` are equivalent logical bindings. The central AgentForge host
+owns SQLite, Projects, Index and tools (including on the user's main Windows
+workstation); a Worker endpoint can be local, LAN, VPN/Tailscale or cloud HTTP(S).
+Workers receive inference messages and explicitly gathered tool evidence, never
+require Project filesystem access, and receive no copied repository/shared mount.
+Existing platform limitations of descriptor-backed tools remain unchanged.
 
 ### Telemetry, MCP and dashboard
 

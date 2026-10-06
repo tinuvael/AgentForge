@@ -7,9 +7,11 @@ from agentforge.agents import REPO_EXPLORER, AgentRuntime, repository_toolset
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
 from agentforge.db.projects import ProjectRepository
+from agentforge.db.tasks import TaskRepository
 from agentforge.index.service import ProjectIndex
 from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.ollama import OllamaProvider
+from agentforge.tasks.engine import TaskEngine
 from agentforge.tools.service import RepositoryTools
 from agentforge.workers.config import load_workers
 
@@ -40,14 +42,18 @@ def main():
             providers={"ollama": OllamaProvider()},
             tools=repository_toolset(index, RepositoryTools(projects)),
         )
-        result = asyncio.run(
-            runtime.run(
-                project_id=arguments.project_id,
-                worker_id=arguments.worker_id,
-                agent_id="repo_explorer",
-                task=arguments.task,
-            )
-        )
+
+        async def execute():
+            async with TaskEngine(TaskRepository(sessions), runtime) as task_engine:
+                task = task_engine.submit(
+                    project_id=arguments.project_id,
+                    worker_id=arguments.worker_id,
+                    agent_id="repo_explorer",
+                    task=arguments.task,
+                )
+                return await task_engine.wait_task(task.task_id)
+
+        result = asyncio.run(execute())
         print(result.model_dump_json(indent=2))
     finally:
         engine.dispose()

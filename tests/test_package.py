@@ -16,6 +16,7 @@ import pytest
         "agentforge.providers",
         "agentforge.workers",
         "agentforge.projects",
+        "agentforge.tasks",
         "agentforge.tools",
         "agentforge.telemetry",
         "agentforge.db",
