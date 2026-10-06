@@ -11,6 +11,11 @@ dashboard yet. Worker selection is always explicit; configuration starts with
 [the TOML example](config/workers.example.toml).
 See [the architecture](docs/architecture.md) and [coding instructions](AGENTS.md).
 
+Phase 03 adds a persistent Project Registry for external local directories, with
+canonical root validation and live Git inspection. Its transport-independent API
+and explicit Alembic setup are documented in
+[Project Registry and persistence](docs/architecture.md#project-registry-and-persistence-phase-03).
+
 Use the foundation directly from Python (inside your own async function):
 
 ```python

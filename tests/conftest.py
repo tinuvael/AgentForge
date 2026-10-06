@@ -1,8 +1,16 @@
 """Fail immediately if any test attempts live networking, including DNS."""
 
 import socket
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy.engine import URL
+
+from agentforge.db.database import create_database_engine, create_session_factory
+from agentforge.db.projects import ProjectRepository
+from agentforge.projects.service import ProjectRegistry
 
 
 @pytest.fixture(autouse=True)
@@ -19,3 +27,23 @@ def forbid_live_network(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", connect)
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
+
+
+@pytest.fixture
+def database(tmp_path):
+    url = URL.create("sqlite", database=str(tmp_path / "registry.sqlite"))
+    engine = create_database_engine(url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+    yield engine, url
+    engine.dispose()
+
+
+@pytest.fixture
+def registry(database, tmp_path):
+    engine, _ = database
+    return ProjectRegistry(
+        ProjectRepository(create_session_factory(engine)), base_directory=tmp_path
+    )

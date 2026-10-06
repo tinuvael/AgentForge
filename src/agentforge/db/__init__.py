@@ -1,1 +1,1 @@
-"""Planned database persistence and migration integration."""
+"""SQLAlchemy persistence adapters with explicitly managed Alembic migrations."""

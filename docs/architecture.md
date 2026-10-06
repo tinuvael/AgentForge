@@ -4,9 +4,10 @@
 
 Phase 01 established the architectural contract and package skeleton. Phase 02
 implements Provider contracts, validated Worker configuration and the Ollama HTTP
-adapter, including health, generation and streaming. Other runtime components
-below remain **planned**. There are no application endpoints, database models,
-migrations, repository tools, task execution or dashboard behavior yet.
+adapter, including health, generation and streaming. Phase 03 implements the
+Project Registry, SQLAlchemy persistence and the initial Alembic migration.
+Other runtime components below remain **planned**. There are no application
+endpoints, repository tools, task execution or dashboard behavior yet.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -79,7 +80,9 @@ models, or arbitrary OpenAI-compatible endpoints.
 | `web/` | Jinja2 templates and HTMX monitoring interactions |
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
-Packages other than `core/`, `providers/` and `workers/` remain placeholders.
+Packages other than `core/`, `providers/`, `workers/`, `projects/` and `db/` remain
+placeholders. Alembic configuration and revision scripts live in `alembic.ini`
+and `migrations/` at the repository root.
 
 ### Provider and Worker foundation (Phase 02)
 
@@ -149,13 +152,78 @@ Tests use httpx mock transports and fake byte streams. A suite-wide guard reject
 live network connections and DNS resolution, so no GPU, Ollama or Internet is
 needed to run them.
 
-### Registry, tasks and repository tools
+### Project Registry and persistence (Phase 03)
 
-The Project Registry will map registered project IDs to approved external roots
-and project context. Core must contain no SlopeForge-specific or other
-project-specific rules. Tool access uses registry boundaries rather than trusting
-arbitrary paths supplied by a prompt. Project-specific configuration stays with
-the registered project, separate from generic runtime behavior.
+`projects.models.Project` is immutable configuration: a generated UUID, a
+human-readable name, a canonical absolute local root and a UTC creation timestamp.
+Names may repeat; canonical roots may not. Identity does not depend on a mutable
+name or path. A normal directory is a valid project; Git is optional. Core contains
+no project-specific assumptions.
+
+`projects.service.ProjectRegistry` exposes synchronous, transport-independent
+`register_project(name, root_path)`, `list_projects()`, `get_project(id)`,
+`remove_project(id)` and `inspect_project(id)`. IDs accept UUIDs or UUID strings.
+Removal deletes registration only. Configuration remains retrievable/removable
+when its directory is unavailable; inspection validates that the root still exists.
+Important failures have explicit `ProjectError` subclasses, including invalid
+paths/names, duplicate roots, missing IDs, unsafe candidates and storage failures.
+SQLAlchemy errors and database statements are not exposed as service errors.
+
+Relative registration paths use the registry's explicit `base_directory`, or the
+working directory captured at construction. Registration follows symlinks and
+requires an existing directory, so aliases of the same directory collide. The
+stored canonical root is the security boundary. `resolve_path(id, candidate)`
+and `projects.paths.resolve_project_path(root, candidate)` resolve existing
+candidates and check `Path.is_relative_to` against the resolved root. Absolute
+paths, `..`, common-prefix siblings and symlinks receive the same containment
+check. A stored root replaced by a symlink to another location is rejected.
+Validation is a point-in-time check: future file tools must address filesystem
+races between validation and I/O, and separately define safe creation semantics
+for nonexistent paths. No repository file tools exist yet.
+
+`inspect_project` returns `ProjectInspection(project, git)`. `GitMetadata` is a
+fresh, nonpersisted observation with an observation timestamp, discovery status,
+repository/worktree root, optional branch and optional HEAD commit. Status is
+`repository`, `not_repository` or `unavailable`; unavailable discovery does not
+assert that the directory is non-Git. Detached HEAD has no branch; an unborn
+repository has no commit. Git failures/timeouts are best effort and do not prevent
+registration. Inspection uses bounded, read-only `rev-parse`/`symbolic-ref` calls
+with an explicit working directory, sanitized Git environment, disabled optional
+locks and no network or repository mutation. Separate reads are not an atomic
+snapshot of a concurrently changing repository. An observed Git root may be an
+ancestor of a registered subdirectory; it never expands the approved boundary.
+
+`db.database` owns explicit SQLAlchemy 2 engine/session construction;
+`db.models.ProjectRecord` owns the `projects` table. `db.projects.ProjectRepository`
+maps records to domain values and owns short-lived sessions/transactions, a unique
+canonical-root constraint and error translation. The service currently uses this
+small concrete storage adapter; domain models, path helpers and Git inspection
+have no SQLAlchemy dependency. No generic repository framework is introduced.
+SQLite is the initial backend; UUID and timezone-aware timestamp columns use
+SQLAlchemy types. SQLite timestamps are interpreted as UTC when read.
+
+Schema changes are explicit Alembic operations, never registration/startup side
+effects. From the repository root in the development venv:
+
+```sh
+alembic upgrade head
+alembic revision --autogenerate -m "Describe the schema change"
+alembic check
+```
+
+`alembic.ini` defaults to the ignored local `agentforge.db`; set `sqlalchemy.url`
+in a local Alembic configuration for another database. Pass the same URL to
+`create_database_engine`, then wire `create_session_factory(engine)` →
+`ProjectRepository` → `ProjectRegistry`. Dispose the engine when its owner shuts
+down. The initial revision creates only project configuration. Tests migrate
+temporary SQLite databases and verify upgrade/downgrade and database reopening.
+
+The future Project Index (#14) can consume stable identity, the canonical root,
+fresh HEAD observations and containment validation. Indexes, symbols, graphs,
+summaries and repository read tools are outside this phase. Project-specific
+configuration stays with registry entries, separate from generic runtime behavior.
+
+### Tasks and repository tools
 
 The future Task Engine will validate explicit bindings, persist execution requests
 and lifecycle state, coordinate execution, and make outcomes retrievable. Detailed

@@ -1,0 +1,38 @@
+"""Persisted project configuration and separate, ephemeral Git observations."""
+
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
+from uuid import UUID
+
+
+@dataclass(frozen=True)
+class Project:
+    id: UUID
+    name: str
+    root_path: Path
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class GitMetadata:
+    """A best-effort observation, never persisted or guaranteed to remain current."""
+
+    status: Literal["repository", "not_repository", "unavailable"]
+    observed_at: datetime
+    repository_root: Path | None = None
+    branch: str | None = None
+    head_commit: str | None = None
+
+    @property
+    def is_repository(self) -> bool | None:
+        if self.status == "unavailable":
+            return None
+        return self.status == "repository"
+
+
+@dataclass(frozen=True)
+class ProjectInspection:
+    project: Project
+    git: GitMetadata
