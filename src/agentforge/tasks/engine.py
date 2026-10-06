@@ -1,12 +1,18 @@
 """Single-process bounded executor; the director supplies every execution binding."""
 
 import asyncio
+from collections.abc import Callable
 from threading import Lock, get_ident
+from time import monotonic
 from uuid import UUID
 
 from pydantic import ValidationError
 
-from agentforge.agents.models import CancellationToken, ExecutionResult
+from agentforge.agents.models import (
+    CancellationToken,
+    ExecutionObservations,
+    ExecutionResult,
+)
 from agentforge.agents.runtime import AgentRuntime
 from agentforge.db.tasks import TaskRepository
 from agentforge.tasks.models import (
@@ -30,7 +36,12 @@ class TaskEngine:
     """
 
     def __init__(
-        self, repository: TaskRepository, runtime: AgentRuntime, *, concurrency: int = 1
+        self,
+        repository: TaskRepository,
+        runtime: AgentRuntime,
+        *,
+        concurrency: int = 1,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
         if type(concurrency) is not int or not 1 <= concurrency <= 32:
             raise TaskValidationError("Concurrency must be between 1 and 32")
@@ -45,6 +56,8 @@ class TaskEngine:
         self._started = False
         self._closed = False
         self._shutdown_task: asyncio.Task | None = None
+        self._clock = clock
+        self._queued_at: dict[UUID, float] = {}
 
     def _check_thread(self):
         if get_ident() != self._thread:
@@ -75,9 +88,17 @@ class TaskEngine:
             )
         except ValueError:
             raise TaskValidationError("Invalid execution binding") from None
+        provider, model = self._runtime.execution_target(worker_id)
+        queued_at = self._clock()
         submitted = self._repository.add(
-            project_id=identity, agent_id=agent_id, worker_id=worker_id, request=task
+            project_id=identity,
+            agent_id=agent_id,
+            worker_id=worker_id,
+            request=task,
+            provider=provider,
+            model=model,
         )
+        self._queued_at[submitted.task_id] = queued_at
         self._wake.set()
         self._changed.set()
         return submitted
@@ -108,7 +129,16 @@ class TaskEngine:
 
     def cancel_task(self, task_id: UUID | str) -> Task:
         self._check_thread()
-        task = self._repository.cancel(self._id(task_id))
+        identity = self._id(task_id)
+        queued_at = self._queued_at.get(identity)
+        task = self._repository.cancel(
+            identity,
+            queue_duration_seconds=(
+                max(0, self._clock() - queued_at) if queued_at is not None else None
+            ),
+        )
+        if task.state in TERMINAL_STATES:
+            self._queued_at.pop(identity, None)
         token = self._tokens.get(task.task_id)
         if token is not None and task.cancellation_requested_at is not None:
             token.cancel()
@@ -176,13 +206,39 @@ class TaskEngine:
             if identity is None:
                 await self._wake.wait()
                 continue
-            task = self._repository.claim(identity)
+            queued = self._repository.get(identity)
+            queued_at = self._queued_at.pop(identity, None)
+            task = self._repository.claim(
+                identity,
+                target=self._runtime.execution_target(queued.worker_id),
+                queue_duration_seconds=(
+                    max(0, self._clock() - queued_at) if queued_at is not None else None
+                ),
+            )
             if task is None:
                 continue
             token = CancellationToken()
             # No await between claim and registration: cancellation cannot miss start.
             self._tokens[identity] = token
             self._changed.set()
+            observations = ExecutionObservations()
+            execution_started = self._clock()
+
+            def finish(
+                identity=identity,
+                observations=observations,
+                execution_started=execution_started,
+                **outcome,
+            ):
+                return self._repository.finish(
+                    identity,
+                    observations=observations,
+                    execution_duration_seconds=max(
+                        0, self._clock() - execution_started
+                    ),
+                    **outcome,
+                )
+
             try:
                 try:
                     result = await self._runtime.run(
@@ -191,21 +247,20 @@ class TaskEngine:
                         worker_id=task.worker_id,
                         task=task.request,
                         cancellation=token,
+                        observations=observations,
                     )
                 except asyncio.CancelledError:
-                    self._repository.finish(identity, error_code="executor_cancelled")
+                    finish(error_code="executor_cancelled")
                     raise
                 except Exception:
-                    self._repository.finish(identity, error_code="runtime_error")
+                    finish(error_code="runtime_error")
                 else:
                     try:
                         result = self._validated_result(task, result)
                     except (ValidationError, ValueError, TypeError, AttributeError):
-                        self._repository.finish(
-                            identity, error_code="invalid_runtime_result"
-                        )
+                        finish(error_code="invalid_runtime_result")
                     else:
-                        self._repository.finish(identity, result=result)
+                        finish(result=result)
             finally:
                 self._tokens.pop(identity, None)
                 self._changed.set()
@@ -249,6 +304,7 @@ class TaskEngine:
         """
         self._check_thread()
         self._closed = True
+        self._queued_at.clear()
         if not self._started:
             return
         if self._shutdown_task is None:

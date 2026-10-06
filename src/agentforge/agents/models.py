@@ -1,12 +1,13 @@
 """Agent behavior, execution policy and ephemeral results; no Worker routing."""
 
+from dataclasses import dataclass, field
 from threading import Event
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from agentforge.core.inference import TokenUsage
+from agentforge.core.inference import GenerationTiming, TokenUsage
 
 
 class RuntimeLimits(BaseModel):
@@ -88,6 +89,30 @@ class TraceEvent(BaseModel):
     reason: TerminationReason | None = None
 
 
+class ModelTurnObservation(BaseModel):
+    """One attempted generate call, including failed or locally cancelled calls."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+
+    request_duration_seconds: float = Field(ge=0)
+    token_usage: TokenUsage | None = None
+    generation_timing: GenerationTiming | None = None
+
+
+@dataclass
+class ExecutionObservations:
+    """Ephemeral metadata checkpoint shared with the owning executor.
+
+    Allows executor cancellation to retain observations when run propagates
+    CancelledError. No prompts, responses, tools' bodies or Provider objects.
+    Trace is the runtime's existing bounded evidence, not a second tool timer.
+    """
+
+    model_turns: list[ModelTurnObservation] = field(default_factory=list)
+    trace: list[TraceEvent] = field(default_factory=list)
+    tool_output_bytes: int = 0
+
+
 class ExecutionResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -103,3 +128,4 @@ class ExecutionResult(BaseModel):
     # One observation per successful model turn; missing usage remains None.
     usage: tuple[TokenUsage | None, ...]
     trace: tuple[TraceEvent, ...]
+    model_turns: tuple[ModelTurnObservation, ...] = ()

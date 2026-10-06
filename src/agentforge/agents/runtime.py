@@ -10,7 +10,9 @@ from pydantic import ValidationError
 from agentforge.agents.models import (
     Agent,
     CancellationToken,
+    ExecutionObservations,
     ExecutionResult,
+    ModelTurnObservation,
     RuntimeLimits,
     TerminationReason,
     TraceEvent,
@@ -74,6 +76,11 @@ class AgentRuntime:
         self._tools = dict(tools)
         self._clock = clock
 
+    def execution_target(self, worker_id: str) -> tuple[str | None, str | None]:
+        """Configured target only, without probing or selecting another Worker."""
+        worker = self._workers.get(worker_id)
+        return (worker.provider, worker.model) if worker else (None, None)
+
     def validate_binding(
         self, *, project_id: UUID | str, agent_id: str, worker_id: str, task: str
     ) -> UUID:
@@ -117,6 +124,7 @@ class AgentRuntime:
         task: str,
         limits: RuntimeLimits | None = None,
         cancellation: CancellationToken | None = None,
+        observations: ExecutionObservations | None = None,
     ) -> ExecutionResult:
         """No default Worker, health-based selection, fallback or persistent Task.
 
@@ -125,7 +133,10 @@ class AgentRuntime:
         Caller asyncio.CancelledError propagates; token cancellation returns a result.
         """
         step = calls = output_bytes = 0
-        trace: list[TraceEvent] = []
+        observations = (
+            observations if observations is not None else ExecutionObservations()
+        )
+        trace = observations.trace
         usage: list[TokenUsage | None] = []
         cancellation = cancellation or CancellationToken()
         started = self._clock()
@@ -161,6 +172,7 @@ class AgentRuntime:
                 tool_output_bytes=output_bytes,
                 usage=tuple(usage),
                 trace=tuple(trace),
+                model_turns=tuple(observations.model_turns),
             )
 
         try:
@@ -226,6 +238,7 @@ class AgentRuntime:
                 )
                 event("model_request", size_bytes=context_size())
                 model_started = self._clock()
+                response = None
                 try:
                     # The runtime also bounds providers that do not honor overrides.
                     async with asyncio.timeout(model_timeout):
@@ -249,6 +262,18 @@ class AgentRuntime:
                     check()
                     event("model_response", success=False, error_code="provider_error")
                     raise _Stop("provider_error") from None
+                finally:
+                    observations.model_turns.append(
+                        ModelTurnObservation(
+                            request_duration_seconds=max(
+                                0, self._clock() - model_started
+                            ),
+                            token_usage=response.token_usage if response else None,
+                            generation_timing=response.generation_timing
+                            if response
+                            else None,
+                        )
+                    )
                 check()
                 usage.append(response.token_usage)
                 messages.append(
@@ -266,7 +291,9 @@ class AgentRuntime:
                     size_bytes=len(
                         json_text(messages[-1].model_dump()).encode("utf-8")
                     ),
-                    duration_seconds=max(0, self._clock() - model_started),
+                    duration_seconds=observations.model_turns[
+                        -1
+                    ].request_duration_seconds,
                 )
                 if not response.tool_calls:
                     if not response.content.strip():
@@ -360,6 +387,7 @@ class AgentRuntime:
                     if output_bytes + size > policy.max_tool_output_bytes:
                         raise _Stop("tool_output_limit")
                     output_bytes += size
+                    observations.tool_output_bytes = output_bytes
                     messages.append(
                         Message(
                             role="tool",

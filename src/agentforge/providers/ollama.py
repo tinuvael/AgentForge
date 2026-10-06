@@ -21,6 +21,7 @@ from agentforge.core.inference import (
     GenerationChunk,
     GenerationRequest,
     GenerationResult,
+    GenerationTiming,
     Message,
     TokenUsage,
     ToolCall,
@@ -171,6 +172,20 @@ class OllamaProvider:
             finish_reason=parsed.done_reason,
             usage=usage or None,
             timing=timing or None,
+            generation_timing=GenerationTiming(
+                **{
+                    normalized: getattr(parsed, raw) / 1_000_000_000
+                    for normalized, raw in (
+                        ("total_seconds", "total_duration"),
+                        ("load_seconds", "load_duration"),
+                        ("prompt_seconds", "prompt_eval_duration"),
+                        ("output_seconds", "eval_duration"),
+                    )
+                    if getattr(parsed, raw) is not None
+                }
+            )
+            if timing
+            else None,
             token_usage=TokenUsage(
                 input_tokens=parsed.prompt_eval_count, output_tokens=parsed.eval_count
             )

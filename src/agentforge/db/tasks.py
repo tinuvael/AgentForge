@@ -9,8 +9,9 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from agentforge.agents.models import ExecutionResult, TraceEvent
+from agentforge.agents.models import ExecutionObservations, ExecutionResult, TraceEvent
 from agentforge.db.models import TaskRecord
+from agentforge.db.telemetry import record_checkpoint
 from agentforge.tasks.models import (
     Task,
     TaskNotFound,
@@ -95,7 +96,14 @@ class TaskRepository:
         return _task(record) if record else None
 
     def add(
-        self, *, project_id: UUID, agent_id: str, worker_id: str, request: str
+        self,
+        *,
+        project_id: UUID,
+        agent_id: str,
+        worker_id: str,
+        request: str,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> Task:
         now = datetime.now(UTC)
         with self._session() as session:
@@ -108,6 +116,8 @@ class TaskRepository:
                 state="queued",
                 created_at=now,
                 updated_at=now,
+                provider=provider,
+                model=model,
             )
             session.add(record)
             session.commit()
@@ -169,15 +179,33 @@ class TaskRepository:
                 .limit(1)
             )
 
-    def claim(self, task_id: UUID) -> Task | None:
+    def claim(
+        self,
+        task_id: UUID,
+        *,
+        target: tuple[str | None, str | None] | None = None,
+        queue_duration_seconds: float | None = None,
+    ) -> Task | None:
         with self._session() as session:
             task = self._checkpoint(
-                session, task_id, "queued", "running", started_at=datetime.now(UTC)
+                session,
+                task_id,
+                "queued",
+                "running",
+                started_at=datetime.now(UTC),
+                queue_duration_seconds=queue_duration_seconds,
+                **(
+                    {"provider": target[0], "model": target[1]}
+                    if target is not None
+                    else {}
+                ),
             )
             session.commit()
             return task
 
-    def cancel(self, task_id: UUID) -> Task:
+    def cancel(
+        self, task_id: UUID, *, queue_duration_seconds: float | None = None
+    ) -> Task:
         now = datetime.now(UTC)
         with self._session() as session:
             task = self._checkpoint(
@@ -188,7 +216,17 @@ class TaskRepository:
                 finished_at=now,
                 reason="cancelled",
                 cancellation_requested_at=now,
+                queue_duration_seconds=queue_duration_seconds,
             )
+            if task is not None:
+                record = session.get(TaskRecord, task_id)
+                record.telemetry_status = record_checkpoint(
+                    session,
+                    task,
+                    observations=ExecutionObservations(),
+                    execution_duration_seconds=0.0,
+                )
+                task = _task(record)
             if task is None:
                 # Running cancellation is a durable request, not premature terminality.
                 record = session.scalar(
@@ -217,6 +255,8 @@ class TaskRepository:
         *,
         result: ExecutionResult | None = None,
         error_code: TaskReason | None = None,
+        observations: ExecutionObservations | None = None,
+        execution_duration_seconds: float | None = None,
     ) -> Task:
         """Committed running cancellation beats completion; terminal rows stay put."""
         state = result.state if result is not None else "failed"
@@ -256,6 +296,14 @@ class TaskRepository:
                 )
                 if record is not None:
                     task = _task(record)
+                    record.telemetry_status = record_checkpoint(
+                        session,
+                        task,
+                        result=outcome,
+                        observations=observations,
+                        execution_duration_seconds=execution_duration_seconds,
+                    )
+                    task = _task(record)
                     session.commit()
                     return task
             record = session.get(TaskRecord, task_id)
@@ -268,7 +316,7 @@ class TaskRepository:
         validate_transition("running", "failed")
         now = datetime.now(UTC)
         with self._session() as session:
-            changed = session.execute(
+            records = session.scalars(
                 update(TaskRecord)
                 .where(TaskRecord.state == "running")
                 .values(
@@ -278,6 +326,12 @@ class TaskRepository:
                     finished_at=now,
                     updated_at=now,
                 )
+                .returning(TaskRecord),
+                execution_options={"synchronize_session": False},
             )
+            changed = 0
+            for record in records.all():
+                record.telemetry_status = record_checkpoint(session, _task(record))
+                changed += 1
             session.commit()
-            return changed.rowcount
+            return changed

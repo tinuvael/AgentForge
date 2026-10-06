@@ -8,10 +8,13 @@ from agentforge.db.database import create_database_engine, create_session_factor
 from agentforge.db.index import IndexRepository
 from agentforge.db.projects import ProjectRepository
 from agentforge.db.tasks import TaskRepository
+from agentforge.db.telemetry import TelemetryRepository
 from agentforge.index.service import ProjectIndex
 from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.ollama import OllamaProvider
 from agentforge.tasks.engine import TaskEngine
+from agentforge.telemetry.models import TelemetryError
+from agentforge.telemetry.service import TelemetryService
 from agentforge.tools.service import RepositoryTools
 from agentforge.workers.config import load_workers
 
@@ -55,6 +58,11 @@ def main():
 
         result = asyncio.run(execute())
         print(result.model_dump_json(indent=2))
+        telemetry = TelemetryService(TelemetryRepository(sessions))
+        try:
+            print(telemetry.get_for_task(result.task_id).model_dump_json(indent=2))
+        except TelemetryError as error:
+            print(str(error))  # Public fixed safe diagnostics only.
     finally:
         engine.dispose()
 

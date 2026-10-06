@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -134,3 +135,65 @@ class TaskRecord(Base):
     reason: Mapped[str | None] = mapped_column(String(40))
     error_code: Mapped[str | None] = mapped_column(String(40))
     execution_result: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
+    provider: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(Text)
+    telemetry_status: Mapped[str] = mapped_column(String(20), server_default="pending")
+    queue_duration_seconds: Mapped[float | None] = mapped_column(Float)
+
+
+class TaskTelemetryRecord(Base):
+    """Immutable terminal observations; intentionally no cascading identity FKs."""
+
+    __tablename__ = "task_telemetry"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('completed', 'failed', 'cancelled')",
+            name="ck_task_telemetry_state",
+        ),
+        Index("ix_task_telemetry_created", "created_at", "task_id"),
+        Index(
+            "ix_task_telemetry_project_created", "project_id", "created_at", "task_id"
+        ),
+        Index("ix_task_telemetry_agent_created", "agent_id", "created_at", "task_id"),
+        Index("ix_task_telemetry_worker_created", "worker_id", "created_at", "task_id"),
+        Index(
+            "ix_task_telemetry_provider_created", "provider", "created_at", "task_id"
+        ),
+        Index("ix_task_telemetry_model_created", "model", "created_at", "task_id"),
+        Index("ix_task_telemetry_state_created", "state", "created_at", "task_id"),
+    )
+
+    task_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    project_id: Mapped[UUID] = mapped_column(Uuid)
+    agent_id: Mapped[str] = mapped_column(String(100))
+    worker_id: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str] = mapped_column(String(40))
+    error_category: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    queue_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    execution_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    total_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    model_call_count: Mapped[int | None] = mapped_column(Integer)
+    model_request_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    backend_total_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    model_load_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    prompt_evaluation_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    generation_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    total_tokens: Mapped[int | None] = mapped_column(Integer)
+    observed_prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    observed_completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    prompt_observed_turns: Mapped[int] = mapped_column(Integer)
+    completion_observed_turns: Mapped[int] = mapped_column(Integer)
+    token_usage_complete: Mapped[bool] = mapped_column(Boolean)
+    ttft_seconds: Mapped[float | None] = mapped_column(Float)
+    tokens_per_second: Mapped[float | None] = mapped_column(Float)
+    tool_call_count: Mapped[int | None] = mapped_column(Integer)
+    total_tool_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    tool_output_bytes: Mapped[int | None] = mapped_column(Integer)

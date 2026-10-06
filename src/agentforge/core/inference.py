@@ -34,6 +34,23 @@ class TokenUsage(BaseModel):
     output_tokens: int | None = Field(default=None, ge=0)
 
 
+class GenerationTiming(BaseModel):
+    """Backend-observed durations in seconds; output excludes prompt evaluation.
+
+    Request/network latency is measured separately by the runtime. None means
+    unobserved. These fields never imply client-observed time to first token.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, strict=True, allow_inf_nan=False
+    )
+
+    total_seconds: float | None = Field(default=None, ge=0)
+    load_seconds: float | None = Field(default=None, ge=0)
+    prompt_seconds: float | None = Field(default=None, ge=0)
+    output_seconds: float | None = Field(default=None, ge=0)
+
+
 class Message(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -81,6 +98,7 @@ class GenerationResult(BaseModel):
     timing: dict[str, JsonValue] | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
     token_usage: TokenUsage | None = None
+    generation_timing: GenerationTiming | None = None
 
 
 class GenerationChunk(GenerationResult):

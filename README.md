@@ -23,6 +23,13 @@ execution and conservative restart recovery. See
 [Task Engine and durable history](docs/architecture.md#task-engine-and-durable-history-phase-06).
 The [manual smoke script](docs/manual-repo-explorer.md) executes through Task Engine.
 
+Phase 07 automatically persists terminal Task telemetry with historical target
+identity, observed token/timing metrics and tool aggregates. Missing observations
+remain null. `TelemetryService` provides filters and grouped comparisons without
+routing or recommending Workers. See
+[Task telemetry](docs/architecture.md#task-telemetry-phase-07) for exact metric
+definitions, coverage rules and failure semantics. Upgrade with `alembic upgrade head`.
+
 Use the foundation directly from Python (inside your own async function):
 
 ```python
