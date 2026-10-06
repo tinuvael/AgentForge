@@ -11,7 +11,8 @@ Phase 04 adds bounded, read-only repository tools. Phase 05 adds generic Agent
 behavior and bounded in-process execution, starting with `repo_explorer`. Phase 06
 adds durable Tasks, controlled lifecycle and a bounded in-process Task Engine.
 Phase 07 adds terminal Task telemetry, normalized backend timing observations and
-transport-independent comparison queries. Application endpoints and dashboard
+transport-independent comparison queries. Phase 08 adds the typed MCP stdio
+adapter and shared application composition/lifecycle. API endpoints and dashboard
 behavior remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
@@ -30,7 +31,7 @@ not a routing decision.
 
 ```mermaid
 flowchart LR
-    D[External director] -->|Explicit execution request| M[Planned MCP adapter]
+    D[External director] -->|Explicit execution request| M[MCP stdio adapter]
     M --> E[Task Engine]
     E --> P[Registered project and scoped tools]
     E --> A[Agent behavior]
@@ -72,6 +73,7 @@ models, or arbitrary OpenAI-compatible endpoints.
 
 | Package under `src/agentforge/` | Responsibility |
 | --- | --- |
+| `application/` | Shared composition, lifecycle and typed director-facing operations |
 | `core/` | Provider/Worker inference domain contracts |
 | `tasks/` | Durable Task lifecycle, explicit execution binding and bounded scheduling |
 | `projects/` | Project Registry: stable project identity, repository/workspace location, context and permitted operations |
@@ -88,8 +90,8 @@ models, or arbitrary OpenAI-compatible endpoints.
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
 Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/`,
-`tools/`, `agents/`, `tasks/`, `telemetry/` and `db/` remain placeholders. Alembic
-configuration and revision scripts live in `alembic.ini` and `migrations/` at the
+`tools/`, `agents/`, `tasks/`, `telemetry/`, `application/`, `mcp/` and `db/`
+remain placeholders. Alembic configuration and revision scripts live in `alembic.ini` and `migrations/` at the
 repository root.
 
 ### Provider and Worker foundation (Phase 02)
@@ -154,7 +156,8 @@ smaller of five seconds and the Worker timeout.
 `workers.config.load_workers(path)` reads one explicitly supplied TOML file into
 `WorkersConfig`, validating each Worker and rejecting duplicate IDs/unknown fields.
 Multiple Workers can share one provider implementation. There is no automatic
-config discovery, environment loader, plugin framework or application wiring.
+config discovery, environment loader or plugin framework. Phase 08 adds explicit
+application wiring with a database URL and Worker configuration file.
 `config/workers.example.toml` defines the illustrative `local-4080` target; it is
 not loaded by default. Worker options are merged with request options, then a known
 Worker context window sets Ollama `num_ctx`, and explicit request temperature takes
@@ -905,12 +908,54 @@ is separate. Telemetry adds no logging/export infrastructure or heavyweight depe
 The manual Repo Explorer smoke script prints persisted telemetry after execution;
 it remains opt-in and is not run by the test suite.
 
-### Planned MCP and dashboard
+### MCP and shared application (Phase 08)
 
-MCP is the director-facing boundary. Future tools will accept explicit identifiers
-and requests and return task results/status and relevant evidence. The MCP adapter
-must reuse application behavior rather than implement its own task runtime.
-No MCP tool names, server transport or authentication mechanism is fixed here.
+`application.service.Application` is the composition root shared by transport
+adapters. It constructs one database engine/session factory, ProjectRegistry,
+ProjectIndex, RepositoryTools, configured Worker and actual Agent definitions,
+Provider mapping, AgentRuntime, TaskRepository/TaskEngine and TelemetryService.
+Domain/application contracts do not import MCP. Repository operations and index
+queries execute on the central host; Workers are inference endpoints without
+Project filesystem access. Their endpoints need not be localhost.
+
+`mcp.server` uses the official Python MCP SDK's low-level Server, Pydantic-generated
+tool schemas, lifespan and stdio transport (tested with SDK 1.30.0). It exposes
+exactly `agentforge_status`, `describe_capabilities`, `list_projects`, `list_workers`,
+`list_agents`, `delegate_task`, `get_task`, `cancel_task`. Explicit Project/Agent/
+Worker/request bindings are required; delegate submits through TaskEngine and
+returns a durable queued snapshot without waiting for inference. Task get/cancel
+reuse durable Phase 06 operations and recovery/cancellation semantics. There is
+no MCP Task store or alternate executor.
+
+SDK lifespan creates/starts one Application, shares it on TaskEngine's owning
+thread/event loop, then shields executor cleanup and database disposal on shutdown.
+Startup recovers interrupted Tasks once; queued Tasks survive shutdown. The existing
+per-database process ownership guard remains in force; operators must run only one
+process per database because there is no distributed lease. Migrations remain
+explicit Alembic operations, with no startup schema changes.
+
+Discovery is bounded/paginated, uses Registry and configuration only, and performs
+no Git/index scans or Worker health probes. Configured capability facts never
+claim online status or recommend a Worker. Worker endpoints/options, Agent system
+prompts and runtime state are omitted. Task responses project only lifecycle,
+execution counters, actual completed answer and telemetry coverage status; no
+trace/history, reasoning, raw responses or fabricated metrics. Errors cross one
+safe boundary into `isError` MCP results with stable codes and fixed diagnostics,
+including argument validation. SQL, raw exceptions and backend bodies are omitted.
+
+Run `python -m agentforge.mcp.server --database-url <URL> --workers <TOML>`.
+Stdio is for a trusted local director, uses SDK UTF-8 handling on Windows, and keeps
+application diagnostics on stderr. Existing repository tools still require POSIX
+no-follow descriptors and fail closed on Windows; MCP does not weaken that security
+boundary. A successful source-tool smoke currently requires a supported POSIX/Linux
+central process with a registered local root. No HTTP/SSE, remote authentication,
+second Provider, routing, Council or dashboard infrastructure is added.
+
+See [MCP setup and contracts](mcp.md) for full schemas, error mapping, asynchronous
+flow, central/remote Worker architecture, Windows limits, and the optional external
+client smoke using `scripts/smoke_mcp.py` with durable telemetry inspection.
+
+### Planned dashboard
 
 The dashboard will monitor projects, workers, tasks and telemetry using Jinja2
 and HTMX. It consumes shared application operations rather than accessing inference
@@ -976,7 +1021,7 @@ boundaries are implemented as described above.
 ## Future execution flow
 
 1. The director discovers registered projects, agents and workers through the
-   future interface and chooses explicit identifiers.
+   MCP interface and chooses explicit identifiers.
 2. It submits a request binding project, agent and worker, with permitted tool scope.
 3. Application coordination validates the bindings and authorization and persists
    a durable task before execution.

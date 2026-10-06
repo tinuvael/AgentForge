@@ -103,6 +103,19 @@ class TaskEngine:
         self._changed.set()
         return submitted
 
+    @property
+    def available(self) -> bool:
+        self._check_thread()
+        return (
+            self._started
+            and not self._closed
+            and all(not loop.done() for loop in self._loops)
+        )
+
+    def active_counts(self) -> dict[TaskState, int]:
+        self._check_thread()
+        return self._repository.active_counts()
+
     def get_task(self, task_id: UUID | str) -> Task:
         self._check_thread()
         return self._repository.get(self._id(task_id))

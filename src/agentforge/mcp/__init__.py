@@ -1,1 +1,1 @@
-"""Planned MCP adapter for the external director."""
+"""Thin MCP stdio adapter for the external director."""

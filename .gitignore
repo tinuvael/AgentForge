@@ -70,3 +70,7 @@ Desktop.ini
 /temp/
 *.tmp
 *.bak
+
+# Explicit local Worker configuration may contain Provider options/secrets
+/workers.local.toml
+/config/*.local.toml

@@ -6,8 +6,9 @@ AgentForge supplies the execution platform; it does not intelligently route task
 in v1.
 
 Phase 02 adds validated Workers and an async Ollama Provider with health checks,
-generation and streaming. There is no running API, MCP server or
-dashboard yet. Worker selection is always explicit; configuration starts with
+generation and streaming. Phase 08 adds a local stdio MCP server; API and
+dashboard behavior remain planned. Worker selection is always explicit;
+configuration starts with
 [the TOML example](config/workers.example.toml).
 See [the architecture](docs/architecture.md) and [coding instructions](AGENTS.md).
 
@@ -29,6 +30,22 @@ remain null. `TelemetryService` provides filters and grouped comparisons without
 routing or recommending Workers. See
 [Task telemetry](docs/architecture.md#task-telemetry-phase-07) for exact metric
 definitions, coverage rules and failure semantics. Upgrade with `alembic upgrade head`.
+
+Phase 08 exposes eight typed MCP tools for discovery and asynchronous delegation:
+`agentforge_status`, `describe_capabilities`, `list_projects`, `list_workers`,
+`list_agents`, `delegate_task`, `get_task`, `cancel_task`. Start with an explicitly
+configured migrated database and Worker file:
+
+```sh
+python -m agentforge.mcp.server --database-url sqlite:///agentforge.db --workers workers.local.toml
+```
+
+See [MCP setup, schemas, errors and optional smoke](docs/mcp.md). The shared
+application owns one TaskEngine and database; Workers remain inference endpoints
+while repository/index tools execute on the central host. MCP stdio supports
+Windows, but existing repository tools require POSIX no-follow descriptors and
+fail closed on native Windows. The MCP guide documents that limitation and the
+supported central-host smoke procedure.
 
 Use the foundation directly from Python (inside your own async function):
 
