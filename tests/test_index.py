@@ -611,7 +611,17 @@ def test_new_migration_follows_registry_and_preserves_registration(
         assert "indexed_files" not in inspect(connection).get_table_names()
         command.upgrade(config, "head")
         command.check(config)
-    assert registry.get_project(project.id) == project
+    # Downgrading to Phase 03 drops the later directory identity. The stable
+    # registration survives; safe repository tools require re-registration.
+    restored = registry.get_project(project.id)
+    assert (restored.id, restored.name, restored.root_path, restored.created_at) == (
+        project.id,
+        project.name,
+        project.root_path,
+        project.created_at,
+    )
+    assert restored.root_device is None
+    assert restored.root_inode is None
 
 
 def test_database_errors_are_translated(indexed, database):

@@ -7,8 +7,9 @@ implements Provider contracts, validated Worker configuration and the Ollama HTT
 adapter, including health, generation and streaming. Phase 03 implements the
 Project Registry, SQLAlchemy persistence and the initial Alembic migration.
 Issue #14 adds a deterministic Python Project Index and compact repository map.
-Other runtime components below remain **planned**. There are no application
-endpoints, repository tools, task execution or dashboard behavior yet.
+Phase 04 adds bounded, read-only repository tools. Other runtime components below
+remain **planned**. There are no application endpoints, task execution or dashboard
+behavior yet.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -180,9 +181,12 @@ and `projects.paths.resolve_project_path(root, candidate)` resolve existing
 candidates and check `Path.is_relative_to` against the resolved root. Absolute
 paths, `..`, common-prefix siblings and symlinks receive the same containment
 check. A stored root replaced by a symlink to another location is rejected.
-Validation is a point-in-time check: future file tools must address filesystem
-races between validation and I/O, and separately define safe creation semantics
-for nonexistent paths. No repository file tools exist yet.
+Validation alone is a point-in-time check. Phase 04 adds `open_root(id)` for
+descriptor-anchored access and persists new registrations' directory device/inode
+identity. Migration `0003_project_root_identity` leaves these fields null for
+legacy registrations: repository tools fail closed until those projects are
+removed and re-registered. Migration never observes or authorizes a replacement
+directory. Creation semantics for nonexistent paths remain unimplemented.
 
 `inspect_project` returns `ProjectInspection(project, git)`. `GitMetadata` is a
 fresh, nonpersisted observation with an observation timestamp, discovery status,
@@ -222,7 +226,7 @@ down. The initial revision creates only project configuration. Tests migrate
 temporary SQLite databases and verify upgrade/downgrade and database reopening.
 
 Project-specific configuration stays with registry entries, separate from generic
-runtime behavior. Repository read tools and architecture summaries remain deferred.
+runtime behavior. Architecture summaries remain deferred.
 
 ### Deterministic Project Index (Issue #14)
 
@@ -239,8 +243,9 @@ The boundary is Python bytes → built-in AST → small immutable extraction rec
 → SQLite → queries/maps. `index.python_parser` owns definitions, line locations,
 lexical containment and import/call facts; it never executes source. Its
 `parse_python(relative_path, bytes) -> ParsedFile` boundary allows another parser
-later without a plugin framework or storage redesign. `index.scanner` owns safe
-file reads/exclusions. `db.index` owns transaction-scoped replacement and link
+later without a plugin framework or storage redesign. `index.scanner` uses shared
+`projects.filesystem` descriptors and `projects.exclusions` for safe reads/traversal.
+`db.index` owns transaction-scoped replacement and link
 resolution; `index.render` owns deterministic relevance and bounded rendering.
 No LLM, embeddings, vector database or graph library builds structural facts.
 
@@ -330,10 +335,99 @@ states, cancellation, retries and concurrency policy belong to their implementat
 issues. Infrastructure errors must be reported to the director; automatic model
 fallback would violate explicit worker selection.
 
-Repository tools will provide scoped operations useful for exploration, review and
-test triage. Initial permissions should favor read-only access; execution and write
-operations require explicit authorization and separately implemented controls.
-No repository tools or write-capable agents exist in this phase.
+`tools.service.RepositoryTools(ProjectRegistry)` supplies synchronous,
+transport-independent `list_files`, `read_file`, `search_code`, `git_grep`,
+`git_status` and `git_diff`. Every operation requires a registered Project UUID;
+there is no arbitrary root/path API, generic command runner, shell, write tool,
+MCP wrapper or Agent Runtime. Tools do not require a refreshed index. The Index
+supplies symbols, relationships and maps; tools supply exact source and Git state.
+
+Filesystem authorization remains the registry's canonical Project root, using
+`open_root(id)` and shared no-follow descriptors for root ancestors, traversal
+and regular-file reads. Paths must be project-relative; absolute paths, `..`,
+backslashes, drive/pathspec syntax and control characters are rejected. Tools
+reject all symlinks (including internal aliases), directories as file reads and
+special files. File changes during reads and directory/root replacement fail
+closed, including early traversal termination at a result limit. Device/inode
+identity catches ordinary root replacement across service/database reopening.
+Containment uses path components, never string-prefix comparisons. POSIX
+no-follow/descriptor capabilities are required; unsupported systems fail closed.
+Privileged mount manipulation and inode reuse are beyond this filesystem boundary.
+
+Automatic listing/search reuse the Index's fixed generated/cache/vendor directory
+exclusions. There is no configurable ignore engine. They additionally omit a small,
+case-insensitive sensitive-path policy: `.env`, all `.env.*` (including examples),
+`.secrets`, `.ssh`, `.aws`, `.gnupg`, `.git`/`.hg`/`.svn`, `.netrc`, `.npmrc`,
+`.pypirc`, `credentials.json`, common `id_rsa`/`id_dsa`/`id_ecdsa`/`id_ed25519`
+key names, and `.pem`/`.key`/`.p12`/`.pfx` suffixes, anywhere under the root.
+Explicit reads may inspect otherwise excluded generated files, but sensitive
+paths are always denied by every tool, without content in errors. This is
+conservative defense-in-depth, not secret classification or DLP.
+
+File reads accept optional inclusive 1-based start/end lines and return requested
+and returned ranges, text and a truncation flag. Decoding is strict UTF-8 with
+control-character rejection (except tab/CR/LF); no encoding guessing, tokenizer,
+base64, media extraction or execution occurs. A bounded prefix is inspected,
+so this is not a claim that an unseen tail is textual. Listings and searches have
+stable lexical path/line ordering. `search_code` is literal, optionally casefolded,
+and supports directory scope and a `fnmatchcase` glob over relative paths;
+non-text files are skipped and counted. Snippet truncation is explicit on each
+match; result truncation means the requested scan/output could not be completed.
+
+| Budget | Default | Hard upper bound |
+| --- | --- | --- |
+| Returned UTF-8 bytes (all potentially large tools) | 64 KiB | 1 MiB |
+| File listing / Git status entries | 1,000 | 10,000 |
+| Returned file lines | 1,000 | 10,000 |
+| Search / Git grep matches | 100 | 1,000 |
+| Matching-line snippet bytes | 500 | 2,000 |
+| Inspected source/index blob prefix per file | 2 MiB | fixed 2 MiB |
+| Files / bytes inspected by filesystem search | 100,000 / 64 MiB | fixed |
+| Changed paths considered by a diff | 100 | fixed |
+| Lines compared per file in an unstaged diff | 10,000 | fixed |
+| Git metadata capture / stderr capture | 64 KiB / 8 KiB | fixed |
+| Git subprocess timeout | 2 seconds | fixed per subprocess |
+
+Entry/match byte budgets account for paths as well as content. File range bounds
+are limited to 1,000,000. Truncation is returned whenever a result, scan or diff
+limit prevents completeness; incomplete oversized diff inputs are skipped rather
+than treated as complete files. UTF-8 truncation never emits a split character.
+Filesystem scans process one file at a time; directory names are sorted in memory.
+Separate filesystem and Git observations are not an atomic snapshot.
+
+Git tools require a Git worktree and Linux `/proc/self/fd` to pin subprocess cwd.
+Absence, unavailable Git, timeout and backend failure are separate domain errors.
+A private backend uses fixed explicit argv, `shell=False`, bounded concurrently
+drained stdout/stderr, process-group termination and sanitized shared Git
+configuration. Inherited `GIT_*` redirection is removed; global/system config,
+optional locks, network transports, lazy fetch, pagers, fsmonitor, hooks, external
+diff/textconv and submodule recursion are disabled. Configured clean/smudge/process
+filters are discovered by name and overridden before worktree status. Git metadata
+must remain stable during an observation; these calls are not an OS process sandbox
+against another process concurrently rewriting Git configuration.
+
+`git_grep` deliberately searches regular-file **index contents** with `--cached`,
+not untracked or unstaged text, to avoid worktree symlink races. It accepts literal
+queries and safe relative paths only, with no caller Git options/pathspec magic.
+`git_status` parses NUL-delimited porcelain v1, disables rename expansion, and
+returns branch/detached state plus staged, unstaged, untracked and conflict facts.
+`git_diff(staged=True)` uses bounded Git patches with rename expansion disabled;
+unstaged diffs compare validated indexed blobs against descriptor-safe working
+files with stdlib `difflib`. Binary changes get a textual unsupported marker,
+metadata-only changes a marker, and conflict/oversized input omission marks the
+result incomplete. Symlink reads fail closed; submodule content is omitted.
+There is no historical revision API, network access or repository mutation.
+
+For registered `/repo/allowed` inside Git root `/repo`, every Git request has a
+literal project-relative scope. Captured root-relative names are converted by
+component containment, filtered by exclusion/sensitive policy and returned as
+Project-relative paths. Grep/diff receive only eligible scoped paths; rename
+expansion is disabled so a move across the boundary cannot reveal sibling content.
+Git discovery never authorizes `/repo/secret`. Synthetic tests cover all three
+Git tools on this subdirectory boundary and verify byte-for-byte read-only behavior.
+Public errors reuse Project identity/path failures and add invalid argument,
+missing file, unsupported text, sensitive path, I/O, non-Git, unavailable Git,
+timeout and safe backend failure types; OS/SQL/Git stderr details are not exposed.
 
 ### Telemetry, MCP and dashboard
 
@@ -405,7 +499,8 @@ are declared now, but adopting a library does not imply its runtime is implement
 - Treat local databases and runtime logs as private runtime state. Define retention
   and output limits when persistence and telemetry are implemented.
 
-These principles are contracts for later work, not existing security controls.
+Some principles guide future components; registered project and repository-tool
+boundaries are implemented as described above.
 
 ## Future execution flow
 

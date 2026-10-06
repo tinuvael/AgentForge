@@ -19,7 +19,12 @@ def _project(record: ProjectRecord) -> Project:
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=UTC)
     return Project(
-        record.id, record.name, Path(record.root_path), created_at.astimezone(UTC)
+        record.id,
+        record.name,
+        Path(record.root_path),
+        created_at.astimezone(UTC),
+        int(record.root_device) if record.root_device is not None else None,
+        int(record.root_inode) if record.root_inode is not None else None,
     )
 
 
@@ -36,6 +41,12 @@ class ProjectRepository:
                         name=project.name,
                         root_path=str(project.root_path),
                         created_at=project.created_at,
+                        root_device=str(project.root_device)
+                        if project.root_device is not None
+                        else None,
+                        root_inode=str(project.root_inode)
+                        if project.root_inode is not None
+                        else None,
                     )
                 )
                 session.commit()

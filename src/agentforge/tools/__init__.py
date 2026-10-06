@@ -1,1 +1,1 @@
-"""Planned permission-scoped tools for registered projects."""
+"""Bounded read-only repository capabilities for registered projects."""

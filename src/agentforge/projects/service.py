@@ -1,5 +1,6 @@
 """Transport-independent Project Registry operations."""
 
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -7,9 +8,12 @@ from uuid import UUID, uuid4
 from agentforge.db.projects import ProjectRepository
 from agentforge.projects.errors import (
     InvalidProjectName,
+    InvalidProjectPath,
     ProjectAlreadyRegistered,
     ProjectNotFound,
+    UnsafeProjectPath,
 )
+from agentforge.projects.filesystem import anchored_root
 from agentforge.projects.git import inspect_git
 from agentforge.projects.models import Project, ProjectInspection
 from agentforge.projects.paths import (
@@ -37,7 +41,15 @@ class ProjectRegistry:
         root = canonical_project_root(root_path, base_directory=self._base_directory)
         if self._repository.find_by_root(root) is not None:
             raise ProjectAlreadyRegistered("Project root is already registered")
-        return self._repository.add(Project(uuid4(), name, root, datetime.now(UTC)))
+        try:
+            observed = root.stat()
+        except OSError:
+            raise InvalidProjectPath("Project root cannot be observed") from None
+        return self._repository.add(
+            Project(
+                uuid4(), name, root, datetime.now(UTC), observed.st_dev, observed.st_ino
+            )
+        )
 
     def list_projects(self) -> list[Project]:
         return self._repository.list()
@@ -59,6 +71,23 @@ class ProjectRegistry:
 
     def resolve_path(self, project_id: UUID | str, candidate: str | Path) -> Path:
         return resolve_project_path(self.get_project(project_id).root_path, candidate)
+
+    @contextmanager
+    def open_root(self, project_id: UUID | str):
+        """Provide a no-follow descriptor for the registered directory identity.
+
+        Legacy registrations without an observed identity must be re-registered;
+        silently trusting today's directory would authorize a replacement root.
+        """
+        project = self.get_project(project_id)
+        if project.root_device is None or project.root_inode is None:
+            raise UnsafeProjectPath(
+                "Project must be re-registered for safe file access"
+            )
+        with anchored_root(
+            project.root_path, (project.root_device, project.root_inode)
+        ) as fd:
+            yield project, fd
 
     @staticmethod
     def _id(project_id: UUID | str) -> UUID:
