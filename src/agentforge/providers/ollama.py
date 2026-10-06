@@ -4,15 +4,26 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 import httpx
-from pydantic import BaseModel, Field, JsonValue, StrictBool, StrictInt, ValidationError
+from pydantic import (
+    BaseModel,
+    Field,
+    JsonValue,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+)
 
 from agentforge.core.inference import (
     GenerationChunk,
     GenerationRequest,
     GenerationResult,
     Message,
+    TokenUsage,
+    ToolCall,
 )
 from agentforge.core.provider_errors import (
     BackendUnavailable,
@@ -24,8 +35,20 @@ from agentforge.core.provider_errors import (
 from agentforge.core.worker import Worker, WorkerHealth
 
 
+class _OllamaFunction(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    arguments: dict[str, JsonValue]
+
+
+class _OllamaToolCall(BaseModel):
+    id: str | None = Field(default=None, min_length=1, max_length=200)
+    function: _OllamaFunction
+
+
 class _OllamaMessage(BaseModel):
     content: str
+    thinking: StrictStr | None = Field(default=None, repr=False)
+    tool_calls: list[_OllamaToolCall] = Field(default_factory=list)
 
 
 class _ChatResponse(BaseModel):
@@ -89,12 +112,33 @@ class OllamaProvider:
             options["num_ctx"] = worker.context_window
         if request.temperature is not None:
             options["temperature"] = request.temperature
-        return {
+        payload = {
             "model": worker.model,
-            "messages": [message.model_dump() for message in messages],
+            "messages": [OllamaProvider._message(message) for message in messages],
             "stream": stream,
             "options": options,
         }
+        if request.tools:
+            payload["tools"] = [
+                {"type": "function", "function": tool.model_dump()}
+                for tool in request.tools
+            ]
+        return payload
+
+    @staticmethod
+    def _message(message: Message) -> dict[str, JsonValue]:
+        value = {"role": message.role, "content": message.content}
+        if message.reasoning is not None:
+            value["thinking"] = message.reasoning
+        if message.tool_calls:
+            value["tool_calls"] = [
+                {"function": {"name": call.name, "arguments": call.arguments}}
+                for call in message.tool_calls
+            ]
+        if message.role == "tool":
+            # Native Ollama correlates by tool_name, not OpenAI tool_call_id.
+            value["tool_name"] = message.tool_name
+        return value
 
     @staticmethod
     def _parse_chat(data: object) -> GenerationChunk:
@@ -121,11 +165,25 @@ class OllamaProvider:
         }
         return GenerationChunk(
             content=parsed.message.content,
+            reasoning=parsed.message.thinking,
             model=parsed.model,
             done=parsed.done,
             finish_reason=parsed.done_reason,
             usage=usage or None,
             timing=timing or None,
+            token_usage=TokenUsage(
+                input_tokens=parsed.prompt_eval_count, output_tokens=parsed.eval_count
+            )
+            if usage
+            else None,
+            tool_calls=[
+                ToolCall(
+                    id=call.id or f"ollama-{uuid4().hex}",
+                    name=call.function.name,
+                    arguments=call.function.arguments,
+                )
+                for call in parsed.message.tool_calls
+            ],
         )
 
     @staticmethod

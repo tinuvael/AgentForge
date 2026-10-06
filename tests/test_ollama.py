@@ -457,3 +457,265 @@ def test_provider_mismatch_and_disabled_stream_rejected_before_http(
                     pass
 
     asyncio.run(run())
+
+
+def test_native_tool_protocol_and_normalized_ids_round_trip(worker):
+    from agentforge.core.inference import ToolCall, ToolDefinition
+
+    calls = [
+        ToolCall(id="first", name="read_file", arguments={"path": "one.py"}),
+        ToolCall(id="second", name="read_file", arguments={"path": "two.py"}),
+    ]
+    request = GenerationRequest(
+        messages=[
+            Message(role="user", content="Inspect"),
+            Message(role="assistant", content="", tool_calls=calls),
+            Message(
+                role="tool",
+                content='{"ok":true}',
+                tool_call_id="first",
+                tool_name="read_file",
+            ),
+            Message(
+                role="tool",
+                content='{"ok":false}',
+                tool_call_id="second",
+                tool_name="read_file",
+            ),
+        ],
+        tools=[
+            ToolDefinition(
+                name="read_file",
+                description="Read source",
+                parameters={
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            )
+        ],
+    )
+
+    def handler(http_request):
+        payload = json.loads(http_request.content)
+        assert payload["tools"] == [
+            {"type": "function", "function": request.tools[0].model_dump()}
+        ]
+        assert payload["messages"][1] == {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"function": {"name": "read_file", "arguments": {"path": "one.py"}}},
+                {"function": {"name": "read_file", "arguments": {"path": "two.py"}}},
+            ],
+        }
+        assert payload["messages"][2] == {
+            "role": "tool",
+            "content": '{"ok":true}',
+            "tool_name": "read_file",
+        }
+        assert payload["messages"][3]["tool_name"] == "read_file"
+        return httpx.Response(
+            200,
+            json=chat_response(
+                message={
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "backend-id",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": {"path": "three.py"},
+                            },
+                        },
+                        {
+                            "function": {
+                                "name": "search_code",
+                                "arguments": {"query": "helper"},
+                            }
+                        },
+                    ],
+                },
+                prompt_eval_count=19,
+                eval_count=5,
+            ),
+        )
+
+    result = asyncio.run(provider_for(handler).generate(worker, request))
+    assert result.content == ""
+    assert result.tool_calls[0].id == "backend-id"
+    assert result.tool_calls[0].arguments == {"path": "three.py"}
+    assert result.tool_calls[1].id.startswith("ollama-")
+    assert result.tool_calls[1].name == "search_code"
+    assert result.token_usage.input_tokens == 19
+    assert result.token_usage.output_tokens == 5
+
+
+@pytest.mark.parametrize(
+    "tool_calls",
+    [
+        [{"function": {"name": "read_file", "arguments": "path=secret"}}],
+        [{"function": {"name": "", "arguments": {}}}],
+        [{"function": {"name": "read_file", "arguments": []}}],
+        [{"id": "", "function": {"name": "read_file", "arguments": {}}}],
+    ],
+)
+def test_malformed_native_tool_calls_are_safe_provider_failures(
+    worker, generation_request, tool_calls
+):
+    provider = provider_for(
+        lambda _: httpx.Response(
+            200, json=chat_response(message={"content": "", "tool_calls": tool_calls})
+        )
+    )
+    with pytest.raises(InvalidProviderResponse) as caught:
+        asyncio.run(provider.generate(worker, generation_request))
+    assert "secret" not in str(caught.value)
+
+
+def test_missing_tool_ids_are_unique_even_for_repeated_tools(
+    worker, generation_request
+):
+    provider = provider_for(
+        lambda _: httpx.Response(
+            200,
+            json=chat_response(
+                message={
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "read_file",
+                                "arguments": {"path": "one.py"},
+                            }
+                        }
+                    ]
+                    * 2,
+                }
+            ),
+        )
+    )
+
+    async def run():
+        first = await provider.generate(worker, generation_request)
+        second = await provider.generate(worker, generation_request)
+        return first.tool_calls + second.tool_calls
+
+    calls = asyncio.run(run())
+    assert len({call.id for call in calls}) == 4
+
+
+def test_stream_still_normalizes_structured_tools(worker, generation_request):
+    data = chat_response(
+        message={
+            "content": "",
+            "tool_calls": [
+                {"function": {"name": "read_file", "arguments": {"path": "one.py"}}}
+            ],
+        }
+    )
+    stream = TrackedStream([json.dumps(data).encode() + b"\n"])
+    provider = provider_for(lambda _: httpx.Response(200, stream=stream))
+
+    async def run():
+        async with provider.stream(worker, generation_request) as chunks:
+            return [chunk async for chunk in chunks]
+
+    chunks = asyncio.run(run())
+    assert chunks[0].tool_calls[0].name == "read_file" and chunks[0].done
+    assert stream.closed
+
+
+def test_normalized_usage_partial_and_missing_counts(worker, generation_request):
+    provider = provider_for(
+        lambda _: httpx.Response(200, json=chat_response(eval_count=4))
+    )
+    result = asyncio.run(provider.generate(worker, generation_request))
+    assert (
+        result.token_usage.input_tokens is None
+        and result.token_usage.output_tokens == 4
+    )
+    provider = provider_for(lambda _: httpx.Response(200, json=chat_response()))
+    assert (
+        asyncio.run(provider.generate(worker, generation_request)).token_usage is None
+    )
+
+
+@pytest.mark.parametrize("thinking", ["I need to inspect the file", "", None])
+def test_thinking_is_opaque_normalized_state_not_assistant_content(worker, thinking):
+    data = chat_response(
+        message={
+            "thinking": thinking,
+            "content": "",
+            "tool_calls": [
+                {"function": {"name": "read_file", "arguments": {"path": "source.py"}}}
+            ],
+        }
+    )
+    provider = provider_for(lambda _: httpx.Response(200, json=data))
+    result = asyncio.run(
+        provider.generate(
+            worker,
+            GenerationRequest(messages=[Message(role="user", content="Inspect")]),
+        )
+    )
+    assert result.reasoning == thinking
+    assert result.content == ""
+    assert result.tool_calls[0].name == "read_file"
+
+
+def test_absent_thinking_stays_unknown_and_absent_on_wire(worker, generation_request):
+    def handler(http_request):
+        payload = json.loads(http_request.content)
+        assert all(
+            "thinking" not in message and "reasoning" not in message
+            for message in payload["messages"]
+        )
+        return httpx.Response(200, json=chat_response())
+
+    result = asyncio.run(provider_for(handler).generate(worker, generation_request))
+    assert result.reasoning is None and result.content == "hello back"
+
+
+@pytest.mark.parametrize(
+    "thinking", [42, True, ["PRIVATE THINKING"], {"text": "PRIVATE THINKING"}]
+)
+def test_malformed_thinking_is_rejected_without_leaking_state(
+    worker, generation_request, thinking
+):
+    provider = provider_for(
+        lambda _: httpx.Response(
+            200, json=chat_response(message={"content": "", "thinking": thinking})
+        )
+    )
+    with pytest.raises(InvalidProviderResponse) as caught:
+        asyncio.run(provider.generate(worker, generation_request))
+    assert str(caught.value) == "Invalid Ollama chat response"
+
+
+def test_stream_normalizes_thinking_deltas_separately_and_closes(
+    worker, generation_request
+):
+    records = [
+        chat_response(done=False, message={"content": "", "thinking": "opaque first "}),
+        chat_response(done=False, message={"content": "", "thinking": "opaque second"}),
+        chat_response(done=False, message={"content": "answer"}),
+        chat_response(message={"content": ""}),
+    ]
+    stream = TrackedStream([json.dumps(record).encode() + b"\n" for record in records])
+    provider = provider_for(lambda _: httpx.Response(200, stream=stream))
+
+    async def run():
+        async with provider.stream(worker, generation_request) as chunks:
+            return [chunk async for chunk in chunks]
+
+    chunks = asyncio.run(run())
+    assert [chunk.reasoning for chunk in chunks] == [
+        "opaque first ",
+        "opaque second",
+        None,
+        None,
+    ]
+    assert "".join(chunk.content for chunk in chunks) == "answer"
+    assert chunks[-1].done and stream.closed
