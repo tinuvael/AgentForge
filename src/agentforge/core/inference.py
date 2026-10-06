@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictStr, model_validator
 
 from agentforge.core.worker import Worker, WorkerHealth
 
@@ -39,12 +39,16 @@ class Message(BaseModel):
 
     role: Literal["system", "user", "assistant", "tool"]
     content: str
+    # Opaque assistant history for protocol continuity; never a runtime instruction.
+    reasoning: StrictStr | None = Field(default=None, repr=False)
     tool_calls: list[ToolCall] = Field(default_factory=list)
     tool_call_id: str | None = None
     tool_name: str | None = None
 
     @model_validator(mode="after")
     def valid_tool_role(self):
+        if self.reasoning is not None and self.role != "assistant":
+            raise ValueError("Only assistant messages may carry reasoning state")
         if self.tool_calls and self.role != "assistant":
             raise ValueError("Only assistant messages may request tools")
         if self.role == "tool":
@@ -70,6 +74,7 @@ class GenerationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     content: str
+    reasoning: StrictStr | None = Field(default=None, repr=False)
     model: str
     finish_reason: str | None = None
     usage: dict[str, JsonValue] | None = None
@@ -79,7 +84,7 @@ class GenerationResult(BaseModel):
 
 
 class GenerationChunk(GenerationResult):
-    """Content is a delta; terminal chunks carry available final metadata."""
+    """Content/reasoning are deltas; terminal chunks carry available final metadata."""
 
     done: bool = False
 

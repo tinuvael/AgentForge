@@ -7,7 +7,15 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import httpx
-from pydantic import BaseModel, Field, JsonValue, StrictBool, StrictInt, ValidationError
+from pydantic import (
+    BaseModel,
+    Field,
+    JsonValue,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+)
 
 from agentforge.core.inference import (
     GenerationChunk,
@@ -39,6 +47,7 @@ class _OllamaToolCall(BaseModel):
 
 class _OllamaMessage(BaseModel):
     content: str
+    thinking: StrictStr | None = Field(default=None, repr=False)
     tool_calls: list[_OllamaToolCall] = Field(default_factory=list)
 
 
@@ -119,6 +128,8 @@ class OllamaProvider:
     @staticmethod
     def _message(message: Message) -> dict[str, JsonValue]:
         value = {"role": message.role, "content": message.content}
+        if message.reasoning is not None:
+            value["thinking"] = message.reasoning
         if message.tool_calls:
             value["tool_calls"] = [
                 {"function": {"name": call.name, "arguments": call.arguments}}
@@ -154,6 +165,7 @@ class OllamaProvider:
         }
         return GenerationChunk(
             content=parsed.message.content,
+            reasoning=parsed.message.thinking,
             model=parsed.model,
             done=parsed.done,
             finish_reason=parsed.done_reason,

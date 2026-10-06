@@ -173,7 +173,7 @@ class AgentRuntime:
             )
 
             def context_size():
-                # Include JSON framing, role/correlation fields and tool schemas.
+                # Include opaque reasoning, JSON framing, correlation and schemas.
                 return len(
                     json_text(
                         {
@@ -236,6 +236,7 @@ class AgentRuntime:
                     Message(
                         role="assistant",
                         content=response.content,
+                        reasoning=response.reasoning,
                         tool_calls=response.tool_calls,
                     )
                 )

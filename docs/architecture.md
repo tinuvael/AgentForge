@@ -114,9 +114,10 @@ requires both backend connectivity and observed model availability.
 
 `GenerationRequest` contains conversational messages, an optional prepended system
 instruction, optional temperature, provider options and optional timeout override.
-Phase 05 adds normalized structured tool calling, described below. Multimodal
-input and reasoning channels remain unsupported. Results contain content, model
-identity, optional finish reason, normalized token usage and optional
+Phase 05 adds normalized structured tool calling and opaque assistant reasoning
+state for protocol/history preservation, described below. Multimodal input remains
+unsupported. Results contain content, model identity, optional finish reason,
+normalized token usage and optional
 provider-specific usage/timing dictionaries for backward compatibility. Raw Ollama
 token counts retain their API names, and duration values retain their API names and nanosecond units;
 missing observations remain absent rather than estimated.
@@ -478,6 +479,18 @@ optional observed input/output counts. The runtime retains one optional usage
 observation per successful model turn, rather than fabricating totals when some
 counts are missing. Existing raw Provider usage/timing fields remain compatible.
 
+`Message` (assistant role only), `GenerationResult` and `GenerationChunk` also
+carry optional `reasoning: str | None`. This is opaque conversation state needed
+by some backends across tool turns. AgentRuntime copies it into the corresponding
+assistant history message and never interprets it as content, instructions, tool
+calls or authorization. Provider adapters may round-trip it as required by their
+protocol. Missing state remains `None`; no state is synthesized. Streaming preserves
+reasoning deltas inside normalized chunks, without an Agent reasoning UI.
+It contributes to context accounting but never becomes the runtime final answer,
+trace content or sanitized error output. Only independently returned normal
+assistant content can become a final answer. There is no reasoning telemetry or
+persistence.
+
 Ollama translates definitions into native `type: function` chat tools and parses
 native `message.tool_calls[].function` objects. It never parses textual pseudo-tool
 commands. Native Ollama generally omits call IDs and correlates tool results by
@@ -485,9 +498,15 @@ commands. Native Ollama generally omits call IDs and correlates tool results by
 supplied IDs in normalized results. It sends assistant function objects and native
 tool-role messages with `tool_name`. IDs remain intact inside the generic runtime;
 Ollama's native wire correlation is isolated in the adapter, including sequential
-results for repeated calls to the same tool. Model-specific reasoning fields are
-ignored, not treated as final answers or commands. Malformed function objects are
-safe Provider failures. Tool-use quality depends on the configured model/Ollama
+results for repeated calls to the same tool. Ollama `message.thinking` is parsed as
+normalized `reasoning` and serialized back as native assistant `thinking`, separate
+from `content` and `tool_calls`, on subsequent requests. This preserves the history
+required by thinking-enabled models, including the configured `gpt-oss:20b`, without
+model-specific runtime logic. Missing/null thinking stays `None` and is omitted on
+outgoing messages; an empty string is preserved. Non-string/non-null thinking is
+rejected as a safe `InvalidProviderResponse`, without its value in the error.
+Malformed function objects are safe Provider failures. Tool-use quality depends on
+the configured model/Ollama
 version; no `gpt-oss` workaround contaminates the runtime.
 
 `agents.tools.repository_toolset()` explicitly maps twelve read-only tools:
@@ -522,11 +541,13 @@ lists have explicit result counts and truncation metadata.
 The caller can supply validated per-execution limits; otherwise the Agent defaults
 apply. Conversation capacity is also capped by a known Worker context window.
 The deterministic approximation is `ceil(serialized UTF-8 bytes / 3)`, including
-system prompt, original task, all assistant text, tool calls/arguments, tool
-results, correlation fields, JSON framing and advertised schemas. It is a
-conservative size heuristic, not a tokenizer guarantee. The runtime checks the
-initial request and each appended contribution. It never silently discards or
-summarizes evidence. Source bytes are additionally bounded by existing service
+system prompt, original task, all assistant text and opaque reasoning state,
+tool calls/arguments, tool results, correlation fields, JSON framing and advertised
+schemas. This deterministic size heuristic is not a tokenizer-independent upper
+bound; actual token counts depend on the model's tokenizer. It bounds serialized
+conversation growth without guaranteeing fit in every model's token window. The
+runtime checks the initial request and each appended contribution. It never
+silently discards or summarizes evidence. Source bytes are additionally bounded by existing service
 limits. Wrappers request at most half the remaining per-result/aggregate budget
 for source output, reserving room for JSON escaping and metadata; the runtime then
 checks the actual complete serialized result. Oversized JSON is rejected rather
@@ -567,9 +588,9 @@ IDs, state, termination reason, step/attempted-call counts, accumulated output
 bytes, observed usage and an in-memory ordered trace. The trace records model and
 tool boundaries, call IDs, authorized names, validated argument shape with free
 text redacted, success/fixed failure codes, result byte sizes, elapsed durations
-and termination. It deliberately omits source bodies, assistant prose, raw invalid
-arguments and backend diagnostics. No result/trace is persisted or emitted to a
-metrics subsystem. This is execution evidence, not Phase 07 telemetry.
+and termination. It deliberately omits source bodies, assistant prose, reasoning
+state, raw invalid arguments and backend diagnostics. No result/trace is persisted
+or emitted to a metrics subsystem. This is execution evidence, not Phase 07 telemetry.
 
 `repo_explorer` requires inspecting evidence before repository claims, treats the
 Index as cached navigation rather than source truth, asks for exact source/tests

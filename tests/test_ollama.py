@@ -640,3 +640,82 @@ def test_normalized_usage_partial_and_missing_counts(worker, generation_request)
     assert (
         asyncio.run(provider.generate(worker, generation_request)).token_usage is None
     )
+
+
+@pytest.mark.parametrize("thinking", ["I need to inspect the file", "", None])
+def test_thinking_is_opaque_normalized_state_not_assistant_content(worker, thinking):
+    data = chat_response(
+        message={
+            "thinking": thinking,
+            "content": "",
+            "tool_calls": [
+                {"function": {"name": "read_file", "arguments": {"path": "source.py"}}}
+            ],
+        }
+    )
+    provider = provider_for(lambda _: httpx.Response(200, json=data))
+    result = asyncio.run(
+        provider.generate(
+            worker,
+            GenerationRequest(messages=[Message(role="user", content="Inspect")]),
+        )
+    )
+    assert result.reasoning == thinking
+    assert result.content == ""
+    assert result.tool_calls[0].name == "read_file"
+
+
+def test_absent_thinking_stays_unknown_and_absent_on_wire(worker, generation_request):
+    def handler(http_request):
+        payload = json.loads(http_request.content)
+        assert all(
+            "thinking" not in message and "reasoning" not in message
+            for message in payload["messages"]
+        )
+        return httpx.Response(200, json=chat_response())
+
+    result = asyncio.run(provider_for(handler).generate(worker, generation_request))
+    assert result.reasoning is None and result.content == "hello back"
+
+
+@pytest.mark.parametrize(
+    "thinking", [42, True, ["PRIVATE THINKING"], {"text": "PRIVATE THINKING"}]
+)
+def test_malformed_thinking_is_rejected_without_leaking_state(
+    worker, generation_request, thinking
+):
+    provider = provider_for(
+        lambda _: httpx.Response(
+            200, json=chat_response(message={"content": "", "thinking": thinking})
+        )
+    )
+    with pytest.raises(InvalidProviderResponse) as caught:
+        asyncio.run(provider.generate(worker, generation_request))
+    assert str(caught.value) == "Invalid Ollama chat response"
+
+
+def test_stream_normalizes_thinking_deltas_separately_and_closes(
+    worker, generation_request
+):
+    records = [
+        chat_response(done=False, message={"content": "", "thinking": "opaque first "}),
+        chat_response(done=False, message={"content": "", "thinking": "opaque second"}),
+        chat_response(done=False, message={"content": "answer"}),
+        chat_response(message={"content": ""}),
+    ]
+    stream = TrackedStream([json.dumps(record).encode() + b"\n" for record in records])
+    provider = provider_for(lambda _: httpx.Response(200, stream=stream))
+
+    async def run():
+        async with provider.stream(worker, generation_request) as chunks:
+            return [chunk async for chunk in chunks]
+
+    chunks = asyncio.run(run())
+    assert [chunk.reasoning for chunk in chunks] == [
+        "opaque first ",
+        "opaque second",
+        None,
+        None,
+    ]
+    assert "".join(chunk.content for chunk in chunks) == "answer"
+    assert chunks[-1].done and stream.closed

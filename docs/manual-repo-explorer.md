@@ -69,14 +69,24 @@ Some Ollama/model versions may omit native calls, emit malformed arguments, retu
 an empty final response, repeat tools or hit limits. Those outcomes are reported;
 there is no textual tool parser, automatic model replacement or `gpt-oss` special
 case. Native Ollama generally omits IDs; the adapter creates local correlation IDs
-and uses native `tool_name` on wire messages. Native reasoning fields are ignored.
+and uses native `tool_name` on wire messages. Native `message.thinking` is preserved
+as opaque normalized `reasoning` on assistant history, then round-tripped by the
+adapter as `thinking` on subsequent tool-result turns. AgentRuntime never
+interprets this state as an instruction, tool call, authorization or final answer.
+It counts against context but is excluded from execution-result JSON, trace
+content and sanitized errors. Missing/null state stays absent on the wire;
+non-string/non-null thinking fails safely. No reasoning UI, telemetry or
+persistence is implemented.
 A known Worker tool capability of `False` rejects the Agent before inference;
 unknown capability allows an attempt without claiming support.
 
 Default limits are 12 model turns, 24 tool calls, a 120-second whole-run deadline,
 12,000 bytes per result, 48,000 cumulative result bytes and 24,000 approximate
-context tokens, further capped by a known Worker context window. The script uses
-those defaults. A cold model load may consume the deadline. Token cancellation is
+context tokens, further capped by a known Worker context window. The deterministic
+estimate is `ceil(serialized UTF-8 bytes / 3)`, including opaque reasoning. It
+bounds conversation growth, but is not a tokenizer-independent upper bound or a
+guarantee of fitting every model's token window. The script uses those defaults.
+A cold model load may consume the deadline. Token cancellation is
 cooperative at model/tool boundaries; Ctrl-C cancels the asyncio task and preserves
 Provider cleanup. Synchronous repository calls cannot be interrupted mid-call and
 are checked after returning. There is no Task persistence, telemetry, MCP,
