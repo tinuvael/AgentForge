@@ -23,20 +23,40 @@ POSIX descriptor/race tests are skipped on Windows.
 
 ## Migrations
 
-Migrations live under `src/agentforge/db/migrations/` and ship in the wheel. Root
-`alembic.ini` selects those same files; historical revision contents are unchanged.
-The linear chain is:
+Version **0.1.0** is the initial release candidate, pending native Windows,
+Ollama and hardware acceptance. Its first supported schema is **`0001_initial`**.
+This single revision creates the complete schema directly; the eight unreleased
+development revisions were intentionally removed before any supported deployment.
+Their databases are not an upgrade source. Preserve/export any development history
+and uncommitted workspaces you need, then select a fresh database and register roots
+explicitly. No command wipes, stamps or silently adopts an old database.
 
-| Revision | Schema purpose |
-| --- | --- |
-| `0001_projects` | Registered roots. |
-| `0002_project_index` | Python structure cache. |
-| `0003_project_root_identity` | POSIX root identity; old rows remain unauthorized. |
-| `0004_tasks` | Durable lifecycle and sanitized result history. |
-| `0005_task_telemetry` | Target snapshots and terminal observations; no fabricated backfill. |
-| `0006_windows_root_identity` | Tagged Windows identity; no live reauthorization. |
-| `0007_councils` | Ordered independent Task membership. |
-| `0008_coding_workspaces` | Private durable worktree ownership and bounded observations. |
+Migrations live under `src/agentforge/db/migrations/` and ship in the wheel. Root
+`alembic.ini` selects those same files. After this baseline is released, add new
+linear revisions (`0002`, `0003`, ...) rather than rewriting `0001_initial`.
+
+The schema separates registration/cache from durable execution history:
+
+- `projects` requires one versioned, platform-tagged root identity JSON. No nullable
+  POSIX/Windows transition columns or migration-time filesystem observations.
+- `project_indexes`, `indexed_files`, `index_symbols` and `index_relationships`
+  cascade with registration/file/source removal. Relationship targets are recomputed
+  cache links, rather than authorization or foreign keys.
+- `tasks` and `councils` retain historical Project IDs without Project FKs.
+  Council membership references both parents without cascading deletion; Task
+  membership and each Council's Worker/ordinal are unique.
+- `task_telemetry` is independently retained immutable terminal observation data.
+  `coding_workspaces` independently retains private ownership for safe cleanup even
+  after deregistration; neither is cascaded by deleting another record. There is no
+  supported Task/history deletion API. Workspaces have unique IDs/branch bindings.
+- State/coverage CHECK constraints reject unsupported lifecycle values. Unknown
+  target snapshots, counts, timings and outcomes stay SQL NULL; queued telemetry
+  coverage defaults to `pending`. Source/diff tool bodies are not automatically
+  persisted; intentional requests, answers and validation captures may contain them.
+- UUIDs use SQLAlchemy's portable `Uuid` (32 hexadecimal characters on SQLite).
+  Datetimes are written in UTC and restored as UTC by repositories because SQLite
+  drops timezone metadata. Runtime and Alembic CLI use the same SQLite transaction
+  and foreign-key policy. Explicit indexes support actual lookup/history queries.
 
 An explicit upgrade works from both an installed wheel and source:
 
@@ -44,7 +64,8 @@ An explicit upgrade works from both an installed wheel and source:
 python -m agentforge.db.migrate --database-url sqlite:///agentforge.db
 ```
 
-Server startup never migrates. Stop executors, back up private state and use the
+Server startup requires the packaged migration head before recovery/execution;
+it never migrates or stamps storage. Stop executors, back up private state and use the
 same database URL when upgrading/restarting. Source-level Alembic maintenance:
 
 ```sh
@@ -54,11 +75,12 @@ alembic -c alembic.ini check
 
 For another URL, set `sqlalchemy.url` in a local config beside the root config, or
 supply a Connection through `Config.attributes["connection"]` as tests do. Do not
-casually modify released revisions. `tests/test_migrations.py` upgrades fresh
-storage, checks one head and every intermediate downgrade/re-upgrade against ORM
-metadata. Existing registry/index/Task/telemetry/Council tests additionally check
-history, foreign keys and fail-closed legacy identity. Downgrades remove later
-schema/data; they are development consistency checks, not a lossless rollback plan.
+casually modify released revisions. `tests/test_migrations.py` checks one initial
+head, empty upgrades, idempotency with populated storage, and populated
+head → base → head against ORM types, defaults, FKs, indexes and CHECK constraints.
+Registry/index/Task/telemetry/Council tests additionally check identity, historical
+retention, foreign keys and lifecycle behavior. Downgrades remove schema/data;
+they are consistency checks, not a lossless rollback plan.
 Never run `downgrade base` on a database whose history you need.
 
 ## Clean wheel validation
@@ -79,11 +101,12 @@ Installation requires available dependency distributions, or an operator-prepare
 wheelhouse with `pip install --no-index --find-links <wheelhouse> ...`. The smoke
 itself is offline and creates only temporary synthetic storage. It checks:
 
-- Imports resolve under the clean venv, rather than source/editable paths.
+- All production module imports resolve under the clean venv.
 - Migration scripts/template and dashboard templates, CSS, JS, HTMX/license data.
 - `--help` for packaged migration, MCP and dashboard module entrypoints.
-- Fresh/idempotent upgrades from packaged revisions.
+- The installed migration command creates the initial schema and upgrades twice.
 - Actual SDK in-memory MCP discovery, scripted Task execution and telemetry.
+- Installed MCP module startup/discovery/status over real stdio, without inference.
 - Real ASGI dashboard lifespan, pages/static resources and clean shutdown.
 
 There are no console-script aliases; supported commands are `python -m` modules.

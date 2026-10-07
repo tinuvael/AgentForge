@@ -2,20 +2,16 @@
 
 import os
 import subprocess
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, select
 
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
 from agentforge.db.models import (
     IndexedFileRecord,
     IndexStateRecord,
-    ProjectRecord,
     RelationshipRecord,
     SymbolRecord,
 )
@@ -465,7 +461,7 @@ def test_ordinary_root_replacement_rejected_after_reopen(
     root.rename(tmp_path / "registered-directory")
     root.mkdir()
     write(root, "replacement.py", "def unauthorized_replacement(): pass\n")
-    assert root.stat().st_ino != project.root_inode
+    assert str(root.stat().st_ino) != project.root_identity.file_id
 
     def unexpected_git(*args):
         pytest.fail("Replaced roots must be rejected before Git inspection")
@@ -500,47 +496,6 @@ def test_ordinary_root_replacement_rejected_after_reopen(
         )
         new_index = ProjectIndex(new_registry, IndexRepository(sessions))
         assert_rejected(new_registry, new_index, sessions)
-    finally:
-        reopened.dispose()
-
-
-@pytest.mark.posix
-def test_legacy_identity_rejects_live_index_access_but_keeps_snapshot(
-    indexed, registry, database, tmp_path, monkeypatch
-):
-    index, project, root = indexed
-    write(root, "module.py", "def cached(): pass\n")
-    index.refresh_index(project.id)
-    before = index.render_project_map(project.id)
-    sessions = create_session_factory(database[0])
-    with sessions.begin() as session:
-        record = session.get(ProjectRecord, project.id)
-        record.root_device = record.root_inode = None
-    write(root, "new.py", "def must_not_be_authorized(): pass\n")
-
-    def unexpected_git(*args):
-        pytest.fail("Legacy registration must not authorize Git inspection")
-
-    monkeypatch.setattr(registry_service, "inspect_git", unexpected_git)
-    # Reopen the database so no in-memory registration identity can hide NULLs.
-    engine, url = database
-    engine.dispose()
-    reopened = create_database_engine(url)
-    try:
-        sessions = create_session_factory(reopened)
-        registry = ProjectRegistry(ProjectRepository(sessions), base_directory=tmp_path)
-        index = ProjectIndex(registry, IndexRepository(sessions))
-        for operation in (
-            registry.inspect_project,
-            index.refresh_index,
-            index.get_index_status,
-            RepositoryTools(registry).list_files,
-        ):
-            with pytest.raises(UnsafeProjectPath, match="re-registered"):
-                operation(project.id)
-        assert index.render_project_map(project.id) == before
-        assert one(index, project, "cached")
-        assert not index.find_symbol(project.id, "must_not_be_authorized")
     finally:
         reopened.dispose()
 
@@ -726,32 +681,6 @@ def test_invalid_budget_is_rejected(indexed, budget):
     index, project, _ = indexed
     with pytest.raises(ValueError):
         index.render_project_map(project.id, max_tokens=budget)
-
-
-def test_new_migration_follows_registry_and_preserves_registration(
-    database, registry, tmp_path
-):
-    engine, _ = database
-    project = registry.register_project("Keep", tmp_path)
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        command.downgrade(config, "0001_projects")
-        assert "projects" in inspect(connection).get_table_names()
-        assert "indexed_files" not in inspect(connection).get_table_names()
-        command.upgrade(config, "head")
-        command.check(config)
-    # Downgrading to 0001_projects drops the later directory identity. The stable
-    # registration survives; safe repository tools require re-registration.
-    restored = registry.get_project(project.id)
-    assert (restored.id, restored.name, restored.root_path, restored.created_at) == (
-        project.id,
-        project.name,
-        project.root_path,
-        project.created_at,
-    )
-    assert restored.root_device is None
-    assert restored.root_inode is None
 
 
 def test_database_errors_are_translated(indexed, database):

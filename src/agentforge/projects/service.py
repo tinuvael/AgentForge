@@ -12,7 +12,6 @@ from agentforge.projects.errors import (
     InvalidProjectPath,
     ProjectAlreadyRegistered,
     ProjectNotFound,
-    UnsafeProjectPath,
 )
 from agentforge.projects.git import inspect_git
 from agentforge.projects.models import Project, ProjectInspection
@@ -53,9 +52,7 @@ class ProjectRegistry:
                 name,
                 root,
                 datetime.now(UTC),
-                int(observed.volume) if observed.kind == "posix" else None,
-                int(observed.file_id) if observed.kind == "posix" else None,
-                observed if observed.kind != "posix" else None,
+                observed,
             )
         )
 
@@ -99,23 +96,15 @@ class ProjectRegistry:
     def resolve_path(self, project_id: UUID | str, candidate: str | Path) -> Path:
         project = self.get_project(project_id)
         return self.filesystem.resolve_path(
-            project.root_path, candidate, expected=project.filesystem_identity
+            project.root_path, candidate, expected=project.root_identity
         )
 
     @contextmanager
     def open_root(self, project_id: UUID | str):
-        """Provide a platform capability for the registered directory identity.
-
-        Legacy registrations without an observed identity must be re-registered;
-        silently trusting today's directory would authorize a replacement root.
-        """
+        """Provide a platform capability for the recorded directory identity."""
         project = self.get_project(project_id)
-        if project.filesystem_identity is None:
-            raise UnsafeProjectPath(
-                "Project must be re-registered for safe file access"
-            )
         with self.filesystem.anchored_root(
-            project.root_path, project.filesystem_identity
+            project.root_path, project.root_identity
         ) as fd:
             yield project, fd
 

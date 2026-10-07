@@ -129,7 +129,7 @@ nonblank strings of at most 32,768 characters.
 | delegate_council | `{project_id: UUID, agent_id: string, task: string, worker_ids: string[]}`; **all required**, 2–16 distinct Workers | `CouncilSnapshot`: durable identity and ordered queued participants; returns promptly |
 | get_council | `{council_id: UUID}` | `CouncilSnapshot`: current participant outcomes/answers, state counts and terminal flag |
 | cancel_council | `{council_id: UUID}` | `CouncilSnapshot`: cancel remaining participants through ordinary Task semantics |
-| get_coding_workspace | `{task_id: UUID}` | `CodingResult`: identity, state, branch/base and bounded factual observations, without host paths |
+| get_coding_workspace | `{task_id: UUID}` | `CodingResult`: identity, state, branch/base and bounded factual observations; private workspace paths omitted, validation captures untrusted |
 | get_coding_diff | `{task_id: UUID}` | `CodingDiff`: bounded current diff, changed paths, statistics and truncation |
 | cleanup_coding_workspace | `{task_id: UUID, workspace_id: UUID}` | `CodingResult`: explicit terminal-workspace removal; discards uncommitted edits, retains the branch |
 
@@ -345,7 +345,9 @@ through the same generic tools. See [configuration and data-egress guidance](pro
 The optional `--coding` configuration adds `coder` to Agent discovery.
 Normal `delegate_task` provisions an isolated worktree before inference. The
 Task-addressed `get_coding_workspace` and `get_coding_diff` return bounded factual
-coding evidence without host paths; `cleanup_coding_workspace` explicitly removes
+coding evidence with private workspace paths omitted. Validation captures remain
+untrusted text, not generally scrubbed host-path/secret content.
+`cleanup_coding_workspace` explicitly removes
 a terminal Task's matching workspace, discarding uncommitted changes and retaining
 the branch. It is marked destructive and requires both Task/workspace IDs.
 Disabled/missing/suspicious workspaces return safe errors. No shell, argv, root,

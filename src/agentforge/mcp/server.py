@@ -99,7 +99,8 @@ TOOL_CONTRACTS = (
         "get_coding_workspace",
         (
             "Inspect one Task's persisted coding identity and bounded factual "
-            "observations; no host paths."
+            "observations; private workspace paths omitted. Validation captures "
+            "remain untrusted text."
         ),
         TaskArguments,
         CodingResult,

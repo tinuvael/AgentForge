@@ -1,19 +1,34 @@
-"""Explicit database upgrade entry point, usable from a checkout or installed wheel."""
+"""Packaged schema revision checks and explicit database upgrades."""
 
 import argparse
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 
 from agentforge.db.database import create_database_engine
 
 
-def upgrade_database(database_url: str) -> None:
+def _configuration() -> Config:
     config = Config()
     config.set_main_option(
-        "script_location", str(Path(__file__).with_name("migrations"))
+        "script_location",
+        str(Path(__file__).with_name("migrations")).replace("%", "%%"),
     )
+    return config
+
+
+def schema_is_current(connection) -> bool:
+    """Read the revision stamp without creating tables or changing history."""
+    expected = ScriptDirectory.from_config(_configuration()).get_heads()
+    actual = MigrationContext.configure(connection).get_current_heads()
+    return len(expected) == 1 and actual == (expected[0],)
+
+
+def upgrade_database(database_url: str) -> None:
+    config = _configuration()
     engine = create_database_engine(database_url)
     try:
         with engine.begin() as connection:

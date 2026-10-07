@@ -1,13 +1,10 @@
 """Offline Councils on real migrated SQLite and the existing bounded executor."""
 
 import asyncio
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import delete, event, func, inspect, select, update
+from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from agentforge.application.service import ServiceError
@@ -462,14 +459,13 @@ def test_missing_council(setup, identity):
         setup.app.councils.cancel(identity)
 
 
-def test_migration_and_fk_history_protection(setup):
+def test_fk_history_protection(setup):
     async def execute():
         await setup.app.start()
         council = setup.app.councils.submit(**arguments(setup))
         setup.app.councils.cancel(council.council_id)
         await setup.app.close()
         engine = create_database_engine(setup.database[1])
-        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
         try:
             with create_session_factory(engine)() as session:
                 with pytest.raises(IntegrityError):
@@ -484,25 +480,12 @@ def test_migration_and_fk_history_protection(setup):
                     session.execute(delete(CouncilRecord))
                     session.commit()
                 session.rollback()
-            with engine.begin() as connection:
-                config.attributes["connection"] = connection
-                command.downgrade(config, "0006_windows_root_identity")
-                assert "councils" not in inspect(connection).get_table_names()
+                assert session.scalar(select(func.count()).select_from(TaskRecord)) == 2
                 assert (
-                    connection.scalar(select(func.count()).select_from(TaskRecord)) == 2
-                )
-                command.upgrade(config, "head")
-                assert "council_participants" in inspect(connection).get_table_names()
-                from alembic.autogenerate import compare_metadata
-                from alembic.migration import MigrationContext
-
-                from agentforge.db.database import Base
-
-                assert (
-                    compare_metadata(
-                        MigrationContext.configure(connection), Base.metadata
+                    session.scalar(
+                        select(func.count()).select_from(CouncilParticipantRecord)
                     )
-                    == []
+                    == 2
                 )
         finally:
             engine.dispose()

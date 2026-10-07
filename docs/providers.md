@@ -11,18 +11,18 @@ another Worker. A Council runs only its explicitly selected participants.
 
 `ProviderConnection` keeps endpoints and authentication inside protocol adapters.
 A small static factory creates one adapter per named connection; multiple Workers
-can reference it. Legacy inline Ollama Workers remain supported intentionally.
+can reference it. Inline Ollama Workers remain supported intentionally.
 There is no dynamic discovery or Provider plugin loader.
 
 Preferred TOML has `[[providers]]` connections and `[[workers]]` referencing their
 IDs through `provider`. The loader resolves this into Worker `provider` (protocol
 type) and `provider_connection` (connection ID). Runtime lookup uses the reference,
-or the type for legacy entries. Durable Tasks/Councils/telemetry and discovery
+or the type for inline Workers. Durable Tasks/Councils/telemetry and discovery
 continue using protocol type and configured model; no connection credentials or
 endpoints are persisted or projected. The response model is only a transient
 Provider observation and cannot rebind execution identity. Provider connection configuration is not persisted in database schema.
 
-Existing `config/workers.example.toml` still works unchanged:
+For inline Ollama, use `config/workers.example.toml`:
 
 ```toml
 [[workers]]
@@ -38,9 +38,9 @@ context_window = 32768
 temperature = 0.1
 ```
 
-New connections and legacy entries may coexist. Connection IDs and Worker IDs
-must each be unique. When mixing legacy Ollama entries, reserve the connection
-ID `ollama` for the legacy binding. Unknown references/types, conflicting inline
+Named connections and inline Workers may coexist. Connection IDs and Worker IDs
+must each be unique. When mixing inline Ollama Workers, reserve the connection
+ID `ollama` for the inline binding. Unknown references/types, conflicting inline
 endpoints, URL credentials/query/fragment, unsupported schemes, invalid settings
 and unavailable required environment authentication fail safely at startup.
 Programmatic injected Providers remain supported for generic callers.

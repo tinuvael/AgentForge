@@ -10,15 +10,11 @@ from agentforge.coding.process import git_environment
 from agentforge.projects.backends import GitLocation
 from agentforge.projects.errors import UnsafeProjectPath
 from agentforge.projects.windows import WindowsDirectory
-from agentforge.tools.git_backend import _Git
-
-# Reuse the existing concurrent bounded-pipe implementation, with its environment
-# supplied per instance instead of changing the read-only repository boundary.
+from agentforge.tools.git_backend import _run_git
 
 
-class WorkspaceGit(_Git):
+class WorkspaceGit:
     def __init__(self, executable, repository, metadata, *, worktree=None):
-        self.fd = metadata
         if isinstance(metadata, WindowsDirectory):
             location = GitLocation(
                 repository.path, prefix="", executable=str(executable)
@@ -69,7 +65,13 @@ class WorkspaceGit(_Git):
         self.environment = git_environment()
 
     def complete(self, args, cap=65536, *, allow_failure=False):
-        output = self._run(args, cap, allow_failure=allow_failure)
+        output = _run_git(
+            [*self.argv, *args],
+            self.location,
+            cap,
+            environment=self.environment,
+            allow_failure=allow_failure,
+        )
         if output.truncated:
             raise CodingError("Git metadata exceeded the coding limit")
         return output

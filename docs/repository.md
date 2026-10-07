@@ -1,7 +1,8 @@
 # Projects, Index and read-only repository tools
 
 `projects.models.Project` is immutable configuration: a generated UUID, a
-human-readable name, a canonical absolute local root and a UTC creation timestamp.
+human-readable name, a canonical absolute local root, a UTC creation timestamp
+and a required platform-tagged `RootIdentity`.
 Names may repeat; canonical roots may not. Identity does not depend on a mutable
 name or path. A normal directory is a valid project; Git is optional. Core contains
 no project-specific assumptions.
@@ -21,20 +22,17 @@ working directory captured at construction. POSIX registration follows symlinks
 and requires an existing directory, so aliases of the same directory collide.
 Windows registration rejects every reparse ancestor and ambiguous namespace/path
 construct. The stored canonical root is the security boundary.
-`resolve_path(id, candidate)` delegates to the platform backend. The original
-POSIX `projects.paths.resolve_project_path` helper resolves existing candidates
-and checks `Path.is_relative_to` against the resolved root. Windows validates
+`resolve_path(id, candidate)` checks the recorded root identity through the platform
+backend. The POSIX `projects.paths.resolve_project_path` helper resolves existing
+candidates and checks `Path.is_relative_to` against the resolved root. Windows validates
 relative components and opens them under identity-checked, pinned ancestry;
 absolute candidates and reparse aliases are denied. A stored root replaced by a
 symlink to another location is rejected. These helpers return point-in-time paths,
-not I/O capabilities. Execution uses `open_root`, not `resolve_path`. `open_root(id)` supplies capabilities for descriptor-anchored POSIX
-access and persists directory device/inode identity. Windows uses the same
-Registry entrypoint with opened handles and volume/file identity. Migration
-`0003_project_root_identity` leaves POSIX fields null for
-legacy registrations: live Registry inspection, Index refresh/status scans and
-repository tools fail closed until those projects are removed and re-registered.
-Configuration retrieval/removal and cached Index queries remain available.
-Migration never observes or authorizes a replacement directory. Creation semantics
+not I/O capabilities. Execution uses `open_root`, not `resolve_path`.
+`open_root(id)` supplies descriptor-anchored POSIX access using recorded device/inode
+identity. Windows uses the same Registry entrypoint with opened handles and
+volume/file identity. Both identities use the same required JSON storage contract.
+Database initialization never observes or authorizes directories. Creation semantics
 for nonexistent paths remain unimplemented.
 
 `inspect_project` returns `ProjectInspection(project, git)`. `GitMetadata` is a
@@ -48,6 +46,10 @@ through `open_root`; boundary failures propagate Project errors, not best-effort
 Git metadata. Inspection uses bounded, read-only `rev-parse`/`symbolic-ref` calls
 with the verified descriptor inherited as Linux `/proc/self/fd` cwd, a sanitized
 Git environment, disabled optional locks and no network or repository mutation.
+Registry inspection, read-only Git tools and coding share one bounded process
+runner: concurrent capped stdout/stderr, a two-second command deadline and owned
+process cleanup. POSIX inspection caps each stdout capture at 4 KiB; oversized,
+failed or timed-out observations become `unavailable` without releasing diagnostics.
 On POSIX without descriptor-backed Git cwd, Git is observationally `unavailable`;
 no pathname fallback may inspect a replacement. Windows instead copies approved
 Git metadata and Project working files through locked handles into a pinned,
@@ -108,7 +110,6 @@ reads/traversal.
 resolution; `index.render` owns deterministic relevance and bounded rendering.
 No LLM, embeddings, vector database or graph library builds structural facts.
 
-Alembic revision `0002_project_index` follows the shipped `0001_projects` revision.
 Four small tables store project snapshot metadata, eligible files, symbols and
 relationships. Files carry observed and last successfully parsed SHA-256 hashes;
 raw source/bodies are not persisted. POSIX Index caches can contain structure from

@@ -42,9 +42,9 @@ PY
 ```
 
 Registration and index refresh above are developer operations outside Agent
-execution. The Agent has no registration, refresh or database-write tool. If an
-old registration lacks root identity, explicitly remove and re-register it as
-described in [repository operations](repository.md); the runtime will not authorize a replacement root.
+execution. The Agent has no registration, refresh or database-write tool. If a
+registered root is replaced, explicitly remove/re-register it only when you intend
+to authorize that directory; the runtime will not adopt a replacement root.
 
 Use the printed UUID explicitly:
 

@@ -24,11 +24,7 @@ def _project(record: ProjectRecord) -> Project:
         record.name,
         Path(record.root_path),
         created_at.astimezone(UTC),
-        int(record.root_device) if record.root_device is not None else None,
-        int(record.root_inode) if record.root_inode is not None else None,
-        RootIdentity.from_json(record.root_identity)
-        if record.root_identity is not None
-        else None,
+        RootIdentity.from_json(record.root_identity),
     )
 
 
@@ -45,15 +41,7 @@ class ProjectRepository:
                         name=project.name,
                         root_path=str(project.root_path),
                         created_at=project.created_at,
-                        root_device=str(project.root_device)
-                        if project.root_device is not None
-                        else None,
-                        root_inode=str(project.root_inode)
-                        if project.root_inode is not None
-                        else None,
-                        root_identity=project.root_identity.as_json()
-                        if project.root_identity is not None
-                        else None,
+                        root_identity=project.root_identity.as_json(),
                     )
                 )
                 session.commit()

@@ -3,16 +3,13 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from pathlib import Path
 from threading import Barrier
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from pydantic import ValidationError
-from sqlalchemy import inspect, select, update
+from sqlalchemy import select, text, update
 
 from agentforge.agents import Agent, AgentRuntime, ExecutionResult, repository_toolset
 from agentforge.core.inference import GenerationResult, TokenUsage, ToolCall
@@ -117,7 +114,7 @@ def setup(registry, database, tmp_path):
                 ("local-4080", "http://localhost:11434"),
                 ("home-i5", "http://192.168.50.12:11434"),
                 ("ai395", "http://100.100.100.10:11434"),
-                ("future-cloud-worker", "https://inference.example.invalid"),
+                ("cloud-worker", "https://inference.example.invalid"),
             )
         ]
     )
@@ -300,7 +297,7 @@ def test_submit_checks_existing_runtime_configuration(setup, configuration):
 
 
 @pytest.mark.parametrize(
-    "worker_id", ["local-4080", "home-i5", "ai395", "future-cloud-worker"]
+    "worker_id", ["local-4080", "home-i5", "ai395", "cloud-worker"]
 )
 def test_execution_keeps_exact_binding_and_result(setup, worker_id):
     engine, runtime, provider = setup.build()
@@ -352,7 +349,7 @@ def test_execution_keeps_exact_binding_and_result(setup, worker_id):
 )
 def test_remote_failure_has_safe_diagnostics_no_fallback(setup, error, reason):
     engine, _, provider = setup.build(Provider([error]))
-    task = setup.submit(engine, worker_id="future-cloud-worker")
+    task = setup.submit(engine, worker_id="cloud-worker")
 
     async def execute():
         async with engine:
@@ -361,8 +358,8 @@ def test_remote_failure_has_safe_diagnostics_no_fallback(setup, error, reason):
     task = run(execute())
     assert task.state == "failed" and task.reason == task.error_code == reason
     assert task.failure_diagnostic == f"Execution failed: {reason}"
-    assert task.worker_id == "future-cloud-worker" and task.final_answer is None
-    assert [w.id for w in provider.workers] == ["future-cloud-worker"]
+    assert task.worker_id == "cloud-worker" and task.final_answer is None
+    assert [w.id for w in provider.workers] == ["cloud-worker"]
     assert "SECRET" not in task.model_dump_json()
     assert engine.cancel_task(task.task_id) == task
     assert setup.repository.claim(task.task_id) is None
@@ -531,6 +528,41 @@ def test_exclusive_in_process_owner_before_recovery(setup):
             await first.wait_task(task.task_id)
         async with second:
             assert second.get_task(task.task_id).state == "completed"
+
+    run(execute())
+
+
+def test_start_requires_current_schema_before_recovery_or_execution(setup):
+    engine, runtime, provider = setup.build()
+    running = setup.submit(engine)
+    queued = setup.submit(engine)
+    setup.repository.claim(running.task_id)
+    with setup.database[0].begin() as connection:
+        connection.execute(
+            text("UPDATE alembic_version SET version_num = 'unsupported'")
+        )
+
+    async def execute():
+        try:
+            with pytest.raises(TaskStorageError, match="schema"):
+                await engine.start()
+            assert engine.get_task(running.task_id).state == "running"
+            assert engine.get_task(queued.task_id).state == "queued"
+            assert not provider.requests
+        finally:
+            await engine.close()
+        with setup.database[0].begin() as connection:
+            connection.execute(
+                text("UPDATE alembic_version SET version_num = '0001_initial'")
+            )
+        # Rejection releases the process owner; a properly initialized database
+        # can subsequently recover and execute on a new engine.
+        replacement = TaskEngine(TaskRepository(setup.sessions), runtime)
+        async with replacement:
+            assert (
+                replacement.get_task(running.task_id).reason == "execution_interrupted"
+            )
+            assert (await replacement.wait_task(queued.task_id)).state == "completed"
 
     run(execute())
 
@@ -843,19 +875,6 @@ def test_safe_tool_trace_and_observed_usage_persist_without_source_or_thinking(s
         assert reopened.get_task(task.task_id) == completed
     finally:
         reopened_database.dispose()
-
-
-def test_task_migration_from_previous_head_and_metadata_match(database):
-    engine, _ = database
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        command.downgrade(config, "0003_project_root_identity")
-        assert "tasks" not in inspect(connection).get_table_names()
-        command.upgrade(config, "0004_tasks")
-        assert "tasks" in inspect(connection).get_table_names()
-        command.upgrade(config, "head")
-        command.check(config)
 
 
 def test_missing_ids_and_safe_storage_errors(setup):

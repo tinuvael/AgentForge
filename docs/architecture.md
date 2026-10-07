@@ -106,11 +106,12 @@ retains prior valid structure for individual parse failures. Projects/Index may
 be removed without deleting historical Tasks/Councils/telemetry. Retention and
 history deletion are not implemented.
 
-Database upgrades are explicit, using Alembic revisions `0001_projects` through
-`0008_coding_workspaces`. Migrations ship in the package. MCP/dashboard startup
-never creates or migrates schemas. Legacy Project rows without filesystem identity
-require deliberate removal/re-registration; upgrades never authorize today's root
-as a replacement. See [development and validation](development.md).
+Database initialization/upgrades are explicit. The packaged `0001_initial`
+migration creates the first supported complete schema. Executor startup verifies
+the revision before recovery/execution and never creates or migrates schemas.
+Registrations require a recorded platform-tagged
+identity, which is never replaced by observing today's path during an upgrade.
+See [schema baseline and validation](development.md#migrations).
 
 Task requests and completed final answers are intentionally persisted and can
 contain sensitive content. Trace stores bounded redacted metadata, not tool bodies

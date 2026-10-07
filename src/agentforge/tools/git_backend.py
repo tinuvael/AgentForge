@@ -26,11 +26,78 @@ class _Output:
     data: bytes
     truncated: bool
     returncode: int
+    not_repository: bool
+
+
+def _run_git(argv, location, budget: int, *, environment, allow_failure=False):
+    """Drain both pipes concurrently with fixed memory; stop excess output."""
+    try:
+        with subprocess.Popen(
+            argv,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            **location.process_options(),
+        ) as process:
+            buffers = [bytearray(), bytearray()]
+            exceeded = [threading.Event(), threading.Event()]
+
+            def stop():
+                location.stop(process)
+
+            def drain(stream, index, cap):
+                while chunk := stream.read(8192):
+                    remaining = cap + 1 - len(buffers[index])
+                    buffers[index].extend(chunk[: max(remaining, 0)])
+                    if len(buffers[index]) > cap:
+                        exceeded[index].set()
+                        stop()
+                        break
+
+            readers = [
+                threading.Thread(target=drain, args=(process.stdout, 0, budget)),
+                threading.Thread(target=drain, args=(process.stderr, 1, 8192)),
+            ]
+            for reader in readers:
+                reader.start()
+            timed_out = False
+            try:
+                process.wait(timeout=GIT_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                stop()
+                process.wait()
+            finally:
+                # A child may exit while a descendant still holds a pipe.
+                # Stop the owned group and reap the parent before joining readers.
+                stop()
+                process.wait()
+                for reader in readers:
+                    reader.join()
+            if timed_out:
+                raise GitTimeout("Git operation timed out")
+            if exceeded[1].is_set():
+                raise GitFailure("Git diagnostic output exceeded its limit")
+            not_repository = b"not a git repository" in buffers[1]
+            if process.returncode and not allow_failure and not exceeded[0].is_set():
+                raise GitFailure("Git operation failed")
+            return _Output(
+                bytes(buffers[0][:budget]),
+                exceeded[0].is_set(),
+                process.returncode,
+                not_repository,
+            )
+    except FileNotFoundError:
+        raise GitUnavailable("Git executable is unavailable") from None
+    except OSError:
+        raise GitFailure("Git operation could not be started") from None
 
 
 class _Git:
     def __init__(self, root: Path, root_fd: int):
-        self.fd = root_fd
+        self.environment = git_environment()
         self.backend = backend_for(root_fd)
         # POSIX inherits a pinned directory descriptor; Windows builds and pins an
         # authorized private snapshot. Unsupported capabilities fail closed.
@@ -61,7 +128,7 @@ class _Git:
             probe = self._run(
                 ["rev-parse", "--is-inside-work-tree"], 64, allow_failure=True
             )
-            if (probe.returncode == 128 and self._not_repository) or (
+            if (probe.returncode == 128 and probe.not_repository) or (
                 probe.returncode == 0 and probe.data.strip() == b"false"
             ):
                 raise NotGitRepository("Project is not a Git worktree")
@@ -102,70 +169,13 @@ class _Git:
             raise GitFailure("Git filter configuration cannot be isolated") from None
 
     def _run(self, args: list[str], budget: int, *, allow_failure: bool = False):
-        """Drain both pipes concurrently with fixed memory; stop excess output."""
-        try:
-            with subprocess.Popen(
-                [*self.argv, *args],
-                env=getattr(self, "environment", None) or git_environment(),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-                **self.location.process_options(),
-            ) as process:
-                buffers = [bytearray(), bytearray()]
-                exceeded = [threading.Event(), threading.Event()]
-
-                def stop():
-                    self.location.stop(process)
-
-                def drain(stream, index, cap):
-                    while chunk := stream.read(8192):
-                        remaining = cap + 1 - len(buffers[index])
-                        buffers[index].extend(chunk[: max(remaining, 0)])
-                        if len(buffers[index]) > cap:
-                            exceeded[index].set()
-                            stop()
-                            break
-
-                readers = [
-                    threading.Thread(target=drain, args=(process.stdout, 0, budget)),
-                    threading.Thread(target=drain, args=(process.stderr, 1, 8192)),
-                ]
-                for reader in readers:
-                    reader.start()
-                timed_out = False
-                try:
-                    process.wait(timeout=GIT_TIMEOUT)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    stop()
-                    process.wait()
-                finally:
-                    # A child may exit while a descendant still holds a pipe.
-                    # Stop the owned group and reap the parent before joining readers.
-                    stop()
-                    process.wait()
-                    for reader in readers:
-                        reader.join()
-                if timed_out:
-                    raise GitTimeout("Git operation timed out")
-                if exceeded[1].is_set():
-                    raise GitFailure("Git diagnostic output exceeded its limit")
-                self._not_repository = b"not a git repository" in buffers[1]
-                if (
-                    process.returncode
-                    and not allow_failure
-                    and not exceeded[0].is_set()
-                ):
-                    raise GitFailure("Git operation failed")
-                return _Output(
-                    bytes(buffers[0][:budget]), exceeded[0].is_set(), process.returncode
-                )
-        except FileNotFoundError:
-            raise GitUnavailable("Git executable is unavailable") from None
-        except OSError:
-            raise GitFailure("Git operation could not be started") from None
+        return _run_git(
+            [*self.argv, *args],
+            self.location,
+            budget,
+            environment=self.environment,
+            allow_failure=allow_failure,
+        )
 
     def _scoped(self, repository_path: str) -> str | None:
         try:

@@ -1,7 +1,6 @@
 """Offline, read-only Git observations without parsing repository internals."""
 
 import os
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,6 +39,10 @@ def _inspect_posix_git(root_fd: int) -> GitMetadata:
     Global/system configuration and optional locks are disabled. These separate
     reads are best effort, not an atomic snapshot of a concurrently changing repo.
     """
+    from agentforge.projects.backends import GitLocation
+    from agentforge.tools.errors import GitFailure, GitTimeout, GitUnavailable
+    from agentforge.tools.git_backend import _run_git
+
     observed_at = datetime.now(UTC)
     env = git_environment()
     root = Path(f"/proc/self/fd/{root_fd}")
@@ -48,47 +51,46 @@ def _inspect_posix_git(root_fd: int) -> GitMetadata:
         # descriptor-backed cwd, rather than inspecting an unverified replacement.
         return GitMetadata(status="unavailable", observed_at=observed_at)
 
-    def run(*args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+    def run(*args: str):
+        result = _run_git(
             ["git", "--no-optional-locks", "-C", str(root), *args],
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=2,
-            check=False,
-            pass_fds=(root_fd,),
+            GitLocation(str(root), (root_fd,)),
+            4096,
+            environment=env,
+            allow_failure=True,
         )
+        if result.truncated:
+            raise GitFailure("Git inspection output exceeded its limit")
+        return result
 
     try:
         discovery = run("rev-parse", "--is-bare-repository")
         if discovery.returncode:
-            status = (
-                "not_repository"
-                if "not a git repository" in discovery.stderr
-                else "unavailable"
-            )
+            status = "not_repository" if discovery.not_repository else "unavailable"
             return GitMetadata(status=status, observed_at=observed_at)
         root_result = run(
             "rev-parse",
             "--absolute-git-dir"
-            if discovery.stdout.strip() == "true"
+            if discovery.data.strip() == b"true"
             else "--show-toplevel",
         )
         if root_result.returncode:
             return GitMetadata(status="unavailable", observed_at=observed_at)
-        repository_root = Path(root_result.stdout.removesuffix("\n")).resolve(
-            strict=True
-        )
+        repository_root = Path(
+            root_result.data.decode("utf-8").removesuffix("\n")
+        ).resolve(strict=True)
         branch = run("symbolic-ref", "--quiet", "--short", "HEAD")
         head = run("rev-parse", "--verify", "HEAD^{commit}")
         return GitMetadata(
             status="repository",
             observed_at=observed_at,
             repository_root=repository_root,
-            branch=branch.stdout.strip() if branch.returncode == 0 else None,
-            head_commit=head.stdout.strip() if head.returncode == 0 else None,
+            branch=branch.data.decode("utf-8").strip()
+            if branch.returncode == 0
+            else None,
+            head_commit=head.data.decode("ascii").strip()
+            if head.returncode == 0
+            else None,
         )
-    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+    except (OSError, RuntimeError, ValueError, GitFailure, GitTimeout, GitUnavailable):
         return GitMetadata(status="unavailable", observed_at=observed_at)

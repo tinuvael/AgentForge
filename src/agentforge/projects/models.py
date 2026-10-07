@@ -15,17 +15,7 @@ class Project:
     name: str
     root_path: Path
     created_at: datetime
-    root_device: int | None = None
-    root_inode: int | None = None
-    root_identity: RootIdentity | None = None
-
-    @property
-    def filesystem_identity(self) -> RootIdentity | None:
-        if self.root_identity is not None:
-            return self.root_identity
-        if self.root_device is not None and self.root_inode is not None:
-            return RootIdentity("posix", str(self.root_device), str(self.root_inode))
-        return None
+    root_identity: RootIdentity
 
 
 @dataclass(frozen=True)

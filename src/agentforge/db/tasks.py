@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from agentforge.agents.models import ExecutionObservations, ExecutionResult, TraceEvent
 from agentforge.councils.models import Council
+from agentforge.db.migrate import schema_is_current
 from agentforge.db.models import (
     CouncilParticipantRecord,
     CouncilRecord,
@@ -516,3 +517,10 @@ class TaskRepository:
                 changed += 1
             session.commit()
             return changed
+
+    def check_schema(self) -> None:
+        with self._session() as session:
+            if not schema_is_current(session.connection()):
+                raise TaskStorageError(
+                    "Database schema is not current; run the explicit database upgrade"
+                )

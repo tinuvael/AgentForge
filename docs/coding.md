@@ -65,11 +65,11 @@ argv. Configuration is global to this host instance; per-Project
 validation profiles are not implemented.
 
 Migrate explicitly with
-`python -m agentforge.db.migrate --database-url sqlite:///agentforge.db`. Revision
-`0008_coding_workspaces` adds one record per Task: workspace/Project/Worker identity,
+`python -m agentforge.db.migrate --database-url sqlite:///agentforge.db`.
+`coding_workspaces` stores one record per Task: workspace/Project/Worker identity,
 branch, base, private paths, opened root identities, UTC creation time, lifecycle
-state and bounded counters/validation observations. No historical migrations
-change. Source bodies and complete diffs are not stored in SQLite. Ordinary
+state and bounded counters/validation observations. Source bodies and complete
+diffs are not stored in SQLite. Ordinary
 Task execution JSON includes a bounded factual `coding_result`; original Task
 reason/final answer keep their existing contract and private reasoning remains
 memory-only. Discovery, Provider abstractions and explicit Worker selection are
@@ -245,7 +245,8 @@ known worktree/admin identity can be removed when the remaining checks pass; fai
 are persisted requires operator reconciliation. Startup never cleans it up.
 
 Task detail shows status, branch, base, changed files, stats, bounded diff and actual
-validation results without host paths. “Remove workspace” is POST-only with explicit
+validation results with private workspace paths omitted. Other paths or secrets
+may occur in untrusted validation text; this is not DLP. “Remove workspace” is POST-only with explicit
 confirmation and existing CSRF protection; there are no commit/push/merge controls.
 Inspection availability and truncation are explicit. A retained last observation
 is labeled when the current filesystem/Git state cannot be inspected.

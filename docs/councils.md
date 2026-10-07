@@ -20,15 +20,15 @@ Request text reuses the Task contract: nonblank, at most 32,768 characters.
 There is no discovery, default Worker, availability probe or replacement. A Worker
 that fails at execution retains its identity and failure outcome.
 
-Migration **`0007_councils`**, after `0006_windows_root_identity`, adds:
+Council persistence uses:
 
 - `councils`: `council_id`, historical `project_id`, `agent_id`, `request`, UTC
   `created_at`. No Project FK, consistently with Task history.
 - `council_participants`: Council FK, Task FK, explicit `worker_id`, `ordinal`.
   `(council_id, ordinal)` is the primary key; `(council_id, worker_id)` and `task_id`
   are unique. Ordinals are constrained to 0–15. FKs have no cascading deletes:
-  referenced Tasks cannot disappear accidentally, and deleting membership or
-  downgrading the Council migration never deletes Task/telemetry history.
+  referenced Tasks cannot disappear accidentally, and deleting membership never
+  deletes Task/telemetry history. A downgrade to `base` destroys all schema/history.
 - Creation time/ID index for deterministic descending history; the participant
   primary key supports ordered membership reads and unique Task index supports
   membership lookup.

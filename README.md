@@ -98,7 +98,8 @@ connections, multiple Providers or authenticated remote endpoints, start with
 `/v1` endpoints and credential **environment-variable names**, never real secrets.
 Explicit remote Worker selection sends gathered repository evidence to that endpoint.
 
-Initialize the database explicitly:
+Initialize a fresh database explicitly using the
+[0.1.0 schema baseline](docs/development.md#migrations):
 
 ```sh
 python -m agentforge.db.migrate --database-url sqlite:///agentforge.db
@@ -200,8 +201,8 @@ network/VPN or authenticated reverse proxy. Remote/cloud Workers receive context
 source/tool results, diffs and validation output gathered during their selected
 execution. Consider endpoint trust and retention before selecting them.
 
-This is the completed first implementation, pending real Windows/Ollama/GPU
-acceptance testing. Automated tests use synthetic repositories and mocked
+This is the first implementation / initial release candidate, pending real
+Windows/Ollama/GPU acceptance testing. Automated tests use synthetic repositories and mocked
 inference, with no live network, cloud API or GPU. Native Windows tests are skipped
 on Linux; mocks do not establish physical Windows validation. Windows rejects UNC,
 reparse/junction paths, hardlinks, ambiguous aliases and unsupported volumes.

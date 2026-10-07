@@ -1,8 +1,8 @@
 # Native Windows repository security
 
 The central Windows workstation owns Project files, the database, the Index and
-all repository tools. Ollama Workers on the RTX 4080, home-i5, AI Max+ 395 or cloud
-are inference endpoints. They receive bounded tool results through AgentRuntime;
+all repository tools. Local, LAN and cloud Workers using Ollama or OpenAI-compatible
+protocols are inference endpoints. They receive bounded tool results through AgentRuntime;
 they need no repository checkout, SMB share or synchronization. MCP → TaskEngine
 → Repo Explorer → explicitly selected Worker runs natively without WSL.
 
@@ -14,15 +14,14 @@ Windows uses `WindowsSafeFilesystemBackend`. Index and RepositoryTools dispatch
 through the same live directory capability. There are no platform checks in their
 authorization logic and no generic pathlib fallback.
 
-The original `projects.filesystem` POSIX implementation remains intact: no-follow
+The `projects.filesystem` POSIX implementation uses no-follow
 directory descriptors, descriptor-relative opens, ancestry checks on exit, and
 device/inode identity. Linux Git still inherits the verified descriptor as
 `/proc/self/fd` cwd, with process-group termination and its existing isolation.
 Other POSIX hosts without descriptor-backed Git retain unavailable Git observations.
 
-`RootIdentity` describes a platform, volume and file ID. Alembic revision
-`0006_windows_root_identity` follows `0005_task_telemetry` and adds nullable JSON
-`projects.root_identity`. Windows stores:
+`RootIdentity` describes a platform, volume and file ID. Required JSON
+`projects.root_identity` is shared by both supported platforms. Windows stores:
 
 ```json
 {"version":1,"kind":"windows","volume":"0123456789abcdef","file_id":"0123456789abcdef0123456789abcdef"}
@@ -34,14 +33,11 @@ overflow. Root identity is observed through opened handles at registration and
 must match at every subsequent live access. Platforms and unknown identity versions
 cannot be substituted.
 
-Existing POSIX rows continue using `root_device`/`root_inode`, represented in memory
-as a tagged POSIX identity; new POSIX registrations still populate those columns.
-The migration does **not** visit directories or backfill observed identities.
-NULL legacy identities and Windows registrations made with old POSIX-shaped fields
-require explicit removal/re-registration. Downgrade removes the new column: Windows
-rows retain NULL POSIX identities and therefore fail closed after re-upgrade.
-Project UUID/configuration and cached Index facts survive. Do not share a registration
-or database between Windows and WSL to reinterpret root identity.
+POSIX stores decimal device/inode strings in the same versioned shape with
+`kind="posix"`. Registration requires an observed identity; there is no fallback
+to transitional columns or migration-time reauthorization. Do not share a registration
+or database between Windows and WSL to reinterpret root identity. See the
+[first-release schema baseline](development.md#migrations).
 
 ## Windows authorization
 

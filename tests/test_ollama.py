@@ -374,6 +374,9 @@ def test_stream_fragmented_utf8_and_unterminated_final_line(worker, generation_r
         .encode(),
         json.dumps(chat_response(extra=float("nan"))).encode(),
         json.dumps(chat_response(extra=float("inf"))).encode(),
+        json.dumps(chat_response(extra=None))
+        .replace('"extra": null', '"extra": 1e999')
+        .encode(),
         b"[" * 2000 + b"]" * 2000,
     ],
 )

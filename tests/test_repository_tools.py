@@ -6,9 +6,7 @@ import shutil
 import stat
 import subprocess
 import sys
-from dataclasses import replace
 from time import monotonic
-from uuid import uuid4
 
 import pytest
 
@@ -51,11 +49,16 @@ def test_git_reaps_descendants_after_parent_exit(tmp_path):
     script = (
         f"import subprocess; subprocess.Popen([{sys.executable!r}, '-c', {child!r}])"
     )
-    git = object.__new__(git_backend._Git)
-    git.argv = [sys.executable, "-c", script]
-    git.location = GitLocation(str(tmp_path))
     started = monotonic()
-    assert git._run([], 1024).returncode == 0
+    assert (
+        git_backend._run_git(
+            [sys.executable, "-c", script],
+            GitLocation(str(tmp_path)),
+            1024,
+            environment={},
+        ).returncode
+        == 0
+    )
     assert monotonic() - started < 1.5
     assert not marker.exists()
 
@@ -328,28 +331,27 @@ def test_root_replacement_after_registration(tools, tmp_path, symlink):
 
 
 @pytest.mark.posix
-def test_root_identity_persisted_and_legacy_fails_closed(registry, database, tmp_path):
+def test_root_identity_persisted_and_replacement_fails_closed(
+    registry, database, tmp_path
+):
     root = tmp_path / "persisted"
     root.mkdir()
     project = registry.register_project("Persisted", root)
     repository = ProjectRepository(create_session_factory(database[0]))
     reopened = ProjectRegistry(repository, base_directory=tmp_path)
-    assert reopened.get_project(project.id).root_inode == root.stat().st_ino
+    identity = reopened.get_project(project.id).root_identity
+    assert identity == project.root_identity
+    assert (identity.kind, identity.volume, identity.file_id) == (
+        "posix",
+        str(root.stat().st_dev),
+        str(root.stat().st_ino),
+    )
     root.rename(tmp_path / "moved")
     root.mkdir()
     with pytest.raises(UnsafeProjectPath):
-        RepositoryTools(reopened).list_files(project.id)
-    legacy = replace(
-        project,
-        id=uuid4(),
-        root_path=tmp_path / "legacy",
-        root_device=None,
-        root_inode=None,
-    )
-    legacy.root_path.mkdir()
-    repository.add(legacy)
+        reopened.resolve_path(project.id, ".")
     with pytest.raises(UnsafeProjectPath):
-        RepositoryTools(reopened).list_files(legacy.id)
+        RepositoryTools(reopened).list_files(project.id)
 
 
 @pytest.mark.parametrize(

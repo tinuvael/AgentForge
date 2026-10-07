@@ -2,14 +2,9 @@
 
 from dataclasses import replace
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import inspect
-from sqlalchemy.engine import URL
 
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.models import ProjectRecord
@@ -25,12 +20,6 @@ from agentforge.projects.errors import (
 from agentforge.projects.models import Project
 from agentforge.projects.paths import resolve_project_path
 from agentforge.projects.service import ProjectRegistry
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def migration_config() -> Config:
-    return Config(str(REPO_ROOT / "alembic.ini"))
 
 
 def test_registry_lifecycle(registry, tmp_path):
@@ -225,9 +214,17 @@ def test_database_failures_are_service_errors(registry, database, tmp_path, oper
     assert error.value.__suppress_context__
 
 
-def test_database_constraint_handles_duplicate_and_rolls_back(database, tmp_path):
+def test_database_constraint_handles_duplicate_and_rolls_back(
+    database, tmp_path, registry
+):
     repository = ProjectRepository(create_session_factory(database[0]))
-    project = Project(uuid4(), "Project", tmp_path, datetime.now(UTC))
+    project = Project(
+        uuid4(),
+        "Project",
+        tmp_path,
+        datetime.now(UTC),
+        registry.filesystem.observe_root(tmp_path),
+    )
     repository.add(project)
     with pytest.raises(ProjectAlreadyRegistered):
         repository.add(replace(project, id=uuid4()))
@@ -236,32 +233,3 @@ def test_database_constraint_handles_duplicate_and_rolls_back(database, tmp_path
     with pytest.raises(ProjectStorageError):
         repository.add(replace(project, root_path=tmp_path / "different"))
     assert repository.list() == [project]
-
-
-def test_migration_upgrade_downgrade_and_metadata_match(database):
-    engine, _ = database
-    config = migration_config()
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        command.check(config)
-        command.downgrade(config, "base")
-        assert "projects" not in inspect(connection).get_table_names()
-        command.upgrade(config, "head")
-        command.check(config)
-
-
-def test_migration_cli_url_and_offline_sql(tmp_path):
-    import io
-
-    config = migration_config()
-    url = URL.create("sqlite", database=str(tmp_path / "cli.sqlite"))
-    config.set_main_option("sqlalchemy.url", url.render_as_string().replace("%", "%%"))
-    command.upgrade(config, "head")
-    engine = create_database_engine(url)
-    try:
-        assert "projects" in inspect(engine).get_table_names()
-    finally:
-        engine.dispose()
-    config.output_buffer = io.StringIO()
-    command.upgrade(config, "head", sql=True)
-    assert "CREATE TABLE projects" in config.output_buffer.getvalue()

@@ -3,11 +3,13 @@
 import os
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime
+from time import monotonic
 
 import pytest
 
-from agentforge.projects import git as git_module
+from agentforge.tools import git_backend
 
 
 @pytest.fixture
@@ -138,15 +140,13 @@ def test_bare_repository(registry, tmp_path, git):
     assert metadata.head_commit is None
 
 
-@pytest.mark.parametrize("failure", [FileNotFoundError, PermissionError, "timeout"])
+@pytest.mark.parametrize("failure", [FileNotFoundError, PermissionError])
 @pytest.mark.posix
 def test_git_unavailable_is_observational(registry, tmp_path, monkeypatch, failure):
     def unavailable(*args, **kwargs):
-        if failure == "timeout":
-            raise subprocess.TimeoutExpired(args[0], 2)
         raise failure("Git unavailable")
 
-    monkeypatch.setattr(git_module.subprocess, "run", unavailable)
+    monkeypatch.setattr(git_backend.subprocess, "Popen", unavailable)
     project = registry.register_project("Normal", tmp_path)
     metadata = registry.inspect_project(project.id).git
     assert metadata.status == "unavailable"
@@ -174,7 +174,7 @@ def test_inherited_git_settings_do_not_redirect_inspection(
 
 @pytest.mark.posix
 def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch):
-    original_run = subprocess.run
+    original_run = subprocess.Popen
     invocations = []
     before = {p: p.read_bytes() for p in (git_root / ".git").rglob("*") if p.is_file()}
 
@@ -184,13 +184,13 @@ def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch
         assert args[3] == f"/proc/self/fd/{fd}"
         assert os.path.samefile(args[3], git_root)
         assert args[4] in {"rev-parse", "symbolic-ref"}
-        assert kwargs["timeout"] == 2
+        assert kwargs["start_new_session"] is True
         assert kwargs["env"]["GIT_OPTIONAL_LOCKS"] == "0"
         assert kwargs["env"]["GIT_CONFIG_GLOBAL"] == os.devnull
         invocations.append(args)
         return original_run(args, **kwargs)
 
-    monkeypatch.setattr(git_module.subprocess, "run", checked_run)
+    monkeypatch.setattr(git_backend.subprocess, "Popen", checked_run)
     project = registry.register_project("Git", git_root)
     assert registry.inspect_project(project.id).git.status == "repository"
     after = {p: p.read_bytes() for p in (git_root / ".git").rglob("*") if p.is_file()}
@@ -200,10 +200,20 @@ def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch
 
 @pytest.mark.posix
 def test_git_refusal_is_unavailable(registry, tmp_path, monkeypatch):
-    def refused(args, **kwargs):
-        return subprocess.CompletedProcess(args, 128, "", "fatal: dubious ownership")
+    original = subprocess.Popen
 
-    monkeypatch.setattr(git_module.subprocess, "run", refused)
+    def refused(args, **kwargs):
+        return original(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stderr.write('fatal: dubious ownership'); "
+                "sys.exit(128)",
+            ],
+            **kwargs,
+        )
+
+    monkeypatch.setattr(git_backend.subprocess, "Popen", refused)
     project = registry.register_project("Refused", tmp_path)
     assert registry.inspect_project(project.id).git.status == "unavailable"
 
@@ -215,7 +225,7 @@ def test_git_inspection_pins_verified_root_during_path_swap(
     from agentforge.projects.errors import UnsafeProjectPath
 
     project = registry.register_project("Pinned", git_root)
-    original_run = subprocess.run
+    original_run = subprocess.Popen
     moved = tmp_path / "moved-git-root"
     pinned_stats = []
 
@@ -228,7 +238,40 @@ def test_git_inspection_pins_verified_root_during_path_swap(
         pinned_stats.append(os.fstat(fd))
         return original_run(args, **kwargs)
 
-    monkeypatch.setattr(git_module.subprocess, "run", swapping_run)
+    monkeypatch.setattr(git_backend.subprocess, "Popen", swapping_run)
     with pytest.raises(UnsafeProjectPath):
         registry.inspect_project(project.id)
     assert pinned_stats
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("failure", ["stdout", "stderr", "descendant", "timeout"])
+def test_inspection_bounds_captures_and_process_lifetime(
+    registry, tmp_path, monkeypatch, failure
+):
+    original = subprocess.Popen
+    marker = tmp_path / "descendant-survived"
+    scripts = {
+        "stdout": "import os; os.write(1, b'x' * 100000)",
+        "stderr": "import os; os.write(2, b'PRIVATE' * 10000)",
+        "timeout": "import time; time.sleep(5)",
+    }
+    child = f"import time,pathlib; time.sleep(2); pathlib.Path({str(marker)!r}).touch()"
+    scripts["descendant"] = (
+        f"import subprocess; print('true', flush=True); "
+        f"subprocess.Popen([{sys.executable!r}, '-c', {child!r}])"
+    )
+    if failure == "timeout":
+        monkeypatch.setattr(git_backend, "GIT_TIMEOUT", 0.05)
+
+    def bounded_child(args, **kwargs):
+        return original([sys.executable, "-c", scripts[failure]], **kwargs)
+
+    monkeypatch.setattr(git_backend.subprocess, "Popen", bounded_child)
+    project = registry.register_project("Synthetic", tmp_path)
+    started = monotonic()
+    metadata = registry.inspect_project(project.id).git
+    assert metadata.status == "unavailable"
+    assert metadata.branch is metadata.head_commit is None
+    assert monotonic() - started < 1.5
+    assert not marker.exists()

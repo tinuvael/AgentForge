@@ -4,12 +4,9 @@ import ctypes
 import ntpath
 import os
 from dataclasses import replace
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from alembic import command
-from alembic.config import Config
 
 from agentforge.db.database import create_session_factory
 from agentforge.db.index import IndexRepository
@@ -229,7 +226,7 @@ def test_windows_normal_drive_paths_and_ordinal_boundary(mocked_windows):
         setup.tools.search_code(setup.project.id, "needle").matches[0].path
         == "Nested/Source.py"
     )
-    assert setup.project.root_device is setup.project.root_inode is None
+    assert setup.project.root_identity.kind == "windows"
     assert (
         setup.registry.get_project(setup.project.id).root_identity
         == setup.project.root_identity
@@ -531,29 +528,6 @@ def test_os_ordinal_sensitive_aliases_cannot_bypass_python_lower(mocked_windows)
     assert not s.backend.automatic(("credentialſ.json",))
     assert s.backend.excluded_directory("dıst")
     assert not s.tools.public_index_path("credentialſ.json")
-
-
-def test_windows_identity_migration_downgrade_never_reauthorizes(
-    mocked_windows, database
-):
-    s = mocked_windows
-    s.api.add(r"C:\Repo\source.py", b"def cached(): pass\n")
-    index = ProjectIndex(
-        s.registry, IndexRepository(create_session_factory(database[0]))
-    )
-    index.refresh_index(s.project.id)
-    previous = index.render_project_map(s.project.id)
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    with database[0].begin() as connection:
-        config.attributes["connection"] = connection
-        command.downgrade(config, "0005_task_telemetry")
-        command.upgrade(config, "head")
-        command.check(config)
-    restored = s.registry.get_project(s.project.id)
-    assert restored.root_identity is restored.root_device is restored.root_inode is None
-    with pytest.raises(UnsafeProjectPath, match="re-registered"):
-        s.tools.list_files(s.project.id)
-    assert index.render_project_map(s.project.id) == previous
 
 
 def test_wrapper_identity_api_failure_has_no_pathname_fallback(monkeypatch):

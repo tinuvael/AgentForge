@@ -8,8 +8,7 @@ The director chooses the Project, Agent and Worker. Task Engine persists and
 executes those exact logical IDs; AgentRuntime performs bounded execution; the
 Worker performs inference; AgentForge tools access Project files centrally.
 
-`tasks.models.Task` is an immutable snapshot. Alembic revision `0004_tasks` follows
-`0003_project_root_identity` and creates `tasks` with:
+`tasks.models.Task` is an immutable snapshot. The `tasks` table stores:
 
 | Fields | Stored meaning |
 | --- | --- |
@@ -113,7 +112,8 @@ surface through safe service errors, rather than silently presenting success.
 If storage itself is unavailable, a terminal checkpoint may not be writable;
 the next successful startup applies recovery.
 
-Startup conservatively marks every pre-existing running Task failed with
+Startup first requires the current packaged schema revision, without migration or
+history changes on rejection. It then marks every pre-existing running Task failed with
 `execution_interrupted`, including unobserved cancellation requests, without
 re-executing it. A started run/tool call may already have produced effects and is
 not replay-safe. Queued Tasks resume in deterministic claim order: they have never
@@ -124,8 +124,8 @@ single-process deployment contract; they do not imply exactly-once remote infere
 `db.tasks.TaskRepository` owns operation-scoped sessions and short transactions for
 submission, claim, cancellation, result storage and recovery. No database session
 or transaction spans inference, remote HTTP, repository tools or the whole runtime.
-Schema creation/upgrade is explicit via Alembic, never startup. Downgrading below
-`0004_tasks` drops Task history, consistent with schema downgrade conventions.
+Schema creation/upgrade is explicit via Alembic, never startup. Downgrading to
+`base` destroys history; see [schema baseline and validation](development.md#migrations).
 
 Only sanitized ExecutionResult fields are serialized. Task Engine verifies result
 binding/state and discards invalid outcomes with `invalid_runtime_result`;
@@ -157,10 +157,9 @@ Workers use the same metadata path. No health probes, endpoint assumptions, shar
 Project filesystem, hardware estimates, ranking, fallback or selection policy is
 introduced. A selected unreachable Worker fails under its own identity.
 
-Migration `0005_task_telemetry` follows `0004_tasks` without changing historical
-migrations. It adds configured `provider`/`model`, a nullable monotonic queue
-duration and `telemetry_status` to Tasks, plus one `task_telemetry` row per terminal
-Task execution. There are no JSON blobs, per-turn child tables or cascading foreign
+Tasks store configured `provider`/`model`, a nullable monotonic queue duration and
+`telemetry_status`, plus one `task_telemetry` row per successfully recorded terminal
+Task execution. Telemetry has no JSON blobs, per-turn child tables or cascading foreign
 keys. Historical identifiers and observations survive Project deregistration,
 Worker edits and even Task deletion. Identity/time indexes support dashboard
 filters. Retention/deletion policy is not implemented. Live metadata notifications are
@@ -194,9 +193,7 @@ commit failure retains existing `TaskStorageError` behavior; storage outages can
 guarantee any persistence. Duplicate finishes/cancels never replace terminal facts.
 No raw persistence exceptions are exposed or logged by this path.
 
-Tasks predating telemetry migration `0005` are marked `unavailable`, with no fabricated backfill.
-Existing queued/running Tasks can pass through current lifecycle checkpoints; unknown
-historical provider/model or elapsed observations remain null. Startup marks running
+Unknown configured targets or elapsed observations remain null. Startup marks running
 orphans `execution_interrupted`, records their previously persisted identity and
 queue duration, and leaves lost counters and execution timings unknown. Work is
 never replayed automatically.

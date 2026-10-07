@@ -1,4 +1,4 @@
-"""Small internal platform boundary; POSIX primitives remain unchanged."""
+"""Internal platform capabilities for repository access and Git processes."""
 
 import os
 import signal
@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from agentforge.projects import filesystem as posix
+from agentforge.projects.errors import InvalidProjectPath, UnsafeProjectPath
 from agentforge.projects.identity import RootIdentity
 from agentforge.projects.paths import canonical_project_root, resolve_project_path
 from agentforge.tools.errors import GitUnavailable
@@ -65,6 +66,14 @@ class PosixSafeFilesystemBackend:
         return posix.anchored_directory(root, parts)
 
     def resolve_path(self, root, candidate, *, expected=None):
+        if expected is not None:
+            try:
+                with self.anchored_root(root, expected):
+                    return resolve_project_path(root, candidate)
+            except InvalidProjectPath:
+                raise UnsafeProjectPath(
+                    "Project path cannot be safely resolved"
+                ) from None
         return resolve_project_path(root, candidate)
 
     def observe_root(self, root):
@@ -72,8 +81,6 @@ class PosixSafeFilesystemBackend:
         return RootIdentity("posix", str(observed.st_dev), str(observed.st_ino))
 
     def anchored_root(self, root, expected):
-        from agentforge.projects.errors import UnsafeProjectPath
-
         if expected.kind != "posix":
             raise UnsafeProjectPath("Registered filesystem platform has changed")
         return posix.anchored_root(root, (int(expected.volume), int(expected.file_id)))
@@ -129,5 +136,5 @@ def select_backend() -> SafeFilesystemBackend:
 
 
 def backend_for(handle) -> SafeFilesystemBackend:
-    # POSIX descriptors keep their original representation and test seams.
+    # POSIX read-only descriptors and backend-owned directory capabilities.
     return POSIX if isinstance(handle, int) else handle.backend

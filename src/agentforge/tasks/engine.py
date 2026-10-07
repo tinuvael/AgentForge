@@ -227,6 +227,7 @@ class TaskEngine:
                 raise RuntimeError("A Task Engine already owns this database")
             _OWNERS.add(key)
         try:
+            self._repository.check_schema()
             self._repository.recover_running()
             if self._workspaces is not None:
                 self._workspaces.recover(self._repository)
