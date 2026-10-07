@@ -1,0 +1,50 @@
+# Trusted operator configuration. Capability values are examples: verify your model.
+# Remote Workers receive model context and repository tool results (data egress).
+[[providers]]
+id = "local-ollama"
+type = "ollama"
+base_url = "http://127.0.0.1:11434"
+
+[[providers]]
+id = "local-compatible"
+type = "openai_compatible"
+base_url = "http://127.0.0.1:8000/v1"
+# No authentication required for this example local server.
+
+[[providers]]
+id = "lan-compatible"
+type = "openai_compatible"
+base_url = "http://ai395.local:8000/v1"
+
+# To add an authenticated remote connection, uncomment and configure it:
+# [[providers]]
+# id = "remote-compatible"
+# type = "openai_compatible"
+# base_url = "https://example-compatible-provider.invalid/v1"
+# api_key_env = "AGENTFORGE_REMOTE_API_KEY"
+# stream_usage = true # Only if the server accepts stream_options.include_usage.
+
+[[workers]]
+id = "local-4080"
+provider = "local-ollama"
+model = "gpt-oss:20b"
+supports_tools = true
+supports_streaming = true
+context_window = 32768
+deployment_label = "RTX 4080"
+
+[[workers]]
+id = "local-compatible-model"
+provider = "local-compatible"
+model = "operator-configured-model"
+supports_tools = true
+supports_streaming = true
+deployment_label = "Local compatible server"
+
+[[workers]]
+id = "lan-compatible-model"
+provider = "lan-compatible"
+model = "operator-configured-model"
+supports_tools = true
+supports_streaming = false
+deployment_label = "LAN compatible server"

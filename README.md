@@ -88,6 +88,13 @@ Edit the example for your deployment. Inference requires a reachable Ollama back
 with that model installed; tests use only mocks. Streams must stay inside the async
 context manager so an early stop or cancellation closes the request.
 
+Phase 11 adds an OpenAI-compatible text/tool Chat Completions Provider and named
+Provider connections, preserving legacy Ollama configurations. See
+[Provider configuration, protocol subset and data egress](docs/providers.md) and
+[the heterogeneous example](config/workers.providers.example.toml). Remote Workers
+receive model context and repository tool results; explicit Worker selection is
+the control for this data-egress boundary.
+
 ## Development
 
 Use Python 3.12+:

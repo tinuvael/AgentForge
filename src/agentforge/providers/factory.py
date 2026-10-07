@@ -1,0 +1,30 @@
+"""Small static composition registry; no plugin discovery or selection policy."""
+
+from agentforge.providers.ollama import OllamaProvider
+from agentforge.providers.openai_compatible import OpenAICompatibleProvider
+from agentforge.workers.config import ConfigurationError, WorkersConfig
+
+PROVIDER_TYPES = {
+    "ollama": OllamaProvider,
+    "openai_compatible": OpenAICompatibleProvider,
+}
+
+
+def create_providers(config: WorkersConfig):
+    # Validate everything before creating instances. Constructors open no clients.
+    for connection in config.providers:
+        if connection.type not in PROVIDER_TYPES:
+            raise ConfigurationError("Unsupported Provider type")
+        connection.bearer_token()
+    if any(
+        w.provider_connection is None and w.provider != "ollama" for w in config.workers
+    ):
+        raise ConfigurationError("Unsupported inline Provider type")
+    providers = {p.id: PROVIDER_TYPES[p.type](p) for p in config.providers}
+    if any(w.provider_connection is None for w in config.workers):
+        if "ollama" in providers:
+            raise ConfigurationError(
+                "Provider ID conflicts with legacy Provider binding"
+            )
+        providers["ollama"] = OllamaProvider()
+    return providers
