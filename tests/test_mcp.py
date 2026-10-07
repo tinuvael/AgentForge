@@ -25,6 +25,9 @@ from agentforge.workers.config import WorkersConfig
 
 PRIVATE = "PRIVATE_SQL_CREDENTIAL_REASONING_SOURCE"
 PUBLIC_TOOLS = {
+    "get_coding_workspace",
+    "get_coding_diff",
+    "cleanup_coding_workspace",
     "agentforge_status",
     "describe_capabilities",
     "list_projects",

@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from agentforge.application.service import Application, ServiceError
+from agentforge.coding.models import CodingError
 from agentforge.councils.models import CouncilNotFound
 from agentforge.projects.errors import ProjectStorageError
 from agentforge.tasks.models import (
@@ -181,6 +182,8 @@ def create_app(
         request.state.csrf = token
         try:
             response = await call_next(request)
+        except CodingError:
+            response = failure(request, "coding_unavailable", 409)
         except CouncilNotFound:
             response = failure(request, "council_not_found", 404)
         except TaskNotFound:
@@ -281,11 +284,22 @@ def create_app(
         )
 
     def detail_response(request, task_id, fragment=False):
+        app = core()
+        coding = diff = None
+        if app.coding is not None:
+            try:
+                coding = app.get_coding_workspace(task_id=task_id)
+                if coding.inspection_available:
+                    diff = app.get_coding_diff(task_id=task_id)
+            except CodingError:
+                pass
         return render(
             request,
             "task_fragment.html" if fragment else "task.html",
             detail=core().dashboard.detail(task_id),
             council_id=core().councils.for_task(task_id),
+            coding_workspace=coding,
+            coding_diff=diff,
         )
 
     @web.get("/tasks/{task_id}", response_class=HTMLResponse)
@@ -335,6 +349,15 @@ def create_app(
         core().cancel_task(task_id=task_id)
         if request.headers.get("HX-Request") == "true":
             return detail_response(request, task_id, True)
+        return RedirectResponse(f"/tasks/{task_id}", status_code=303)
+
+    @web.post("/tasks/{task_id}/workspace/remove", response_class=HTMLResponse)
+    async def remove_workspace(request: Request, task_id: UUID):
+        await check_cancellation(request)
+        workspace = core().get_coding_workspace(task_id=task_id)
+        core().cleanup_coding_workspace(
+            task_id=task_id, workspace_id=workspace.workspace_id
+        )
         return RedirectResponse(f"/tasks/{task_id}", status_code=303)
 
     def event_response(subscription, is_terminal):

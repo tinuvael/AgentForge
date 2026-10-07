@@ -111,3 +111,6 @@ ruff format --check .
 The package lives under `src/agentforge/`; tests live under `tests/`.
 Install the package before running tests so imports exercise the installed package.
 Implement subsequent functionality incrementally through GitHub issues.
+
+Phase 12 adds optional isolated coding Tasks. See [coding setup, tools, trust
+boundaries and cleanup](docs/coding.md) and [operator configuration](config/coding.example.toml).

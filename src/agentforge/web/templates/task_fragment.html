@@ -23,6 +23,29 @@
     <p>Queued cancellation prevents execution. Running cancellation is cooperative at execution boundaries; remote inference may continue.</p>
   </form>
   {% endif %}
+  {% if coding_workspace %}{% set c = coding_workspace %}
+  <h2>Coding workspace</h2>
+  <dl class="facts"><dt>Workspace</dt><dd><code>{{ c.workspace_id }}</code></dd>
+    <dt>Status</dt><dd>{{ c.state }}</dd><dt>Branch (retained after removal)</dt><dd><code>{{ c.branch_name }}</code></dd>
+    <dt>Base commit</dt><dd><code>{{ c.base_commit }}</code></dd>
+    <dt>Writes / bytes</dt><dd>{{ c.write_calls }} / {{ c.bytes_written }}</dd>
+    <dt>Changed files</dt><dd>{{ c.changed_files|join(', ') }}</dd></dl>
+  {% if not c.inspection_available %}<p>Live diff inspection unavailable. Retained observations may describe an earlier state.</p>{% endif %}
+  <h3>Diff stat</h3><pre>{{ c.diff_stat }}</pre>
+  {% if coding_diff %}<h3>Current diff</h3><pre>{{ coding_diff.content }}</pre>{% if coding_diff.truncated %}<p>Diff explicitly truncated.</p>{% endif %}{% endif %}
+  <h3>Validation runs</h3>
+  {% for run in c.validation_runs %}
+    <p>{{ run.name }} · exit {{ run.exit_code|known }} · {{ run.duration_seconds|seconds }}{% if run.timed_out %} · timed out{% endif %}{% if run.cancelled %} · cancelled{% endif %}</p>
+    <pre>{{ run.stdout }}</pre><pre>{{ run.stderr }}</pre>
+    {% if run.stdout_truncated or run.stderr_truncated %}<p>Captured output truncated.</p>{% endif %}
+  {% else %}<p>No validation run recorded.</p>{% endfor %}
+  {% if task.state in ['completed','failed','cancelled'] and c.state != 'removed' %}
+  <form method="post" action="/tasks/{{ task.task_id }}/workspace/remove">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> I confirm removal of this workspace and its uncommitted changes.</label>
+    <button type="submit">Remove workspace</button><p>The task branch is retained. Export/review the diff before removal.</p>
+  </form>{% endif %}
+  {% endif %}
   <h2>Telemetry</h2><p>Coverage: {{ task.telemetry_status }}. Metrics are recorded at terminal completion. Unknown values are —; durations are seconds.</p>
   {% if detail.telemetry %}{% set t = detail.telemetry %}
   <dl class="facts metrics">

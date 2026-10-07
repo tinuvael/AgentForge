@@ -1,6 +1,7 @@
 """One bounded, in-process Agent interaction on an explicitly selected Worker."""
 
 import asyncio
+import inspect
 from collections.abc import Callable, Mapping, Sequence
 from time import monotonic
 from uuid import UUID
@@ -18,6 +19,7 @@ from agentforge.agents.models import (
     TraceEvent,
 )
 from agentforge.agents.tools import Tool, json_text, trace_arguments
+from agentforge.coding.models import CodingError, CodingLimit, EditConflict
 from agentforge.core.inference import GenerationRequest, Message, Provider, TokenUsage
 from agentforge.core.provider_errors import ProviderTimeout
 from agentforge.index.models import SymbolNotFound
@@ -48,6 +50,9 @@ _RECOVERABLE = {
     GitFailure: "git_failure",
     RepositoryIOError: "repository_io",
     SymbolNotFound: "symbol_not_found",
+    EditConflict: "edit_conflict",
+    CodingLimit: "coding_limit",
+    CodingError: "coding_unavailable",
 }
 
 
@@ -66,6 +71,7 @@ class AgentRuntime:
         providers: Mapping[str, Provider],
         tools: Mapping[str, Tool],
         clock: Callable[[], float] = monotonic,
+        coding_tools: Mapping[str, Tool] | None = None,
     ):
         self._projects = projects
         self._workers = {worker.id: worker for worker in workers.workers}
@@ -74,7 +80,12 @@ class AgentRuntime:
             raise ValueError("Agent IDs must be unique")
         self._providers = dict(providers)
         self._tools = dict(tools)
+        self._coding_tools = dict(coding_tools or {})
         self._clock = clock
+
+    def workspace_mode(self, agent_id: str) -> str:
+        agent = self._agents.get(agent_id)
+        return agent.workspace_mode if agent else "project_readonly"
 
     def execution_target(self, worker_id: str) -> tuple[str | None, str | None]:
         """Configured target only, without probing or selecting another Worker."""
@@ -98,13 +109,18 @@ class AgentRuntime:
             or not task.strip()
         ):
             raise ValueError("Invalid execution binding")
+        tools = (
+            self._coding_tools
+            if agent.workspace_mode == "isolated_write"
+            else self._tools
+        )
         provider = self._providers.get(worker.provider_connection or worker.provider)
         if (
             provider is None
             or provider.name != worker.provider
             or len(set(agent.allowed_tools)) != len(agent.allowed_tools)
             or any(
-                name not in self._tools or self._tools[name].definition.name != name
+                name not in tools or tools[name].definition.name != name
                 for name in agent.allowed_tools
             )
             or (agent.allowed_tools and worker.supports_tools is False)
@@ -125,6 +141,7 @@ class AgentRuntime:
         limits: RuntimeLimits | None = None,
         cancellation: CancellationToken | None = None,
         observations: ExecutionObservations | None = None,
+        coding_session=None,
     ) -> ExecutionResult:
         """No default Worker, health-based selection, fallback or persistent Task.
 
@@ -191,7 +208,21 @@ class AgentRuntime:
             policy = limits or agent.limits
             deadline = started + policy.timeout_seconds
             check()
-            allowed = {name: self._tools[name] for name in sorted(agent.allowed_tools)}
+            if agent.workspace_mode == "isolated_write":
+                if coding_session is None or (
+                    coding_session.task.project_id != project_id
+                    or coding_session.task.agent_id != agent_id
+                    or coding_session.task.worker_id != worker_id
+                ):
+                    raise _Stop("invalid_configuration")
+                tool_catalog = coding_session.tools
+                roots = coding_session.registry
+            else:
+                if coding_session is not None:
+                    raise _Stop("invalid_configuration")
+                tool_catalog = self._tools
+                roots = self._projects
+            allowed = {name: tool_catalog[name] for name in sorted(agent.allowed_tools)}
             definitions = [tool.definition for tool in allowed.values()]
             messages = [
                 Message(role="system", content=agent.system_prompt),
@@ -222,7 +253,7 @@ class AgentRuntime:
 
             def verify_root():
                 # Cached Index queries never authorize a replaced live root.
-                with self._projects.open_root(project_id):
+                with roots.open_root(project_id):
                     pass
 
             while step < policy.max_steps:
@@ -347,8 +378,14 @@ class AgentRuntime:
                         verify_root()
                         try:
                             value = tool.execute(project_id, arguments, budget)
+                            if inspect.isawaitable(value):
+                                async with asyncio.timeout(
+                                    max(0.001, deadline - self._clock())
+                                ):
+                                    value = await value
                             content = json_text({"ok": True, "result": value})
                         except Exception as error:
+                            check()
                             code = _RECOVERABLE.get(type(error))
                             if code is None:
                                 reason = (

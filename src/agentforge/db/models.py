@@ -228,3 +228,26 @@ class CouncilParticipantRecord(Base):
     # Task cannot disappear leaving an accidental incomplete historical Council.
     task_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tasks.task_id"))
     worker_id: Mapped[str] = mapped_column(Text)
+
+
+class CodingWorkspaceRecord(Base):
+    """Private lifecycle metadata, never source or complete diffs."""
+
+    __tablename__ = "coding_workspaces"
+    __table_args__ = (
+        UniqueConstraint("branch_name", "repository_path", name="uq_coding_branch"),
+    )
+
+    task_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    workspace_id: Mapped[UUID] = mapped_column(Uuid, unique=True)
+    project_id: Mapped[UUID] = mapped_column(Uuid)
+    worker_id: Mapped[str] = mapped_column(Text)
+    branch_name: Mapped[str] = mapped_column(Text)
+    base_commit: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(String(32))
+    repository_path: Mapped[str] = mapped_column(Text)
+    worktree_path: Mapped[str] = mapped_column(Text)
+    prefix: Mapped[str] = mapped_column(Text)
+    identities: Mapped[dict] = mapped_column(JSON)
+    observations: Mapped[dict] = mapped_column(JSON)

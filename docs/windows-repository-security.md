@@ -171,3 +171,11 @@ run real Win32 APIs, NTFS locks/junctions/ADS, shared source/Git security contra
 and MCP with scripted inference; POSIX-specific regression seams are marked `posix`.
 No automated test needs Ollama, a GPU or networking. See
 [native Windows smoke](native-windows-smoke.md) for actual acceptance.
+
+
+Phase 12 preserves this read-only backend and snapshot contract. The opt-in
+[coding backend](coding.md) reuses Win32 identity, path, volume, ordinal-case and
+pinned-ancestry primitives, adding exclusive mutation handles and manager-owned
+no-checkout worktree provisioning. Windows rewrites are durable handle operations,
+not crash-atomic replacements. Native Windows coding/Job integration requires
+execution on Windows; deterministic Linux mocks are not native evidence.

@@ -26,6 +26,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="AgentForge trusted local dashboard")
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--workers", required=True)
+    parser.add_argument("--coding", help="Explicit trusted coding TOML configuration")
     parser.add_argument("--concurrency", type=int, choices=range(1, 33), default=1)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -53,6 +54,7 @@ def main() -> int:
             Application.from_config,
             database_url=args.database_url,
             workers_path=args.workers,
+            coding_path=args.coding,
             concurrency=args.concurrency,
         ),
         allowed_hosts=tuple(

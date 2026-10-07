@@ -190,3 +190,11 @@ explicit Workers, ordered per-participant results, partial failures and cancella
 MCP adds `delegate_council`, `get_council`, `cancel_council`. The dashboard navigation
 adds Council history/detail with Task links and live refresh using the same bounded
 TaskObserver. The external Director remains the judge; telemetry stays per Task.
+
+
+With explicit `--coding` configuration, Task detail also displays private-path-free
+coding branch/base/state, changed files, bounded current diff, actual validations
+and observed write counters. Source/output stays escaped plain text. “Remove
+workspace” is a terminal-only POST with confirmation and existing CSRF checks;
+review/export uncommitted changes first. The task branch is retained and no
+push/merge controls are provided. See [coding](coding.md) for trust/recovery limits.

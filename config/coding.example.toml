@@ -1,0 +1,29 @@
+# Explicit opt-in: pass --coding /path/to/coding.local.toml to MCP/dashboard.
+# Create this outside ALL registered repositories, with mode 0700 on POSIX or
+# a private user-owned NTFS ACL on Windows. Root and executable ancestry must
+# contain no symlinks/junctions. Do not copy these example host paths unchanged.
+workspace_parent = "/var/lib/agentforge/worktrees"
+git_executable = "/usr/bin/git"
+
+# Trusted operator code: this is an allowlist, NOT an OS/network sandbox.
+# Use an absolute real executable, outside repositories/workspaces. For virtualenv
+# validators use `python -m venv --copies`; do not use repository executables.
+# No model argv or environment override exists. No dependencies are installed.
+[validations.pytest]
+argv = ["/opt/agentforge-validation/bin/python3.12", "-m", "pytest"]
+timeout_seconds = 60.0
+
+[validations.ruff_check]
+argv = ["/opt/agentforge-validation/bin/ruff", "check", "."]
+timeout_seconds = 30.0
+
+[limits]
+max_write_calls = 24
+max_file_bytes = 262144
+max_patch_bytes = 65536
+max_total_write_bytes = 1048576
+max_changed_files = 32
+max_validations = 8
+max_validation_seconds = 120.0
+max_validation_output_bytes = 8192
+max_diff_bytes = 65536
