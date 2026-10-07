@@ -234,6 +234,7 @@ class CodingWorkspaceManager:
                     if collision.returncode != 1:
                         raise CodingError("Coding branch collision or unavailable refs")
                     tree = git.tree(base, prefix)
+                    full_tree = git.tree(base, "")
                     self.repository.add(
                         task_id=task.task_id,
                         workspace_id=task.task_id,
@@ -286,6 +287,7 @@ class CodingWorkspaceManager:
                             ).as_json()
                             self.repository.update(task.task_id, identities=identities)
                             total = 0
+                            materialized = set()
                             # Internal materialization copies raw blobs only within
                             # the registered subtree. Special Git objects stay absent.
                             for path, (mode, kind, object_id) in sorted(tree.items()):
@@ -318,6 +320,7 @@ class CodingWorkspaceManager:
                                         target, identities["worktree"]
                                     ),
                                 )
+                                materialized.add(relative)
                             if prefix:
                                 self._ensure_subtree(root, prefix)
                         _, tool_root = self._paths(self._record(task.task_id))
@@ -328,6 +331,10 @@ class CodingWorkspaceManager:
                         row = self._record(task.task_id)
                         with self._git(row, workspace=True) as worktree_git:
                             worktree_git.complete(["read-tree", base], 128)
+                            # A sparse materialization must not look like sibling
+                            # deletion to ordinary Git inspection outside tools.
+                            # Special Git entries also remain absent and untouched.
+                            worktree_git.skip_absent(full_tree.keys() - materialized)
                         with self.projects.open_root(task.project_id):
                             pass
                         self.repository.update(task.task_id, state="ready")

@@ -24,6 +24,9 @@ access the host and network, and must only be enabled for trusted repositories.
 
 Provisioning uses `worktree add --no-checkout` from the exact captured committed
 HEAD, then raw `ls-tree`/`cat-file` blobs and a worktree-only `read-tree` index.
+Unmaterialized siblings and special entries are marked `skip-worktree` in that
+index, so ordinary Git inspection does not misreport them as deletions. The
+bounded full base-tree inventory is private and never reaches the Worker.
 No checkout/smudge/clean/LFS hook is invoked. Primary files, index, HEAD and branch
 are untouched; uncommitted primary changes are not copied. Symlinks/submodules
 are not materialized and remain non-editable special entries. Phase 12 produces

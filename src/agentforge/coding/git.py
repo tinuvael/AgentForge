@@ -58,6 +58,8 @@ class WorkspaceGit(_Git):
             "core.autocrlf": "false",
             "core.quotePath": "false",
             "core.untrackedCache": "false",
+            "core.sparseCheckout": "false",
+            "core.splitIndex": "false",
             "diff.external": "",
             "core.pager": "",
             "maintenance.auto": "false",
@@ -105,6 +107,26 @@ class WorkspaceGit(_Git):
         if len(result) > 10_000:
             raise CodingError("Coding base tree file limit exceeded")
         return result
+
+    def skip_absent(self, paths):
+        """Mark known unmaterialized base entries without touching their contents.
+
+        Paths come only from the immutable base tree, never tool/model arguments.
+        Batches also fit Windows' process command-line bound. No sparse checkout,
+        index refresh, filters or filesystem checkout is performed.
+        """
+        batch, size = [], 0
+        for path in sorted(paths):
+            encoded_size = len(path.encode("utf-8")) + 3
+            if encoded_size > 4096:
+                raise CodingError("Coding base path exceeds the index limit")
+            if size + encoded_size > 8192:
+                self.complete(["update-index", "--skip-worktree", "--", *batch], 128)
+                batch, size = [], 0
+            batch.append(path)
+            size += encoded_size
+        if batch:
+            self.complete(["update-index", "--skip-worktree", "--", *batch], 128)
 
 
 @contextmanager

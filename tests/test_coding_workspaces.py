@@ -203,9 +203,11 @@ def test_subproject_never_exposes_siblings(coding):
     setup = coding.create(subproject=True)
     assert setup.tool_root == setup.workspace / "allowed"
     assert not (setup.workspace / "secret").exists()
+    assert git(setup.workspace, "status", "--porcelain") == b""
     assert setup.session.reads.list_files(coding.task.project_id).paths == ("a.py",)
     write(setup, "a.py", "changed\n", sha("allowed\n"))
     assert coding.manager.diff(coding.task.task_id).changed_files == ("a.py",)
+    assert git(setup.workspace, "diff", "--name-only") == b"allowed/a.py\n"
     for path in ("../secret/private.py", "../../primary/secret/private.py"):
         with pytest.raises(UnsafeProjectPath):
             setup.session.reads.read_file(coding.task.project_id, path)
@@ -586,6 +588,7 @@ def test_special_git_objects_remain_noneditable(coding):
     git(coding.root, "commit", "-m", "link")
     setup = coding.create()
     assert not (setup.workspace / "linked").exists()
+    assert git(setup.workspace, "status", "--porcelain") == b""
     with pytest.raises(CodingError):
         write(setup, "linked", "attack")
     with pytest.raises(CodingError):
