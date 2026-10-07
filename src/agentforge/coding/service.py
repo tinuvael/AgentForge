@@ -790,8 +790,6 @@ class WorkspaceRegistry:
         return replace(
             original,
             root_path=root,
-            root_device=None,
-            root_inode=None,
             root_identity=_identity(row["identities"]["tool_root"]),
         )
 

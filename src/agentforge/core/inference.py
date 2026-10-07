@@ -1,4 +1,4 @@
-"""Small normalized inference boundary used by future execution callers."""
+"""Small normalized inference boundary used by runtime and direct callers."""
 
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager

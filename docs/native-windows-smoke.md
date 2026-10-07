@@ -18,8 +18,8 @@ These steps perform real inference and are never executed by pytest.
 
    Record actual Windows version, filesystem, Git version, pass/skip counts and
    symlink privilege skips. Run the full pytest suite too. Do not count mocked tests
-   executed on Linux as native validation. Re-register old Windows roots whose
-   persisted identity predates this backend; migration never reauthorizes them.
+   executed on Linux as native validation. Use a fresh database from the
+   [first-release baseline](development.md#migrations).
 
 2. Copy `config/workers.example.toml` to ignored `workers.local.toml`. Configure
    `local-4080`, provider `ollama`, your installed model (for example `gpt-oss:20b`),
@@ -97,7 +97,8 @@ UUID, tool-call evidence, telemetry and native test results for acceptance.
 To test home-i5 or another remote Ollama Worker, add its reachable endpoint/model
 to the **central** Worker file and repeat with its explicit Worker ID. The Project
 and all tools stay on Windows. No share, checkout or repository synchronization
-belongs on the Worker. Other Provider protocols remain future work.
+belongs on the Worker. For compatible endpoints use named connections as described in
+[Providers](providers.md); this acceptance procedure specifically exercises Ollama.
 
 For restrictions and the Win32/Git threat model, see
 [Windows repository security](windows-repository-security.md).

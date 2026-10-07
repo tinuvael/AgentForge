@@ -26,7 +26,7 @@ class Worker(BaseModel):
     provider: NonBlank
     model: NonBlank
     provider_connection: NonBlank | None = None
-    # Legacy inline connection; preferred configurations use provider_connection.
+    # Inline connection; preferred configurations use provider_connection.
     endpoint: HttpUrl | None = Field(default=None, repr=False)
     context_window: int | None = Field(default=None, gt=0)
     supports_streaming: bool = False
@@ -48,7 +48,7 @@ class Worker(BaseModel):
     def connection_binding(self):
         if (self.endpoint is None) == (self.provider_connection is None):
             raise ValueError(
-                "Supply exactly one connection reference or legacy endpoint"
+                "Supply exactly one connection reference or inline endpoint"
             )
         return self
 

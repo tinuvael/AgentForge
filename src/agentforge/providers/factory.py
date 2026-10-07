@@ -24,7 +24,7 @@ def create_providers(config: WorkersConfig):
     if any(w.provider_connection is None for w in config.workers):
         if "ollama" in providers:
             raise ConfigurationError(
-                "Provider ID conflicts with legacy Provider binding"
+                "Provider ID conflicts with inline Provider binding"
             )
         providers["ollama"] = OllamaProvider()
     return providers

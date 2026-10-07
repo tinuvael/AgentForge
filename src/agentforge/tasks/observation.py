@@ -32,6 +32,9 @@ _ERROR_CODES = frozenset(
     "git_failure",
     "repository_io",
     "symbol_not_found",
+    "edit_conflict",
+    "coding_limit",
+    "coding_unavailable",
 }
 
 
@@ -49,7 +52,7 @@ class TimelineEvent:
 def metadata(event: TraceEvent) -> TimelineEvent:
     """Explicit allowlist for both live and persisted traces.
 
-    Deliberately drop even Phase 05's redacted arguments and provider call IDs.
+    Deliberately drop even redacted tool arguments and provider call IDs.
     No arguments, result, source, reasoning, backend body or exception fields.
     """
     return TimelineEvent(

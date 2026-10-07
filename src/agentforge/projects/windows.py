@@ -223,7 +223,7 @@ class WindowsSafeFilesystemBackend:
             return node.info.identity
 
     def resolve_path(self, root, candidate, *, expected=None):
-        # Compatibility helper returns a point-in-time validated path, never an I/O
+        # This helper returns a point-in-time validated path, never an I/O
         # capability. Windows deliberately rejects absolute candidates and aliases.
         from agentforge.tools.policy import relative_path
 
@@ -231,7 +231,7 @@ class WindowsSafeFilesystemBackend:
         self.validate_parts(parts)
         if expected is None:
             raise UnsafeProjectPath(
-                "Project must be re-registered for safe file access"
+                "Registered root identity is required for safe file access"
             )
         with self.anchored_root(root, expected) as node:
             if not parts:

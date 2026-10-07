@@ -1,4 +1,4 @@
-"""Offline connection resolution, legacy compatibility and secret isolation."""
+"""Offline connection resolution, inline/named configuration and secret isolation."""
 
 import pytest
 
@@ -123,7 +123,7 @@ def test_invalid_configuration_is_safe(tmp_path, mutation):
     assert SECRET not in str(caught.value) + repr(caught.value)
 
 
-def test_legacy_ollama_and_named_ollama_share_config_file(tmp_path):
+def test_inline_ollama_and_named_ollama_share_config_file(tmp_path):
     path = config_file(
         tmp_path,
         provider="local",
@@ -136,16 +136,16 @@ base_url = "http://lan.invalid:11434"
     path.write_text(
         path.read_text()
         + """\n[[workers]]
-id = "legacy"
+id = "inline"
 provider = "ollama"
-endpoint = "http://legacy.invalid:11434"
-model = "legacy-model"
+endpoint = "http://inline.invalid:11434"
+model = "inline-model"
 """
     )
     config = load_workers(path)
     assert [w.provider for w in config.workers] == ["ollama", "ollama"]
     assert config.workers[0].endpoint is None
-    assert str(config.workers[1].endpoint) == "http://legacy.invalid:11434/"
+    assert str(config.workers[1].endpoint) == "http://inline.invalid:11434/"
     assert set(create_providers(config)) == {"local", "ollama"}
 
 

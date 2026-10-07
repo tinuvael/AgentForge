@@ -1,4 +1,4 @@
-# Councils (Phase 10)
+# Independent Councils
 
 A Council durably groups ordinary Tasks executing the **same request independently**
 on **2–16 distinct Workers explicitly supplied by the caller**, in caller order.
@@ -16,19 +16,19 @@ use this service rather than duplicating validation or cancellation rules.
 
 Submission validates the entire bounded request, registered Project, actual Agent,
 every explicit Worker and all runtime/tool/Provider bindings before any insert.
-Request text reuses the Phase 08 Task contract: nonblank, at most 32,768 characters.
+Request text reuses the Task contract: nonblank, at most 32,768 characters.
 There is no discovery, default Worker, availability probe or replacement. A Worker
 that fails at execution retains its identity and failure outcome.
 
-Migration **`0007_councils`**, after `0006_windows_root_identity`, adds:
+Council persistence uses:
 
 - `councils`: `council_id`, historical `project_id`, `agent_id`, `request`, UTC
   `created_at`. No Project FK, consistently with Task history.
 - `council_participants`: Council FK, Task FK, explicit `worker_id`, `ordinal`.
   `(council_id, ordinal)` is the primary key; `(council_id, worker_id)` and `task_id`
   are unique. Ordinals are constrained to 0–15. FKs have no cascading deletes:
-  referenced Tasks cannot disappear accidentally, and deleting membership or
-  downgrading the Council migration never deletes Task/telemetry history.
+  referenced Tasks cannot disappear accidentally, and deleting membership never
+  deletes Task/telemetry history. A downgrade to `base` destroys all schema/history.
 - Creation time/ID index for deterministic descending history; the participant
   primary key supports ordered membership reads and unique Task index supports
   membership lookup.
@@ -97,7 +97,7 @@ The snapshot contains Council identity, Project/Agent IDs, creation time, termin
 flag, state counts and ordered participants. Each participant exposes only Worker/
 Task IDs, state, configured Provider/model, completed final answer, safe reason/error
 code, cancellation-request timestamp and telemetry coverage status. **Request text
-is omitted from MCP**, consistently with Phase 08 Task snapshots. Request and normal
+is omitted from MCP**, consistently with Task snapshots. Request and normal
 final answers are intentionally stored private runtime text; final answers are
 intended opinions, not scrubbed arbitrary model text.
 
@@ -141,7 +141,7 @@ the existing signed double-submit CSRF/Origin/Fetch Metadata checks. It calls th
 same Council service and normal Task cancellation path. Local trusted operator and
 single-process hosting limitations from [the dashboard](dashboard.md) still apply.
 
-Telemetry remains independently queryable Phase 07 telemetry. Council UI shows per-
+Telemetry remains independently queryable terminal Task telemetry. Council UI shows per-
 participant coverage, runtime, token accounting and observed throughput with unknown
 values preserved. Only participant state counts are aggregated. There is no combined
 heterogeneous throughput, performance score or Worker ranking.
@@ -155,6 +155,6 @@ queued/cooperative cancellation and race orderings, restart recovery, historical
 Project removal, migration upgrade/downgrade, safe errors, escaping and bounded live
 updates. Native Windows integration retains its platform skips on non-Windows hosts.
 
-Phase 10 does not add a judge, consensus, synthesis, automatic routing or fallback,
+Council does not provide a judge, consensus, synthesis, automatic routing or fallback,
 benchmarks, another Provider, write-capable Agent, worktrees, generic shell,
 distributed queue, remote repository sync or authentication platform.

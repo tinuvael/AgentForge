@@ -60,7 +60,11 @@ class ValidationRun(BaseModel):
 
 
 class CodingResult(BaseModel):
-    """No host paths, reasoning, source contents or fabricated validation success."""
+    """Bounded workspace facts and intentional untrusted validation captures.
+
+    Private workspace paths, reasoning and source tool bodies are not added.
+    Validation output is not general secret/host-path classification.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

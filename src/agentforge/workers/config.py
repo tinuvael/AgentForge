@@ -73,15 +73,15 @@ class WorkersConfig(BaseModel):
                         "Referenced Workers cannot define inline endpoints"
                     )
             elif worker.endpoint is None:
-                raise ValueError("Legacy Workers require an endpoint")
+                raise ValueError("Inline Workers require an endpoint")
         return self
 
 
 def load_workers(path: str | Path) -> WorkersConfig:
     """Preferred TOML Worker.provider references a named connection.
 
-    Preserve the original inline Ollama format. Programmatic WorkersConfig still
-    accepts injected third-party Provider types for existing generic callers/tests.
+    Inline Ollama and named connections are both supported. Programmatic
+    WorkersConfig accepts explicitly injected third-party Providers.
     """
     try:
         with Path(path).open("rb") as source:
@@ -105,7 +105,7 @@ def load_workers(path: str | Path) -> WorkersConfig:
                 entry["provider"] = by_id[reference].type
             elif reference != "ollama":
                 raise ConfigurationError(
-                    "Inline endpoints require legacy Ollama configuration"
+                    "Inline endpoints require inline Ollama configuration"
                 )
             resolved.append(Worker.model_validate(entry))
         config = WorkersConfig(providers=connections, workers=resolved)

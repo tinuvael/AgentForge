@@ -2,13 +2,10 @@
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import delete, inspect, select, update
+from sqlalchemy import delete, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from agentforge.agents import repository_toolset
@@ -23,7 +20,6 @@ from agentforge.core.provider_errors import BackendUnavailable, ProviderTimeout
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
 from agentforge.db.models import TaskRecord, TaskTelemetryRecord
-from agentforge.db.tasks import TaskRepository
 from agentforge.db.telemetry import TelemetryRepository
 from agentforge.index.service import ProjectIndex
 from agentforge.tasks.engine import TaskEngine
@@ -824,40 +820,3 @@ def test_safe_query_storage_failure(setup, telemetry):
         TelemetryUnavailable, match="Could not access telemetry storage"
     ):
         telemetry.list_telemetry()
-
-
-def test_migration_from_0004_retains_history_and_metadata_agrees(database):
-    engine, _ = database
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    identity = uuid4()
-    now = datetime.now(UTC)
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        command.downgrade(config, "0004_tasks")
-        assert "task_telemetry" not in inspect(connection).get_table_names()
-        from sqlalchemy import text
-
-        connection.execute(
-            text(
-                "INSERT INTO tasks (task_id, project_id, agent_id, worker_id, "
-                "request, state, created_at, updated_at, reason, finished_at) "
-                "VALUES (:id, :project, 'general', 'home-i5', 'PRIVATE old request', "
-                "'completed', :now, :now, 'completed', :now)"
-            ),
-            {"id": identity.hex, "project": uuid4().hex, "now": now.isoformat()},
-        )
-        command.upgrade(config, "head")
-        assert "task_telemetry" in inspect(connection).get_table_names()
-        command.check(config)
-    repository = TaskRepository(create_session_factory(engine))
-    task = repository.get(identity)
-    assert (
-        task.request == "PRIVATE old request" and task.telemetry_status == "unavailable"
-    )
-    assert task.provider is task.model is None
-    with pytest.raises(TelemetryUnavailable):
-        TelemetryService(
-            TelemetryRepository(create_session_factory(engine))
-        ).get_for_task(identity)
-    with engine.connect() as connection:
-        assert connection.scalar(select(TaskTelemetryRecord.task_id)) is None

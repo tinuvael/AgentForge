@@ -1,4 +1,4 @@
-"""Project configuration and deterministic structural cache records."""
+"""First-release schema: configuration, structural cache and durable history."""
 
 from datetime import datetime
 from uuid import UUID
@@ -31,9 +31,7 @@ class ProjectRecord(Base):
     name: Mapped[str] = mapped_column(String(255))
     root_path: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    root_device: Mapped[str | None] = mapped_column(Text)
-    root_inode: Mapped[str | None] = mapped_column(Text)
-    root_identity: Mapped[dict | None] = mapped_column(JSON)
+    root_identity: Mapped[dict] = mapped_column(JSON(none_as_null=True))
 
 
 class IndexStateRecord(Base):
@@ -111,6 +109,10 @@ class TaskRecord(Base):
         CheckConstraint(
             "state IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
             name="ck_tasks_state",
+        ),
+        CheckConstraint(
+            "telemetry_status IN ('pending', 'recorded', 'unavailable')",
+            name="ck_tasks_telemetry_status",
         ),
         Index("ix_tasks_created", "created_at", "task_id"),
         Index("ix_tasks_state_created", "state", "created_at", "task_id"),
@@ -236,10 +238,16 @@ class CodingWorkspaceRecord(Base):
     __tablename__ = "coding_workspaces"
     __table_args__ = (
         UniqueConstraint("branch_name", "repository_path", name="uq_coding_branch"),
+        UniqueConstraint("workspace_id", name="uq_coding_workspace_id"),
+        CheckConstraint(
+            "state IN ('provisioning', 'ready', 'completed', 'failed', 'cancelled', "
+            "'interrupted', 'cleanup_pending', 'removed', 'suspicious')",
+            name="ck_coding_workspace_state",
+        ),
     )
 
     task_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
-    workspace_id: Mapped[UUID] = mapped_column(Uuid, unique=True)
+    workspace_id: Mapped[UUID] = mapped_column(Uuid)
     project_id: Mapped[UUID] = mapped_column(Uuid)
     worker_id: Mapped[str] = mapped_column(Text)
     branch_name: Mapped[str] = mapped_column(Text)

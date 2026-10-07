@@ -1,4 +1,4 @@
-"""Filesystem validation shared by the registry and future scoped tools."""
+"""Registry path validation; resolved paths are not I/O capabilities."""
 
 from pathlib import Path
 
@@ -34,7 +34,7 @@ def resolve_project_path(root: Path, candidate: str | Path) -> Path:
 
     Relative candidates are rooted at the project, absolute candidates are checked
     identically. This is validation at a point in time, not protection against a
-    concurrent filesystem replacement between validation and a future tool's I/O.
+    concurrent filesystem replacement between validation and subsequent I/O.
     """
     try:
         resolved_root = validate_registered_root(root)

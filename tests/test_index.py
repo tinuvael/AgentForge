@@ -2,35 +2,32 @@
 
 import os
 import subprocess
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, select
 
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
 from agentforge.db.models import (
     IndexedFileRecord,
     IndexStateRecord,
-    ProjectRecord,
     RelationshipRecord,
     SymbolRecord,
 )
 from agentforge.db.projects import ProjectRepository
-from agentforge.index import scanner, service
+from agentforge.index import service
 from agentforge.index.models import IndexRefreshError, IndexStorageError, SymbolNotFound
 from agentforge.index.render import approximate_tokens
-from agentforge.index.scanner import EXCLUDED_DIRECTORIES
 from agentforge.index.service import ProjectIndex
+from agentforge.projects import filesystem
 from agentforge.projects import service as registry_service
 from agentforge.projects.errors import (
     InvalidProjectPath,
     ProjectNotFound,
     UnsafeProjectPath,
 )
+from agentforge.projects.exclusions import EXCLUDED_DIRECTORIES
 from agentforge.projects.service import ProjectRegistry
 from agentforge.tools.service import RepositoryTools
 
@@ -464,7 +461,7 @@ def test_ordinary_root_replacement_rejected_after_reopen(
     root.rename(tmp_path / "registered-directory")
     root.mkdir()
     write(root, "replacement.py", "def unauthorized_replacement(): pass\n")
-    assert root.stat().st_ino != project.root_inode
+    assert str(root.stat().st_ino) != project.root_identity.file_id
 
     def unexpected_git(*args):
         pytest.fail("Replaced roots must be rejected before Git inspection")
@@ -504,47 +501,6 @@ def test_ordinary_root_replacement_rejected_after_reopen(
 
 
 @pytest.mark.posix
-def test_legacy_identity_rejects_live_index_access_but_keeps_snapshot(
-    indexed, registry, database, tmp_path, monkeypatch
-):
-    index, project, root = indexed
-    write(root, "module.py", "def cached(): pass\n")
-    index.refresh_index(project.id)
-    before = index.render_project_map(project.id)
-    sessions = create_session_factory(database[0])
-    with sessions.begin() as session:
-        record = session.get(ProjectRecord, project.id)
-        record.root_device = record.root_inode = None
-    write(root, "new.py", "def must_not_be_authorized(): pass\n")
-
-    def unexpected_git(*args):
-        pytest.fail("Legacy registration must not authorize Git inspection")
-
-    monkeypatch.setattr(registry_service, "inspect_git", unexpected_git)
-    # Reopen the database so no in-memory registration identity can hide NULLs.
-    engine, url = database
-    engine.dispose()
-    reopened = create_database_engine(url)
-    try:
-        sessions = create_session_factory(reopened)
-        registry = ProjectRegistry(ProjectRepository(sessions), base_directory=tmp_path)
-        index = ProjectIndex(registry, IndexRepository(sessions))
-        for operation in (
-            registry.inspect_project,
-            index.refresh_index,
-            index.get_index_status,
-            RepositoryTools(registry).list_files,
-        ):
-            with pytest.raises(UnsafeProjectPath, match="re-registered"):
-                operation(project.id)
-        assert index.render_project_map(project.id) == before
-        assert one(index, project, "cached")
-        assert not index.find_symbol(project.id, "must_not_be_authorized")
-    finally:
-        reopened.dispose()
-
-
-@pytest.mark.posix
 def test_root_replacement_during_refresh_rolls_back(
     indexed, database, tmp_path, monkeypatch
 ):
@@ -577,7 +533,7 @@ def test_file_replaced_by_symlink_between_stat_and_open(indexed, tmp_path, monke
     file = write(root, "module.py", "def original(): pass\n")
     index.refresh_index(project.id)
     outside = write(tmp_path, "outside.py", "def outside_secret(): pass\n")
-    original_open = scanner.os.open
+    original_open = filesystem.os.open
 
     def racing_open(path, flags, *args, **kwargs):
         if path == "module.py":
@@ -587,9 +543,9 @@ def test_file_replaced_by_symlink_between_stat_and_open(indexed, tmp_path, monke
 
     # Capability detection still refers to the same function after monkeypatch.
     monkeypatch.setattr(
-        scanner.os, "supports_dir_fd", scanner.os.supports_dir_fd | {racing_open}
+        filesystem.os, "supports_dir_fd", filesystem.os.supports_dir_fd | {racing_open}
     )
-    monkeypatch.setattr(scanner.os, "open", racing_open)
+    monkeypatch.setattr(filesystem.os, "open", racing_open)
     with pytest.raises(IndexRefreshError):
         index.refresh_index(project.id)
     assert one(index, project, "original")
@@ -727,32 +683,6 @@ def test_invalid_budget_is_rejected(indexed, budget):
         index.render_project_map(project.id, max_tokens=budget)
 
 
-def test_new_migration_follows_registry_and_preserves_registration(
-    database, registry, tmp_path
-):
-    engine, _ = database
-    project = registry.register_project("Keep", tmp_path)
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        command.downgrade(config, "0001_projects")
-        assert "projects" in inspect(connection).get_table_names()
-        assert "indexed_files" not in inspect(connection).get_table_names()
-        command.upgrade(config, "head")
-        command.check(config)
-    # Downgrading to Phase 03 drops the later directory identity. The stable
-    # registration survives; safe repository tools require re-registration.
-    restored = registry.get_project(project.id)
-    assert (restored.id, restored.name, restored.root_path, restored.created_at) == (
-        project.id,
-        project.name,
-        project.root_path,
-        project.created_at,
-    )
-    assert restored.root_device is None
-    assert restored.root_inode is None
-
-
 def test_database_errors_are_translated(indexed, database):
     index, project, root = indexed
     write(root, "module.py", "def helper(): pass\n")
@@ -875,7 +805,7 @@ def test_source_changed_during_read_aborts_refresh(indexed, monkeypatch):
     write(root, "source.py", "def original(): pass\n")
     index.refresh_index(project.id)
     previous = index.render_project_map(project.id)
-    original_fstat = scanner.os.fstat
+    original_fstat = filesystem.os.fstat
     file_stat_calls = 0
 
     def racing_fstat(fd):
@@ -888,7 +818,7 @@ def test_source_changed_during_read_aborts_refresh(indexed, monkeypatch):
                 return original_fstat(fd)
         return result
 
-    monkeypatch.setattr(scanner.os, "fstat", racing_fstat)
+    monkeypatch.setattr(filesystem.os, "fstat", racing_fstat)
     with pytest.raises(IndexRefreshError):
         index.refresh_index(project.id)
     assert index.render_project_map(project.id) == previous

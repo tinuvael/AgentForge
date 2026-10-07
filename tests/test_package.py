@@ -1,4 +1,4 @@
-"""Verify that the installed bootstrap package and its areas are importable."""
+"""Verify that the installed package and its areas are importable."""
 
 from importlib import import_module
 
@@ -9,7 +9,6 @@ import pytest
     "module_name",
     [
         "agentforge",
-        "agentforge.api",
         "agentforge.mcp",
         "agentforge.core",
         "agentforge.agents",

@@ -12,6 +12,7 @@ license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 dependencies = [
     "fastapi>=0.115,<1",
+    "starlette>=0.40,<2",
     "pydantic>=2,<3",
     "sqlalchemy>=2,<3",
     "alembic>=1.14,<2",
@@ -23,7 +24,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "ruff>=0.9,<1"]
+dev = ["pytest>=8,<10", "ruff>=0.9,<1", "build>=1.2,<2"]
+
+[project.urls]
+Repository = "https://github.com/tinuvael/AgentForge"
+Issues = "https://github.com/tinuvael/AgentForge/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentforge"]

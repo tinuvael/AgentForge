@@ -5,13 +5,14 @@ import os
 import shutil
 import stat
 import subprocess
-from dataclasses import replace
-from uuid import uuid4
+import sys
+from time import monotonic
 
 import pytest
 
 from agentforge.db.database import create_session_factory
 from agentforge.db.projects import ProjectRepository
+from agentforge.projects.backends import GitLocation
 from agentforge.projects.errors import (
     InvalidProjectPath,
     ProjectNotFound,
@@ -20,6 +21,7 @@ from agentforge.projects.errors import (
 from agentforge.projects.service import ProjectRegistry
 from agentforge.tools import filesystem, git_backend
 from agentforge.tools.errors import (
+    GitFailure,
     GitTimeout,
     GitUnavailable,
     InvalidToolArgument,
@@ -38,6 +40,42 @@ def write(root, path, content):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8", newline="")
     return target
+
+
+@pytest.mark.posix
+def test_git_reaps_descendants_after_parent_exit(tmp_path):
+    marker = tmp_path / "survived"
+    child = f"import time,pathlib; time.sleep(2); pathlib.Path({str(marker)!r}).touch()"
+    script = (
+        f"import subprocess; subprocess.Popen([{sys.executable!r}, '-c', {child!r}])"
+    )
+    started = monotonic()
+    assert (
+        git_backend._run_git(
+            [sys.executable, "-c", script],
+            GitLocation(str(tmp_path)),
+            1024,
+            environment={},
+        ).returncode
+        == 0
+    )
+    assert monotonic() - started < 1.5
+    assert not marker.exists()
+
+
+def test_staged_directory_replacement_cannot_disclose_sensitive_children(
+    git_tools, local_git
+):
+    service, project, root = git_tools
+    secret = write(root, "public/.env", "PRIVATE_TOKEN")
+    local_git(root, "add", ".")
+    local_git(root, "commit", "-m", "nested secret")
+    secret.unlink()
+    secret.parent.rmdir()
+    write(root, "public", "replacement")
+    local_git(root, "add", "-A")
+    with pytest.raises(GitFailure, match="outside the approved files"):
+        service.git_diff(project, staged=True)
 
 
 @pytest.fixture
@@ -293,28 +331,27 @@ def test_root_replacement_after_registration(tools, tmp_path, symlink):
 
 
 @pytest.mark.posix
-def test_root_identity_persisted_and_legacy_fails_closed(registry, database, tmp_path):
+def test_root_identity_persisted_and_replacement_fails_closed(
+    registry, database, tmp_path
+):
     root = tmp_path / "persisted"
     root.mkdir()
     project = registry.register_project("Persisted", root)
     repository = ProjectRepository(create_session_factory(database[0]))
     reopened = ProjectRegistry(repository, base_directory=tmp_path)
-    assert reopened.get_project(project.id).root_inode == root.stat().st_ino
+    identity = reopened.get_project(project.id).root_identity
+    assert identity == project.root_identity
+    assert (identity.kind, identity.volume, identity.file_id) == (
+        "posix",
+        str(root.stat().st_dev),
+        str(root.stat().st_ino),
+    )
     root.rename(tmp_path / "moved")
     root.mkdir()
     with pytest.raises(UnsafeProjectPath):
-        RepositoryTools(reopened).list_files(project.id)
-    legacy = replace(
-        project,
-        id=uuid4(),
-        root_path=tmp_path / "legacy",
-        root_device=None,
-        root_inode=None,
-    )
-    legacy.root_path.mkdir()
-    repository.add(legacy)
+        reopened.resolve_path(project.id, ".")
     with pytest.raises(UnsafeProjectPath):
-        RepositoryTools(reopened).list_files(legacy.id)
+        RepositoryTools(reopened).list_files(project.id)
 
 
 @pytest.mark.parametrize(
@@ -638,6 +675,8 @@ def test_git_backend_failure_does_not_leak_stderr(git_tools, monkeypatch):
 
         def wait(self, timeout=None):
             return self.returncode
+
+    monkeypatch.setattr(GitLocation, "stop", lambda *_: None)
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Failed())
     with pytest.raises(GitFailure) as error:
