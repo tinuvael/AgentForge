@@ -14,6 +14,7 @@ from agentforge.agents.models import (
     ExecutionResult,
 )
 from agentforge.agents.runtime import AgentRuntime
+from agentforge.councils.models import MAX_PARTICIPANTS, Council, InvalidCouncil
 from agentforge.db.tasks import TaskRepository
 from agentforge.tasks.models import (
     TERMINAL_STATES,
@@ -114,6 +115,43 @@ class TaskEngine:
             and not self._closed
             and all(not loop.done() for loop in self._loops)
         )
+
+    def submit_council(
+        self, *, project_id: UUID, agent_id: str, worker_ids: tuple[str, ...], task: str
+    ) -> tuple[Council, tuple[Task, ...]]:
+        self._check_thread()
+        if self._closed:
+            raise RuntimeError("Task Engine is closed")
+        if not 2 <= len(worker_ids) <= MAX_PARTICIPANTS or len(set(worker_ids)) != len(
+            worker_ids
+        ):
+            raise InvalidCouncil("Supply 2 to 16 distinct Workers")
+        # Validate every participant before any write, probe or inference.
+        targets = []
+        for worker_id in worker_ids:
+            try:
+                identity = self._runtime.validate_binding(
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    worker_id=worker_id,
+                    task=task,
+                )
+            except ValueError:
+                raise TaskValidationError("Invalid execution binding") from None
+            targets.append((worker_id, *self._runtime.execution_target(worker_id)))
+        queued_at = self._clock()
+        council, tasks = self._repository.add_council(
+            project_id=identity,
+            agent_id=agent_id,
+            request=task,
+            targets=tuple(targets),
+        )
+        for participant in tasks:
+            self._queued_at[participant.task_id] = queued_at
+            self.observer.notify(participant.task_id)
+        self._wake.set()
+        self._changed.set()
+        return council, tasks
 
     def active_counts(self) -> dict[TaskState, int]:
         self._check_thread()

@@ -6,6 +6,7 @@ No replay/event store, timers, browser sessions or execution awaits live here.
 
 import asyncio
 from collections import deque
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal, get_args
@@ -118,21 +119,36 @@ class TaskObserver:
 
     @contextmanager
     def subscribe(self, task_id: UUID):
+        with self.subscribe_many((task_id,)) as queue:
+            yield queue
+
+    @contextmanager
+    def subscribe_many(self, task_ids: Sequence[UUID]):
+        """One bounded queue/subscriber observing at most 16 independent Tasks.
+
+        No persisted/in-memory Council map. The caller supplies durable membership;
+        individual terminal notices are hints until the whole group is terminal.
+        """
+        identities = tuple(dict.fromkeys(task_ids))
+        if not 1 <= len(identities) <= 16:
+            raise ObservationUnavailable("Live observation unavailable")
         if self._closed or self._subscriber_count >= SUBSCRIBER_LIMIT:
             raise ObservationUnavailable("Live observation unavailable")
         queue: asyncio.Queue[Notice] = asyncio.Queue(maxsize=QUEUE_LIMIT)
-        self._subscribers.setdefault(task_id, set()).add(queue)
+        for task_id in identities:
+            self._subscribers.setdefault(task_id, set()).add(queue)
         self._subscriber_count += 1
         # Always reload on connection/reconnection; no Last-Event-ID replay.
         queue.put_nowait("resync")
         try:
             yield queue
         finally:
-            subscribers = self._subscribers.get(task_id)
-            if subscribers is not None:
-                subscribers.discard(queue)
-                if not subscribers:
-                    self._subscribers.pop(task_id, None)
+            for task_id in identities:
+                subscribers = self._subscribers.get(task_id)
+                if subscribers is not None:
+                    subscribers.discard(queue)
+                    if not subscribers:
+                        self._subscribers.pop(task_id, None)
             self._subscriber_count -= 1
 
     def close(self):

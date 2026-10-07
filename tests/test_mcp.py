@@ -33,6 +33,9 @@ PUBLIC_TOOLS = {
     "delegate_task",
     "get_task",
     "cancel_task",
+    "delegate_council",
+    "get_council",
+    "cancel_council",
 }
 
 

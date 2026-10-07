@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from agentforge.application.service import Application, ServiceError
+from agentforge.councils.models import CouncilNotFound
 from agentforge.projects.errors import ProjectStorageError
 from agentforge.tasks.models import (
     TERMINAL_STATES,
@@ -180,6 +181,8 @@ def create_app(
         request.state.csrf = token
         try:
             response = await call_next(request)
+        except CouncilNotFound:
+            response = failure(request, "council_not_found", 404)
         except TaskNotFound:
             response = failure(request, "task_not_found", 404)
         except (TaskStorageError, ProjectStorageError, TelemetryUnavailable):
@@ -282,6 +285,7 @@ def create_app(
             request,
             "task_fragment.html" if fragment else "task.html",
             detail=core().dashboard.detail(task_id),
+            council_id=core().councils.for_task(task_id),
         )
 
     @web.get("/tasks/{task_id}", response_class=HTMLResponse)
@@ -292,8 +296,7 @@ def create_app(
     async def task_fragment(request: Request, task_id: UUID):
         return detail_response(request, task_id, True)
 
-    @web.post("/tasks/{task_id}/cancel", response_class=HTMLResponse)
-    async def cancel(request: Request, task_id: UUID):
+    async def check_cancellation(request: Request):
         if request.headers.get("sec-fetch-site") == "cross-site":
             raise HTTPException(403)
         origin = request.headers.get("origin")
@@ -325,17 +328,16 @@ def create_app(
             or fields.get("confirm") != ["yes"]
         ):
             raise HTTPException(403)
+
+    @web.post("/tasks/{task_id}/cancel", response_class=HTMLResponse)
+    async def cancel(request: Request, task_id: UUID):
+        await check_cancellation(request)
         core().cancel_task(task_id=task_id)
         if request.headers.get("HX-Request") == "true":
             return detail_response(request, task_id, True)
         return RedirectResponse(f"/tasks/{task_id}", status_code=303)
 
-    @web.get("/tasks/{task_id}/events")
-    async def events(request: Request, task_id: UUID):
-        app = core()
-        app.tasks.get_task(task_id)  # Safe 404 before opening a response.
-        # Reserve before sending headers; context exits even on disconnect/shutdown.
-        subscription = app.tasks.observer.subscribe(task_id)
+    def event_response(subscription, is_terminal):
         queue = subscription.__enter__()
 
         async def stream():
@@ -349,8 +351,10 @@ def create_app(
                     notice = "resync"
                 if notice != "shutdown":
                     try:
-                        if app.tasks.get_task(task_id).state in TERMINAL_STATES:
+                        if is_terminal():
                             notice = "terminal"
+                        elif notice == "terminal":
+                            notice = "refresh"
                     except Exception:
                         notice = "shutdown"
                 # Fixed safe contract: refresh/resync/terminal/shutdown, no payload.
@@ -363,6 +367,60 @@ def create_app(
             subscription,
             media_type="text/event-stream",
             headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"},
+        )
+
+    @web.get("/tasks/{task_id}/events")
+    async def events(request: Request, task_id: UUID):
+        app = core()
+        app.tasks.get_task(task_id)
+        return event_response(
+            app.tasks.observer.subscribe(task_id),
+            lambda: app.tasks.get_task(task_id).state in TERMINAL_STATES,
+        )
+
+    @web.get("/councils", response_class=HTMLResponse)
+    async def councils(request: Request):
+        values = query(request)
+        page = core().councils.list(**values.model_dump())
+        return render(
+            request,
+            "councils.html",
+            councils=page.councils,
+            **pagination(request, values, page.next_offset is not None),
+        )
+
+    def council_response(request, council_id, fragment=False):
+        return render(
+            request,
+            "council_fragment.html" if fragment else "council.html",
+            detail=core().councils.detail(council_id),
+        )
+
+    @web.get("/councils/{council_id}", response_class=HTMLResponse)
+    async def council(request: Request, council_id: UUID):
+        return council_response(request, council_id)
+
+    @web.get("/councils/{council_id}/fragment", response_class=HTMLResponse)
+    async def council_fragment(request: Request, council_id: UUID):
+        return council_response(request, council_id, True)
+
+    @web.post("/councils/{council_id}/cancel", response_class=HTMLResponse)
+    async def cancel_council(request: Request, council_id: UUID):
+        await check_cancellation(request)
+        core().cancel_council(council_id=council_id)
+        if request.headers.get("HX-Request") == "true":
+            return council_response(request, council_id, True)
+        return RedirectResponse(f"/councils/{council_id}", status_code=303)
+
+    @web.get("/councils/{council_id}/events")
+    async def council_events(request: Request, council_id: UUID):
+        app = core()
+        council = app.get_council(council_id=council_id)
+        return event_response(
+            app.tasks.observer.subscribe_many(
+                tuple(p.task_id for p in council.participants)
+            ),
+            lambda: app.get_council(council_id=council_id).terminal,
         )
 
     return web

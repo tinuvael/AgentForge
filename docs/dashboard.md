@@ -182,3 +182,11 @@ time-range filters, retention, distributed leases, event replay, Worker rankings
 routing or a frontend build. Overview recent activity is recent submissions with
 current lifecycle; it is not a separately invented audit-event log. Live telemetry
 aggregates become available only at the existing terminal checkpoint.
+
+## Councils (Phase 10)
+
+See [Council operations](councils.md) for durable independent execution on 2–16
+explicit Workers, ordered per-participant results, partial failures and cancellation.
+MCP adds `delegate_council`, `get_council`, `cancel_council`. The dashboard navigation
+adds Council history/detail with Task links and live refresh using the same bounded
+TaskObserver. The external Director remains the judge; telemetry stays per Task.

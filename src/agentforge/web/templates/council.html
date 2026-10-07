@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block title %}Council {{ detail.council.council_id }} · AgentForge{% endblock %}
+{% block content %}<h1>Council detail</h1><p><a href="/councils">← Council history</a></p>
+{% include "council_fragment.html" %}{% endblock %}

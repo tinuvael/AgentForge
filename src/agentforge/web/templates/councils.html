@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% from "macros.html" import pager %}
+{% block title %}Councils · AgentForge{% endblock %}
+{% block content %}<h1>Council history</h1>
+<p>Independent participant Tasks. The external Director evaluates the results. Terminal means every participant has completed, failed or been cancelled.</p>
+<div class="scroll"><table><thead><tr><th>Council</th><th>Project</th><th>Agent</th><th>Participants</th><th>Created (UTC)</th><th>Terminal</th><th>Participant states</th></tr></thead>
+<tbody>{% for c in councils %}<tr><td><a href="/councils/{{ c.council_id }}"><code>{{ c.council_id }}</code></a></td><td>{{ c.project_name|known }} · {{ c.project_id }}</td><td>{{ c.agent_id }}</td><td>{{ c.participant_count }}</td><td>{{ c.created_at }}</td><td>{{ 'yes' if c.terminal else 'no' }}</td><td>{% for state, count in c.participant_counts.items() %}{{ state }}: {{ count }}{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% else %}<tr><td colspan="7">No Councils in this view.</td></tr>{% endfor %}</tbody></table></div>
+{{ pager(previous, next, offset) }}{% endblock %}
