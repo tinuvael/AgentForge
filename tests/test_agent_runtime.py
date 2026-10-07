@@ -435,6 +435,7 @@ def test_root_identity_violation_is_terminal_even_for_cached_index(
     )
 
 
+@pytest.mark.posix
 def test_symlink_rejection_is_terminal(setup, tmp_path):
     outside = tmp_path / "outside"
     outside.write_text("OUTSIDE SECRET")

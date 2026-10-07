@@ -12,8 +12,9 @@ behavior and bounded in-process execution, starting with `repo_explorer`. Phase 
 adds durable Tasks, controlled lifecycle and a bounded in-process Task Engine.
 Phase 07 adds terminal Task telemetry, normalized backend timing observations and
 transport-independent comparison queries. Phase 08 adds the typed MCP stdio
-adapter and shared application composition/lifecycle. API endpoints and dashboard
-behavior remain **planned**.
+adapter and shared application composition/lifecycle. Issue #23 adds a native
+Windows NTFS security backend for central repository/Index execution. API endpoints
+and dashboard behavior remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -187,16 +188,20 @@ paths/names, duplicate roots, missing IDs, unsafe candidates and storage failure
 SQLAlchemy errors and database statements are not exposed as service errors.
 
 Relative registration paths use the registry's explicit `base_directory`, or the
-working directory captured at construction. Registration follows symlinks and
-requires an existing directory, so aliases of the same directory collide. The
-stored canonical root is the security boundary. `resolve_path(id, candidate)`
-and `projects.paths.resolve_project_path(root, candidate)` resolve existing
-candidates and check `Path.is_relative_to` against the resolved root. Absolute
-paths, `..`, common-prefix siblings and symlinks receive the same containment
-check. A stored root replaced by a symlink to another location is rejected.
-Validation alone is a point-in-time check. Phase 04 adds `open_root(id)` for
-descriptor-anchored access and persists new registrations' directory device/inode
-identity. Migration `0003_project_root_identity` leaves these fields null for
+working directory captured at construction. POSIX registration follows symlinks
+and requires an existing directory, so aliases of the same directory collide.
+Windows registration rejects every reparse ancestor and ambiguous namespace/path
+construct. The stored canonical root is the security boundary.
+`resolve_path(id, candidate)` delegates to the platform backend. The original
+POSIX `projects.paths.resolve_project_path` helper resolves existing candidates
+and checks `Path.is_relative_to` against the resolved root. Windows validates
+relative components and opens them under identity-checked, pinned ancestry;
+absolute candidates and reparse aliases are denied. A stored root replaced by a
+symlink to another location is rejected. These helpers return point-in-time paths,
+not I/O capabilities. Phase 04 adds `open_root(id)` for descriptor-anchored POSIX
+access and persists directory device/inode identity. Windows uses the same
+Registry entrypoint with opened handles and volume/file identity. Migration
+`0003_project_root_identity` leaves POSIX fields null for
 legacy registrations: live Registry inspection, Index refresh/status scans and
 repository tools fail closed until those projects are removed and re-registered.
 Configuration retrieval/removal and cached Index queries remain available.
@@ -214,9 +219,12 @@ through `open_root`; boundary failures propagate Project errors, not best-effort
 Git metadata. Inspection uses bounded, read-only `rev-parse`/`symbolic-ref` calls
 with the verified descriptor inherited as Linux `/proc/self/fd` cwd, a sanitized
 Git environment, disabled optional locks and no network or repository mutation.
-Without descriptor-backed Git cwd, Git is observationally `unavailable`; no
-pathname fallback may inspect a replacement. Separate reads are not an atomic
-snapshot of a concurrently changing repository. An observed Git root may be an
+On POSIX without descriptor-backed Git cwd, Git is observationally `unavailable`;
+no pathname fallback may inspect a replacement. Windows instead copies approved
+Git metadata and Project working files through locked handles into a pinned,
+bounded private snapshot, then executes the same fixed Git commands there.
+Separate reads are not an atomic snapshot of a concurrently changing repository.
+An observed Git root may be an
 ancestor of a registered subdirectory; it never expands the approved boundary.
 
 `db.database` owns explicit SQLAlchemy 2 engine/session construction;
@@ -264,7 +272,8 @@ The boundary is Python bytes → built-in AST → small immutable extraction rec
 lexical containment and import/call facts; it never executes source. Its
 `parse_python(relative_path, bytes) -> ParsedFile` boundary allows another parser
 later without a plugin framework or storage redesign. `index.scanner` uses shared
-`projects.filesystem` descriptors and `projects.exclusions` for safe reads/traversal.
+`projects.backends` platform capabilities and `projects.exclusions` for safe
+reads/traversal.
 `db.index` owns transaction-scoped replacement and link
 resolution; `index.render` owns deterministic relevance and bounded rendering.
 No LLM, embeddings, vector database or graph library builds structural facts.
@@ -307,9 +316,10 @@ defining a generic graph ORM.
 
 The Registry's `open_root(project_id)` is authoritative for both Index filesystem
 operations and repository tools: it validates the canonical root and its persisted
-device/inode identity. `ProjectIndex._scan` keeps that context open while its scanner
-consumes the verified root descriptor, never reopening a root pathname. Refresh
-consumes the scan, including root exit validation, inside the database transaction
+platform filesystem identity. `ProjectIndex._scan` keeps that context open while
+its scanner consumes the verified directory capability. Windows retains handles
+for every ancestor before full-path child opens; POSIX keeps descriptor-relative
+opens. Refresh consumes the scan, including root exit validation, inside the database transaction
 so replacement during parsing rolls back changes. `inspect_project` checks the
 same identity before refresh's Git observation. Legacy NULL identity rows require
 re-registration for live refresh/status scans; cached symbols, relationships and
@@ -319,8 +329,10 @@ files and fixed cache/build/vendor/IDE/secret directories, including `.git`, vir
 environments, `site-packages`, `node_modules`, `dist`, `build`, `vendor`,
 `third_party` and `.secrets`; no configurable ignore engine is added. POSIX
 no-follow descriptors anchor root ancestors, directory traversal and regular-file
-reads, closing the validation/I/O symlink race. Unsupported descriptor capabilities
-fail closed.
+reads, closing the validation/I/O symlink race. Windows uses no-follow NTFS handles
+with write/delete sharing denied and the same automatic policy, case-insensitively,
+including sensitive paths. Python source reads are capped at 2 MiB; exceeding the
+cap rolls back refresh. Unsupported capabilities fail closed.
 Root/directory replacement and changes during a file read abort refresh. The
 repository is strictly read-only, and index operations never access the network.
 As with Git inspection, a changing filesystem is not an atomic source snapshot;
@@ -372,15 +384,18 @@ without duplicating their implementations. Tools do not require a refreshed inde
 The Index supplies symbols, relationships and maps; tools supply exact source and Git state.
 
 Filesystem authorization remains the registry's canonical Project root, using
-`open_root(id)` and shared no-follow descriptors for root ancestors, traversal
+`open_root(id)` and a shared platform security backend for root ancestors, traversal
 and regular-file reads. Paths must be project-relative; absolute paths, `..`,
 backslashes, drive/pathspec syntax and control characters are rejected. Tools
 reject all symlinks (including internal aliases), directories as file reads and
 special files. File changes during reads and directory/root replacement fail
-closed, including early traversal termination at a result limit. Device/inode
-identity catches ordinary root replacement across service/database reopening.
-Containment uses path components, never string-prefix comparisons. POSIX
-no-follow/descriptor capabilities are required; unsupported systems fail closed.
+closed, including early traversal termination at a result limit. Persisted
+device/inode (POSIX) or volume/file (Windows) identity catches ordinary root
+replacement across service/database reopening. Containment uses path components
+and opened identity, never string-prefix comparisons.
+POSIX uses no-follow descriptors; Windows uses local NTFS handles and denies reparse
+points, ambiguous path constructs and conflicting write/delete access. Unsupported
+systems fail closed.
 Privileged mount manipulation and inode reuse are beyond this filesystem boundary.
 
 Automatic listing/search reuse the Index's fixed generated/cache/vendor directory
@@ -424,7 +439,8 @@ than treated as complete files. UTF-8 truncation never emits a split character.
 Filesystem scans process one file at a time; directory names are sorted in memory.
 Separate filesystem and Git observations are not an atomic snapshot.
 
-Git tools require a Git worktree and Linux `/proc/self/fd` to pin subprocess cwd.
+Git tools require a Git worktree. Linux uses `/proc/self/fd` to pin subprocess cwd;
+Windows uses an isolated bounded Git snapshot copied through authorized handles.
 Absence, unavailable Git, timeout and backend failure are separate domain errors.
 A private backend uses fixed explicit argv, `shell=False`, bounded concurrently
 drained stdout/stderr, process-group termination and sanitized shared Git
@@ -532,7 +548,7 @@ implemented in the wrappers. They reuse Project Index and RepositoryTools.
 
 The Registry's identity-checked `open_root` is verified before model operations,
 before/after authorized tool operations and before accepting a final answer.
-RepositoryTools still owns descriptor-anchored filesystem/Git access. Cached
+RepositoryTools still owns platform-authorized filesystem/Git access. Cached
 Index calls also require live root authorization in Agent execution. Index output
 is filtered with RepositoryTools' sensitive-path policy so cached symbols cannot
 bypass denied-file access; map rendering accepts an optional caller-side path
@@ -768,7 +784,8 @@ owns SQLite, Projects, Index and tools (including on the user's main Windows
 workstation); a Worker endpoint can be local, LAN, VPN/Tailscale or cloud HTTP(S).
 Workers receive inference messages and explicitly gathered tool evidence, never
 require Project filesystem access, and receive no copied repository/shared mount.
-Existing platform limitations of descriptor-backed tools remain unchanged.
+Repository authorization uses the explicitly selected platform backend; unsupported
+capabilities fail closed without giving Workers filesystem access.
 
 ### Task telemetry (Phase 07)
 
@@ -945,15 +962,32 @@ including argument validation. SQL, raw exceptions and backend bodies are omitte
 
 Run `python -m agentforge.mcp.server --database-url <URL> --workers <TOML>`.
 Stdio is for a trusted local director, uses SDK UTF-8 handling on Windows, and keeps
-application diagnostics on stderr. Existing repository tools still require POSIX
-no-follow descriptors and fail closed on Windows; MCP does not weaken that security
-boundary. A successful source-tool smoke currently requires a supported POSIX/Linux
-central process with a registered local root. No HTTP/SSE, remote authentication,
-second Provider, routing, Council or dashboard infrastructure is added.
+application diagnostics on stderr. Repository tools and Index support native
+Windows local NTFS handles as well as the existing POSIX backend. The same central
+Project boundary remains authoritative; Workers remain inference-only endpoints.
+No HTTP/SSE, remote authentication, second Provider, routing, Council or dashboard
+infrastructure is added.
 
 See [MCP setup and contracts](mcp.md) for full schemas, error mapping, asynchronous
-flow, central/remote Worker architecture, Windows limits, and the optional external
-client smoke using `scripts/smoke_mcp.py` with durable telemetry inspection.
+flow, central/remote Worker architecture, platform restrictions, and the optional
+external client smoke using `scripts/smoke_mcp.py` with durable telemetry inspection.
+
+### Native Windows repository backend (Issue #23)
+
+`SafeFilesystemBackend` concentrates platform selection, registered identity,
+no-follow directory/file access, traversal policy and Git execution strategy.
+`WindowsSafeFilesystemBackend` uses a focused stdlib ctypes wrapper with Win32
+handles; `PosixSafeFilesystemBackend` delegates to the existing POSIX primitives.
+Migration `0006_windows_root_identity` adds versioned Windows volume/file identity
+while preserving existing POSIX rows and all historical migrations. Unsupported
+identity/path/filesystem/reparse situations fail closed.
+
+See [Windows repository security](windows-repository-security.md) for primitives,
+sharing/TOCTOU reasoning, path semantics, metadata snapshot and returned-path checks,
+resource bounds, migration/downgrade behavior and unsupported cases. See
+[native Windows smoke](native-windows-smoke.md) for migration, local-4080 setup,
+Project registration, external MCP delegation, source calls, durable results,
+telemetry, escape rejection and optional remote inference on the same central root.
 
 ### Planned dashboard
 

@@ -10,8 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from agentforge.core.inference import ToolDefinition
 from agentforge.index.service import ProjectIndex
-from agentforge.projects.errors import UnsafeProjectPath
-from agentforge.tools.errors import InvalidToolArgument, SensitivePath
 from agentforge.tools.policy import query_text, relative_path, require_public, utf8_size
 from agentforge.tools.service import RepositoryTools
 
@@ -129,19 +127,12 @@ def trace_arguments(arguments: Arguments) -> dict[str, JsonValue]:
     return {key: redacted(value) for key, value in arguments.model_dump().items()}
 
 
-def public_index_path(path: str) -> bool:
-    try:
-        require_public(relative_path(path))
-    except (UnsafeProjectPath, InvalidToolArgument, SensitivePath):
-        return False
-    return True
-
-
 def repository_toolset(
     index: ProjectIndex, repository: RepositoryTools
 ) -> dict[str, Tool]:
     """No runtime attribute lookup from a model-supplied name."""
     tools: dict[str, Tool] = {}
+    public_index_path = repository.public_index_path
 
     def add(name, description, schema, execute):
         tools[name] = Tool(
@@ -160,7 +151,7 @@ def repository_toolset(
 
     def symbol(project, identity):
         value = index.get_symbol(project, identity)
-        require_public(relative_path(value.relative_path))
+        repository._parts(value.relative_path)
         return value
 
     def relationships(operation, project, args):

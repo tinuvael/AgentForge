@@ -1,5 +1,8 @@
 # Manual Repo Explorer smoke test
 
+For native Windows MCP acceptance, use [the Windows procedure](native-windows-smoke.md).
+The direct Task Engine smoke below remains available on both supported backends.
+
 This is opt-in and never run by pytest/CI. It uses the production Task Engine,
 Agent Runtime, Project Registry, Index, RepositoryTools and OllamaProvider.
 You need a development venv, Git and a reachable configured Ollama endpoint with

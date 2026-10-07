@@ -272,17 +272,12 @@ The director delegates to an Agent whose allowlisted tools are enforced by
 AgentRuntime with server-side Project binding. Registered-root containment,
 root identity checks, exclusions and source budgets remain unchanged.
 
-**Windows limitation:** MCP startup/discovery/stdio and durable Task operations are
-portable. Existing secure filesystem primitives require POSIX no-follow
-descriptors (Git observation additionally uses Linux descriptor cwd). Native Windows
-Repo Explorer execution therefore fails closed with a safe security/tool error;
-Phase 08 does not weaken this boundary. A successful source-tool smoke currently
-requires running the central AgentForge process and registered Project in a
-supported POSIX/Linux environment, such as WSL on the Windows workstation. Use a
-separate migrated database and re-register the WSL project root there; Windows
-registration paths/identities must not be repurposed. Configure a reachable Windows
-Ollama host address from WSL rather than assuming WSL localhost equals Windows.
-A remote Worker cannot remedy unsupported filesystem primitives on the central host.
+**Native Windows:** repository tools and Index use opened local NTFS handles,
+with registered volume/file identity, no reparse traversal and pinned ancestry.
+Windows Git runs against an isolated bounded snapshot and validates subproject paths.
+Unsupported filesystems/path constructs fail closed. No WSL or remote Worker
+filesystem access is required. See [the security model](windows-repository-security.md)
+and [native Windows acceptance](native-windows-smoke.md).
 
 ## Optional manual end-to-end smoke
 
@@ -291,10 +286,10 @@ owns the database. Configure an explicitly selected Ollama Worker with native to
 support; for the current deployment this may be `local-4080` using `gpt-oss:20b`,
 provided those are your actual configuration values. Install the model and check
 reachability yourself. Register the authorized repository on the central host and
-optionally refresh its Python index. Observe the Windows limitation above first.
+optionally refresh its Python index. Observe the platform restrictions above first.
 
-From a supported central host, the optional script is an actual external SDK MCP
-client which launches the server, discovers its surface, delegates to Repo Explorer,
+From a supported native Windows or Linux central host, the optional script is an
+actual external SDK MCP client which launches the server, discovers its surface, delegates to Repo Explorer,
 polls with a 180-second deadline, prints the durable result, then reads its recorded
 telemetry after the server exits:
 
@@ -306,8 +301,10 @@ Run with the installed venv interpreter. Success shows the explicitly selected
 Worker, completed final answer, positive tool-call count for a source-tool request,
 and telemetry with actual known/unknown coverage. A failed result is still durable;
 inspect its safe reason. Missing telemetry is reported without inventing values.
-For native Windows, first use your normal external director to verify discovery
-and asynchronous Task operations; repository execution remains blocked as documented.
+The script also prints sanitized model tool-call names/results after shutdown.
+Add `--verify-source <public relative UTF-8 source file>` for central read/search and
+path-escape checks, plus a requirement for a successful model read/search call.
+Follow the linked native Windows acceptance procedure for setup and actual tests.
 
 To repeat with a remote Ollama Worker, add another entry to the **same central
 Worker file**, with a reachable LAN/VPN endpoint, installed model, explicit tool

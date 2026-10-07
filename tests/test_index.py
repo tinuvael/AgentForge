@@ -277,6 +277,7 @@ def test_excluded_directories_are_not_traversed(indexed, directory):
     assert not index.find_symbol(project.id, "hidden")
 
 
+@pytest.mark.posix
 def test_symlinks_inside_and_outside_are_skipped(indexed, tmp_path):
     index, project, root = indexed
     target = write(root, "real/source.py", "def inside(): pass\n")
@@ -433,6 +434,7 @@ def test_failed_scan_rolls_back_complete_refresh(indexed, database, monkeypatch)
     assert snapshot.indexed_at == initial.indexed_at
 
 
+@pytest.mark.posix
 def test_replaced_root_is_rejected_and_previous_index_survives(indexed, tmp_path):
     index, project, root = indexed
     write(root, "module.py", "def original(): pass\n")
@@ -501,6 +503,7 @@ def test_ordinary_root_replacement_rejected_after_reopen(
         reopened.dispose()
 
 
+@pytest.mark.posix
 def test_legacy_identity_rejects_live_index_access_but_keeps_snapshot(
     indexed, registry, database, tmp_path, monkeypatch
 ):
@@ -541,6 +544,7 @@ def test_legacy_identity_rejects_live_index_access_but_keeps_snapshot(
         reopened.dispose()
 
 
+@pytest.mark.posix
 def test_root_replacement_during_refresh_rolls_back(
     indexed, database, tmp_path, monkeypatch
 ):
@@ -567,6 +571,7 @@ def test_root_replacement_during_refresh_rolls_back(
     assert not index.find_symbol(project.id, "unauthorized_replacement")
 
 
+@pytest.mark.posix
 def test_file_replaced_by_symlink_between_stat_and_open(indexed, tmp_path, monkeypatch):
     index, project, root = indexed
     file = write(root, "module.py", "def original(): pass\n")
@@ -843,6 +848,7 @@ class Second:
     )
 
 
+@pytest.mark.posix
 def test_directory_replacement_during_scan_rolls_back(indexed, tmp_path, monkeypatch):
     index, project, root = indexed
     write(root, "sub/source.py", "def original(): pass\n")
@@ -863,6 +869,7 @@ def test_directory_replacement_during_scan_rolls_back(indexed, tmp_path, monkeyp
     assert index.render_project_map(project.id) == previous
 
 
+@pytest.mark.posix
 def test_source_changed_during_read_aborts_refresh(indexed, monkeypatch):
     index, project, root = indexed
     write(root, "source.py", "def original(): pass\n")

@@ -1,13 +1,14 @@
-"""Read-only, descriptor-anchored traversal under the registry's canonical root."""
+"""Read-only platform-authorized traversal under the registered canonical root."""
 
 import hashlib
 import os  # noqa: F401 -- preserve the scanner's filesystem test seam
 from collections.abc import Iterator
 
 from agentforge.index.models import IndexRefreshError
+from agentforge.projects.backends import backend_for
 from agentforge.projects.errors import UnsafeProjectPath
 from agentforge.projects.exclusions import EXCLUDED_DIRECTORIES  # noqa: F401
-from agentforge.projects.filesystem import regular_file, walk_files
+from agentforge.tools.policy import FILE_SCAN_BYTES
 
 
 def content_hash(content: bytes) -> str:
@@ -22,12 +23,18 @@ def scan_python_files(root_fd: int) -> Iterator[tuple[str, bytes]]:
     A read/traversal failure aborts refresh rather than looking like deleted files.
     """
     try:
-        traversal = walk_files(root_fd)
+        backend = backend_for(root_fd)
+        traversal = backend.walk_files(root_fd)
         try:
             for path, directory_fd, name in traversal:
                 if name.endswith(".py"):
-                    with regular_file(directory_fd, name) as file:
-                        content = file.read()
+                    observed = backend.stat(directory_fd, name)
+                    with backend.regular_file(
+                        directory_fd, name, expected=observed
+                    ) as file:
+                        content = file.read(FILE_SCAN_BYTES + 1)
+                    if len(content) > FILE_SCAN_BYTES:
+                        raise IndexRefreshError("Python source exceeds the scan limit")
                     yield path, content
         finally:
             traversal.close()

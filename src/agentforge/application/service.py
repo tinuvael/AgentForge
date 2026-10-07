@@ -182,8 +182,8 @@ class Application:
                 "No routing, ranking, fallback, judging or Council.",
                 "Worker capabilities are configuration, not observed availability.",
                 "Delegation submits asynchronously; the director polls or cancels.",
-                "Repository tools require POSIX no-follow descriptors; "
-                "Windows fails closed.",
+                "Repository tools require POSIX descriptors or native Windows "
+                "local NTFS handles; unsupported filesystems fail closed.",
                 "Only Ollama is shipped; other Provider adapters remain future work.",
                 "Local trusted stdio only; one process per database, no "
                 "distributed lease.",

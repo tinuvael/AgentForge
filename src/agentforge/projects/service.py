@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from agentforge.db.projects import ProjectRepository
+from agentforge.projects.backends import SafeFilesystemBackend, select_backend
 from agentforge.projects.errors import (
     InvalidProjectName,
     InvalidProjectPath,
@@ -13,22 +14,22 @@ from agentforge.projects.errors import (
     ProjectNotFound,
     UnsafeProjectPath,
 )
-from agentforge.projects.filesystem import anchored_root
 from agentforge.projects.git import inspect_git
 from agentforge.projects.models import Project, ProjectInspection
-from agentforge.projects.paths import (
-    canonical_project_root,
-    resolve_project_path,
-)
 
 
 class ProjectRegistry:
     def __init__(
-        self, repository: ProjectRepository, *, base_directory: str | Path | None = None
+        self,
+        repository: ProjectRepository,
+        *,
+        base_directory: str | Path | None = None,
+        filesystem: SafeFilesystemBackend | None = None,
     ) -> None:
         self._repository = repository
+        self.filesystem = filesystem if filesystem is not None else select_backend()
         # Capture once so later process chdir calls cannot change registration.
-        self._base_directory = canonical_project_root(
+        self._base_directory = self.filesystem.canonical_root(
             Path.cwd() if base_directory is None else base_directory,
             base_directory=Path.cwd(),
         )
@@ -37,16 +38,24 @@ class ProjectRegistry:
         name = name.strip()
         if not name or len(name) > 255:
             raise InvalidProjectName("Project name must contain 1 to 255 characters")
-        root = canonical_project_root(root_path, base_directory=self._base_directory)
+        root = self.filesystem.canonical_root(
+            root_path, base_directory=self._base_directory
+        )
         if self._repository.find_by_root(root) is not None:
             raise ProjectAlreadyRegistered("Project root is already registered")
         try:
-            observed = root.stat()
+            observed = self.filesystem.observe_root(root)
         except OSError:
             raise InvalidProjectPath("Project root cannot be observed") from None
         return self._repository.add(
             Project(
-                uuid4(), name, root, datetime.now(UTC), observed.st_dev, observed.st_ino
+                uuid4(),
+                name,
+                root,
+                datetime.now(UTC),
+                int(observed.volume) if observed.kind == "posix" else None,
+                int(observed.file_id) if observed.kind == "posix" else None,
+                observed if observed.kind != "posix" else None,
             )
         )
 
@@ -78,22 +87,25 @@ class ProjectRegistry:
         return inspection
 
     def resolve_path(self, project_id: UUID | str, candidate: str | Path) -> Path:
-        return resolve_project_path(self.get_project(project_id).root_path, candidate)
+        project = self.get_project(project_id)
+        return self.filesystem.resolve_path(
+            project.root_path, candidate, expected=project.filesystem_identity
+        )
 
     @contextmanager
     def open_root(self, project_id: UUID | str):
-        """Provide a no-follow descriptor for the registered directory identity.
+        """Provide a platform capability for the registered directory identity.
 
         Legacy registrations without an observed identity must be re-registered;
         silently trusting today's directory would authorize a replacement root.
         """
         project = self.get_project(project_id)
-        if project.root_device is None or project.root_inode is None:
+        if project.filesystem_identity is None:
             raise UnsafeProjectPath(
                 "Project must be re-registered for safe file access"
             )
-        with anchored_root(
-            project.root_path, (project.root_device, project.root_inode)
+        with self.filesystem.anchored_root(
+            project.root_path, project.filesystem_identity
         ) as fd:
             yield project, fd
 
