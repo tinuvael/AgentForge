@@ -334,3 +334,14 @@ TaskObserver. The external Director remains the judge; telemetry stays per Task.
 
 Phase 11 adds named connections and heterogeneous Ollama/OpenAI-compatible Workers
 without changing these tools. See [configuration and data-egress guidance](providers.md).
+
+
+Phase 12's optional `--coding` configuration adds `coder` to Agent discovery.
+Normal `delegate_task` provisions an isolated worktree before inference. The
+Task-addressed `get_coding_workspace` and `get_coding_diff` return bounded factual
+coding evidence without host paths; `cleanup_coding_workspace` explicitly removes
+a terminal Task's matching workspace, discarding uncommitted changes and retaining
+the branch. It is marked destructive and requires both Task/workspace IDs.
+Disabled/missing/suspicious workspaces return safe errors. No shell, argv, root,
+Git ref, commit, push, merge or lifecycle tool is available to Workers. See
+[coding trust model and recovery](coding.md) before enabling trusted validators.

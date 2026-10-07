@@ -481,6 +481,17 @@ class TaskRepository:
                 raise TaskNotFound("Task ID is not registered")
             return _task(record)
 
+    def attach_coding_result(self, task_id, coding_result):
+        """Central factual projection; does not change Task/telemetry terminality."""
+        with self._session() as session:
+            row = session.get(TaskRecord, task_id)
+            if row is not None and row.execution_result is not None:
+                result = ExecutionResult.model_validate(row.execution_result)
+                row.execution_result = result.model_copy(
+                    update={"coding_result": coding_result}
+                ).model_dump(mode="json")
+                session.commit()
+
     def recover_running(self) -> int:
         """Exclusive startup only: started work is never replayed after process loss."""
         validate_transition("running", "failed")

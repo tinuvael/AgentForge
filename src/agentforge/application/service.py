@@ -23,7 +23,11 @@ from agentforge.application.contracts import (
 from agentforge.application.councils import CouncilService
 from agentforge.application.dashboard import DashboardQueries
 from agentforge.application.errors import ServiceError
+from agentforge.coding.config import load_coding
+from agentforge.coding.service import CodingWorkspaceManager
+from agentforge.coding.tools import CODER, coding_toolset
 from agentforge.core.inference import Provider
+from agentforge.db.coding import WorkspaceRepository
 from agentforge.db.councils import CouncilRepository
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
@@ -34,7 +38,7 @@ from agentforge.index.service import ProjectIndex
 from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.factory import create_providers
 from agentforge.tasks.engine import TaskEngine
-from agentforge.tasks.models import Task
+from agentforge.tasks.models import TERMINAL_STATES, Task
 from agentforge.telemetry.service import TelemetryService
 from agentforge.tools.service import RepositoryTools
 from agentforge.workers.config import WorkersConfig, load_workers
@@ -70,15 +74,28 @@ class Application:
         database: Engine,
         workers: WorkersConfig,
         *,
-        agents: Sequence[Agent] = (REPO_EXPLORER,),
+        agents: Sequence[Agent] | None = None,
+        coding_config=None,
         providers: Mapping[str, Provider] | None = None,
         concurrency: int = 1,
     ):
+        agents = (
+            tuple(agents)
+            if agents is not None
+            else ((REPO_EXPLORER, CODER) if coding_config else (REPO_EXPLORER,))
+        )
         self.database = database
         sessions = create_session_factory(database)
         self.projects = ProjectRegistry(ProjectRepository(sessions))
         self.index = ProjectIndex(self.projects, IndexRepository(sessions))
         self.repository_tools = RepositoryTools(self.projects)
+        self.coding = (
+            CodingWorkspaceManager(
+                self.projects, WorkspaceRepository(sessions), coding_config
+            )
+            if coding_config
+            else None
+        )
         self.telemetry = TelemetryService(TelemetryRepository(sessions))
         # Discovery and execution consume the same definitions, not MCP copies.
         self._workers = {w.id: w for w in workers.workers}
@@ -102,6 +119,7 @@ class Application:
                 description=a.description[:2000],
                 allowed_tools=a.allowed_tools,
                 limits=a.limits,
+                workspace_mode=a.workspace_mode,
             )
             for a in sorted(agents, key=lambda a: a.id)
         )
@@ -114,9 +132,12 @@ class Application:
             agents=agents,
             providers=providers if providers is not None else self._owned_providers,
             tools=repository_toolset(self.index, self.repository_tools),
+            coding_tools=coding_toolset() if self.coding else None,
         )
         task_repository = TaskRepository(sessions)
-        self.tasks = TaskEngine(task_repository, runtime, concurrency=concurrency)
+        self.tasks = TaskEngine(
+            task_repository, runtime, concurrency=concurrency, workspaces=self.coding
+        )
         self.councils = CouncilService(
             CouncilRepository(sessions),
             self.tasks,
@@ -131,11 +152,23 @@ class Application:
         self._shutdown_task: asyncio.Task | None = None
 
     @classmethod
-    def from_config(cls, *, database_url: str, workers_path: str, concurrency: int = 1):
+    def from_config(
+        cls,
+        *,
+        database_url: str,
+        workers_path: str,
+        concurrency: int = 1,
+        coding_path: str | None = None,
+    ):
         workers = load_workers(workers_path)
         database = create_database_engine(database_url)
         try:
-            return cls(database, workers, concurrency=concurrency)
+            return cls(
+                database,
+                workers,
+                concurrency=concurrency,
+                coding_config=load_coding(coding_path) if coding_path else None,
+            )
         except BaseException:
             database.dispose()
             raise
@@ -199,7 +232,16 @@ class Application:
             worker_selection="explicit_project_agent_worker_required",
             task_operations=("delegate_task", "get_task", "cancel_task"),
             council_operations=("delegate_council", "get_council", "cancel_council"),
-            repository_access="central_host_agent_allowlisted_read_only",
+            coding_operations=(
+                "get_coding_workspace",
+                "get_coding_diff",
+                "cleanup_coding_workspace",
+            )
+            if self.coding
+            else (),
+            repository_access="central_host_agent_allowlisted_isolated_write"
+            if self.coding
+            else "central_host_agent_allowlisted_read_only",
             telemetry="terminal_task_status_only; metrics_via_python_service",
             limitations=(
                 "No routing, ranking, fallback, judging or answer sharing.",
@@ -280,3 +322,21 @@ class Application:
 
     def cancel_council(self, *, council_id: UUID):
         return self.councils.cancel(council_id)
+
+    def get_coding_workspace(self, *, task_id: UUID):
+        self.tasks.get_task(task_id)
+        if self.coding is None:
+            raise ServiceError("coding_unavailable")
+        return self.coding.get(task_id)
+
+    def get_coding_diff(self, *, task_id: UUID):
+        self.tasks.get_task(task_id)
+        if self.coding is None:
+            raise ServiceError("coding_unavailable")
+        return self.coding.diff(task_id)
+
+    def cleanup_coding_workspace(self, *, task_id: UUID, workspace_id: UUID):
+        task = self.tasks.get_task(task_id)
+        if self.coding is None or task.state not in TERMINAL_STATES:
+            raise ServiceError("coding_unavailable")
+        return self.coding.cleanup(task_id, workspace_id)

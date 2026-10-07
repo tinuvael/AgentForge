@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from agentforge.coding.models import CodingResult
 from agentforge.core.inference import GenerationTiming, TokenUsage
 
 
@@ -32,6 +33,7 @@ class Agent(BaseModel):
     description: str
     system_prompt: str = Field(min_length=1)
     allowed_tools: tuple[str, ...] = ()
+    workspace_mode: Literal["project_readonly", "isolated_write"] = "project_readonly"
     limits: RuntimeLimits = Field(default_factory=RuntimeLimits)
 
 
@@ -140,3 +142,4 @@ class ExecutionResult(BaseModel):
     usage: tuple[TokenUsage | None, ...]
     trace: tuple[TraceEvent, ...]
     model_turns: tuple[ModelTurnObservation, ...] = ()
+    coding_result: CodingResult | None = None

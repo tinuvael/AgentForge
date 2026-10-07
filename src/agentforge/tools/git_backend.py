@@ -106,7 +106,7 @@ class _Git:
         try:
             with subprocess.Popen(
                 [*self.argv, *args],
-                env=git_environment(),
+                env=getattr(self, "environment", None) or git_environment(),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

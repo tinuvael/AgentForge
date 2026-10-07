@@ -17,7 +17,9 @@ Windows NTFS security backend for central repository/Index execution. Phase 09
 adds the local Jinja2/HTMX dashboard and bounded live metadata observation. Phase 10
 adds durable independent Councils on explicitly selected Workers. Phase 11 adds
 named Provider connections and OpenAI-compatible Chat Completions, validating
-heterogeneous execution without protocol-specific runtime branches.
+heterogeneous execution without protocol-specific runtime branches. Phase 12 adds
+opt-in isolated coding Tasks with durable worktrees, bounded text writes and
+operator-allowlisted validation; Repo Explorer remains read-only.
 General API endpoints remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
@@ -1171,3 +1173,30 @@ configuration, backward compatibility, authentication, limits, lifecycle, exact
 protocol subset, adding a third Provider and the remote repository-data egress
 boundary. Remote/cloud Workers receive model context and tool results; Providers
 have no direct filesystem access. Explicit Worker selection remains mandatory.
+
+
+### Isolated coding Tasks (Phase 12)
+
+See [coding design, operation and threat model](coding.md). `coding/` owns the
+central workspace lifecycle and fixed Git provisioning, capability-based mutations,
+trusted named validation and factual output. Agent `workspace_mode` selects a
+separate workspace-bound catalog; no ordinary primary Project tool is handed to a
+write-capable Agent. TaskEngine provisions after claim and before inference and
+retains failed/cancelled workspaces. Council rejects isolated-write Agents before
+submission. Provider handling and Worker selection remain generic and unchanged.
+
+Migration `0008_coding_workspaces` persists ownership/identities, generated branch,
+exact committed base, lifecycle and bounded observations without source/diff blobs.
+Workspaces live under an operator-selected private parent outside repositories.
+Only the registered subtree is materialized and authorized; the canonical Project
+Index remains attached to the original checkout. Dirty primary files, index, HEAD
+and branch are untouched by built-in tools. No-checkout raw blob materialization
+avoids hooks, filters and LFS. Validation is trusted host execution, explicitly
+not an OS/network sandbox, with fixed argv, bounded process groups/Jobs and a
+conservative environment. It cannot contain deliberately hostile repository code.
+
+MCP reuses normal delegation plus Task-addressed workspace/diff inspection and
+explicit ID-checked cleanup. Dashboard renders escaped coding evidence and a
+terminal-only, confirmed CSRF-protected POST removal. Cleanup removes only known
+identity-checked worktree/admin objects and retains the task branch. No commit,
+push, merge, runtime PR creation, automatic cleanup or multi-coder Council exists.

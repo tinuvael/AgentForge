@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from agentforge.agents.models import RuntimeLimits
+from agentforge.coding.models import CodingResult
 from agentforge.councils.models import MAX_PARTICIPANTS, CouncilHistoryItem
 from agentforge.tasks.models import TaskReason, TaskState
 
@@ -25,6 +26,7 @@ RequestText = Annotated[
 ]
 ErrorCode = Literal[
     "invalid_arguments",
+    "coding_unavailable",
     "project_not_found",
     "worker_not_found",
     "agent_not_found",
@@ -60,6 +62,10 @@ class DelegateArguments(Contract):
 
 class TaskArguments(Contract):
     task_id: UUID
+
+
+class CleanupCodingArguments(TaskArguments):
+    workspace_id: UUID
 
 
 class DelegateCouncilArguments(Contract):
@@ -111,8 +117,12 @@ class Capabilities(Contract):
     worker_discovery_tool: Literal["list_workers"] = "list_workers"
     task_operations: tuple[str, ...]
     council_operations: tuple[str, ...]
+    coding_operations: tuple[str, ...] = ()
     council_max_participants: Literal[16] = MAX_PARTICIPANTS
-    repository_access: Literal["central_host_agent_allowlisted_read_only"]
+    repository_access: Literal[
+        "central_host_agent_allowlisted_read_only",
+        "central_host_agent_allowlisted_isolated_write",
+    ]
     telemetry: Literal["terminal_task_status_only; metrics_via_python_service"]
     limitations: tuple[str, ...]
 
@@ -143,6 +153,7 @@ class AgentInfo(Contract):
     description: str = Field(max_length=2000)
     allowed_tools: tuple[Identifier, ...] = Field(max_length=100)
     limits: RuntimeLimits
+    workspace_mode: Literal["project_readonly", "isolated_write"] = "project_readonly"
 
 
 class ProjectsPage(Contract):
@@ -179,6 +190,7 @@ class TaskSnapshot(Contract):
     cancellation_requested_at: datetime | None
     reason: TaskReason | None
     error_code: TaskReason | None
+    coding_result: CodingResult | None = None
     execution_summary: ExecutionSummary | None
     final_answer: str | None
     telemetry_status: Literal["pending", "recorded", "unavailable"]

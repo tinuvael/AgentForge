@@ -16,6 +16,7 @@ TaskReason = (
         "runtime_error",
         "invalid_runtime_result",
         "executor_cancelled",
+        "workspace_provisioning_failed",
     ]
 )
 TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
@@ -74,6 +75,10 @@ class Task(BaseModel):
     model: str | None = None
     telemetry_status: Literal["pending", "recorded", "unavailable"] = "pending"
     queue_duration_seconds: float | None = None
+
+    @property
+    def coding_result(self):
+        return self.execution_result.coding_result if self.execution_result else None
 
     @property
     def final_answer(self) -> str | None:

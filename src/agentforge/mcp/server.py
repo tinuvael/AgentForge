@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from agentforge.application.contracts import (
     AgentsPage,
     Capabilities,
+    CleanupCodingArguments,
     CouncilArguments,
     DelegateArguments,
     DelegateCouncilArguments,
@@ -31,6 +32,7 @@ from agentforge.application.contracts import (
     WorkersPage,
 )
 from agentforge.application.service import Application, ServiceError
+from agentforge.coding.models import CodingDiff, CodingError, CodingResult
 from agentforge.councils.models import CouncilNotFound, CouncilSnapshot, InvalidCouncil
 from agentforge.projects.errors import ProjectNotFound, ProjectStorageError
 from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidationError
@@ -53,12 +55,17 @@ _MESSAGES = {
         "The Task service is unavailable; check the server lifecycle."
     ),
     "internal_error": "The operation could not be completed.",
+    "coding_unavailable": (
+        "Coding workspace is unavailable or its ownership/policy check failed."
+    ),
 }
 
 
 def safe_error(error: Exception) -> SafeError:
     if isinstance(error, ServiceError):
         code = error.code
+    elif isinstance(error, CodingError):
+        code = "coding_unavailable"
     elif isinstance(error, ProjectNotFound):
         code = "project_not_found"
     elif isinstance(error, TaskNotFound):
@@ -87,6 +94,37 @@ class ToolContract:
 
 
 TOOL_CONTRACTS = (
+    ToolContract(
+        "get_coding_workspace",
+        "get_coding_workspace",
+        (
+            "Inspect one Task's persisted coding identity and bounded factual "
+            "observations; no host paths."
+        ),
+        TaskArguments,
+        CodingResult,
+    ),
+    ToolContract(
+        "get_coding_diff",
+        "get_coding_diff",
+        (
+            "Retrieve the current central bounded coding diff, including new "
+            "files and explicit truncation."
+        ),
+        TaskArguments,
+        CodingDiff,
+    ),
+    ToolContract(
+        "cleanup_coding_workspace",
+        "cleanup_coding_workspace",
+        (
+            "Explicitly remove a terminal Task's managed worktree, retaining "
+            "its task branch. Destructive; supply both matching IDs."
+        ),
+        CleanupCodingArguments,
+        CodingResult,
+        False,
+    ),
     ToolContract(
         "delegate_council",
         "delegate_council",
@@ -226,7 +264,7 @@ def create_server(application_factory: Callable[[], Application]) -> Server:
                 outputSchema=t.response.model_json_schema(),
                 annotations=types.ToolAnnotations(
                     readOnlyHint=t.read_only,
-                    destructiveHint=False,
+                    destructiveHint=t.name == "cleanup_coding_workspace",
                     idempotentHint=t.name not in {"delegate_task", "delegate_council"},
                     openWorldHint=t.name in {"delegate_task", "delegate_council"},
                 ),
@@ -274,12 +312,19 @@ def create_server(application_factory: Callable[[], Application]) -> Server:
     return server
 
 
-async def run_stdio(*, database_url: str, workers_path: str, concurrency: int):
+async def run_stdio(
+    *,
+    database_url: str,
+    workers_path: str,
+    concurrency: int,
+    coding_path: str | None = None,
+):
     server = create_server(
         lambda: Application.from_config(
             database_url=database_url,
             workers_path=workers_path,
             concurrency=concurrency,
+            coding_path=coding_path,
         )
     )
     async with stdio_server() as (read, write):
@@ -305,6 +350,7 @@ def main() -> int:
     )
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--workers", required=True)
+    parser.add_argument("--coding", help="Explicit trusted coding TOML configuration")
     parser.add_argument("--concurrency", type=int, choices=range(1, 33), default=1)
     arguments = parser.parse_args()
     diagnostics = logging.StreamHandler()  # Default stream is stderr.
@@ -317,6 +363,7 @@ def main() -> int:
                 database_url=arguments.database_url,
                 workers_path=arguments.workers,
                 concurrency=arguments.concurrency,
+                coding_path=arguments.coding,
             )
         )
     except KeyboardInterrupt:

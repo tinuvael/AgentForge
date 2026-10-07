@@ -44,11 +44,13 @@ class TaskEngine:
         *,
         concurrency: int = 1,
         clock: Callable[[], float] = monotonic,
+        workspaces=None,
     ) -> None:
         if type(concurrency) is not int or not 1 <= concurrency <= 32:
             raise TaskValidationError("Concurrency must be between 1 and 32")
         self._repository = repository
         self._runtime = runtime
+        self._workspaces = workspaces
         self._concurrency = concurrency
         self._thread = get_ident()
         self._wake = asyncio.Event()
@@ -126,6 +128,13 @@ class TaskEngine:
             worker_ids
         ):
             raise InvalidCouncil("Supply 2 to 16 distinct Workers")
+        if (
+            getattr(self._runtime, "workspace_mode", lambda _: "project_readonly")(
+                agent_id
+            )
+            == "isolated_write"
+        ):
+            raise InvalidCouncil("Council requires a read-only Agent")
         # Validate every participant before any write, probe or inference.
         targets = []
         for worker_id in worker_ids:
@@ -224,6 +233,8 @@ class TaskEngine:
             _OWNERS.add(key)
         try:
             self._repository.recover_running()
+            if self._workspaces is not None:
+                self._workspaces.recover(self._repository)
         except BaseException:
             with _OWNERS_LOCK:
                 _OWNERS.remove(key)
@@ -262,7 +273,7 @@ class TaskEngine:
             raise ValueError("Invalid runtime result")
         if result.state != "completed":
             result = result.model_copy(update={"final_answer": None})
-        return result
+        return result.model_copy(update={"coding_result": None})
 
     async def _execute_loop(self):
         while not self._closed:
@@ -309,9 +320,27 @@ class TaskEngine:
                     **outcome,
                 )
 
+            coding = False
+            provisioned = False
             try:
                 try:
+                    coding = (
+                        getattr(
+                            self._runtime,
+                            "workspace_mode",
+                            lambda _: "project_readonly",
+                        )(task.agent_id)
+                        == "isolated_write"
+                    )
+                    arguments = {}
+                    if coding:
+                        if self._workspaces is None:
+                            raise ValueError("Coding workspaces are not configured")
+                        self._workspaces.create(task)
+                        arguments["coding_session"] = self._workspaces.bind(task, token)
+                        provisioned = True
                     result = await self._runtime.run(
+                        **arguments,
                         project_id=task.project_id,
                         agent_id=task.agent_id,
                         worker_id=task.worker_id,
@@ -323,7 +352,11 @@ class TaskEngine:
                     finish(error_code="executor_cancelled")
                     raise
                 except Exception:
-                    finish(error_code="runtime_error")
+                    finish(
+                        error_code="workspace_provisioning_failed"
+                        if coding and not provisioned
+                        else "runtime_error"
+                    )
                 else:
                     try:
                         result = self._validated_result(task, result)
@@ -332,6 +365,20 @@ class TaskEngine:
                     else:
                         finish(result=result)
             finally:
+                if (
+                    self._workspaces is not None
+                    and getattr(
+                        self._runtime, "workspace_mode", lambda _: "project_readonly"
+                    )(task.agent_id)
+                    == "isolated_write"
+                ):
+                    try:
+                        self._workspaces.finalize(self._repository.get(identity))
+                        self._repository.attach_coding_result(
+                            identity, self._workspaces.get(identity)
+                        )
+                    except Exception:
+                        pass  # Partial workspace remains; no destructive recovery.
                 self._tokens.pop(identity, None)
                 self._changed.set()
                 self.observer.finish(identity)
