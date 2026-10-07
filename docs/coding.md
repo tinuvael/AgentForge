@@ -1,4 +1,4 @@
-# Isolated coding Tasks (Phase 12)
+# Isolated coding Tasks
 
 ## Design and ownership
 
@@ -29,7 +29,7 @@ index, so ordinary Git inspection does not misreport them as deletions. The
 bounded full base-tree inventory is private and never reaches the Worker.
 No checkout/smudge/clean/LFS hook is invoked. Primary files, index, HEAD and branch
 are untouched; uncommitted primary changes are not copied. Symlinks/submodules
-are not materialized and remain non-editable special entries. Phase 12 produces
+are not materialized and remain non-editable special entries. Coding produces
 an uncommitted diff and never commits, pushes, fetches, merges or creates a PR.
 
 The implementation, trust boundaries and tested limits follow below.
@@ -61,10 +61,11 @@ virtual environment, use `python -m venv --copies` outside source/workspace tree
 resolving a virtualenv interpreter symlink to the base interpreter loses the
 virtualenv's installed packages. The host pins executables while they
 run. Tool schemas advertise configured validation IDs, never executable paths or
-argv. Configuration is global to this host instance in Phase 12; per-Project
+argv. Configuration is global to this host instance; per-Project
 validation profiles are not implemented.
 
-Migrate explicitly with `alembic upgrade head`. Revision
+Migrate explicitly with
+`python -m agentforge.db.migrate --database-url sqlite:///agentforge.db`. Revision
 `0008_coding_workspaces` adds one record per Task: workspace/Project/Worker identity,
 branch, base, private paths, opened root identities, UTC creation time, lifecycle
 state and bounded counters/validation observations. No historical migrations
@@ -151,7 +152,7 @@ directory are supported; linked/bare repositories, extensions, redirected object
 stores and linked/special metadata fail closed.
 
 Authoritative status/diff use fixed `ls-tree`/`cat-file` base data and no-follow live
-workspace bytes with central deterministic text diffing, matching Phase 04's
+workspace bytes with central deterministic text diffing, using the read-only tools’
 source-safe comparison approach. They never invoke external diff drivers, textconv
 or clean filters, and do not trust model-supplied patches as the result. Only the
 registered subtree and public policy are released; sensitive committed files may
@@ -159,7 +160,7 @@ exist privately in that subtree but cannot enter read/diff tools. Sibling source
 is not copied. Unsupported/special or oversized content is refused or explicitly
 marked rather than presented as complete.
 
-Concurrent ordinary primary file/HEAD changes are safe. Like Phase 04, this is not
+Concurrent ordinary primary file/HEAD changes are safe. This is not
 an OS sandbox against a malicious process with the control-plane user's privileges,
 privileged mount/kernel manipulation or preexisting writable memory maps. POSIX
 ancestry rechecks detect practical replacement races but do not provide an atomic
@@ -218,7 +219,7 @@ diff while the workspace is retained. Final answer and Task reason remain in
 Completion, failure and cancellation preserve workspaces by default. Cooperative
 cancellation prevents further writes and terminates an active validator; it never
 resets partial edits or destroys the workspace. Application shutdown awaits local
-validation/Provider cleanup. Restart follows Phase 06: running Tasks fail with
+validation/Provider cleanup. On restart, running Tasks fail with
 `execution_interrupted`, are never resumed, and ready/provisioning workspace
 records become `interrupted`. Terminal workspaces stay inspectable. Unknown
 filesystem workspaces are never adopted or deleted; `orphans()` only reports
@@ -240,7 +241,7 @@ not in the retained branch. A removal interrupted before Git registration destru
 can be explicitly retried from `cleanup_pending`; incomplete/missing administrative
 identity or interruption during registration deletion requires operator recovery
 and never guesses an arbitrary path to delete. Failed partial provisioning with
-known worktree/admin identity can be safely removed; failure before those identities
+known worktree/admin identity can be removed when the remaining checks pass; failure before those identities
 are persisted requires operator reconciliation. Startup never cleans it up.
 
 Task detail shows status, branch, base, changed files, stats, bounded diff and actual
@@ -251,24 +252,24 @@ is labeled when the current filesystem/Git state cannot be inspected.
 
 ## Threat-model coverage
 
-The numbered review corresponds to the Phase 12 request:
+Offline security regressions cover these boundaries:
 
 | Cases | Answer and offline evidence |
 | --- | --- |
-| 1–9: traversal, absolute/drive/UNC/NT/ADS/aliases/devices | Structured relative paths and strict portable Windows components; parametrized writes/patches/deletes and Windows mocks. |
-| 10–15: symlink, junction, hardlink, ancestry/root replacement | No-follow/identity/mount and single-link checks, descriptor atomic publication or pinned Windows handles; escape and mid-write race tests plus native Windows tests. |
-| 16–19: patch headers, link target, rename, mode | One explicit structured substring format, required hash, no header/options/path extraction; schema and special-object tests. |
-| 20: recursive delete | Only ordinary-file `delete_file`; directory and special-object rejection tests. |
-| 21–24: command ID/argv/shell/shadow injection | Simple allowlisted ID, forbidden extra fields, shell=False, absolute external executable; schema, cwd/env and shadow tests. |
-| 25–27: huge output, hangs, cancellation | Bounded concurrent captures, command/group/Job termination and durable factual outcomes; stdout/stderr, descendant, timeout and cancellation tests. |
-| 28: restart with dirty workspace | Durable metadata and ordinary interrupted-Task recovery; no replay/deletion, live diff and cleanup tests. |
-| 29–30: wrong workspace ID/replaced cleanup root | Matching IDs, persisted root/admin identity and exact registration association; mismatch/link/root/gitdir replacement tests. |
-| 31–33: subproject, dirty or moving primary | Only subtree copied/bound; immutable committed base; tests compare primary files/index/HEAD/branch/status and move primary HEAD independently. |
-| 34–35: `.git` and sensitive paths | Existing policy plus portable component rules, applied to writes/reads/diff; parametrized denial and no secret diff tests. |
-| 36–37: Explorer write/Council coder | Separate catalogs/capability rejection before I/O; renamed-coder Council and zero workspace/Task assertions. |
-| 38: HTML/script/ANSI/control output | Plain-text normalization plus Jinja autoescaping and CSRF/confirmation; real ASGI tests. |
-| 39: branch collision | Centrally generated full Task UUID ref, no force; collision/duplicate provisioning tests. |
-| 40: hostile Git hooks/config/filters/LFS | No-checkout raw blob materialization, fixed isolated commands, no external diff/textconv/filters; marker-script adversarial test and redirected-metadata denial. |
+| traversal, absolute/drive/UNC/NT/ADS/aliases/devices | Structured relative paths and strict portable Windows components; parametrized writes/patches/deletes and Windows mocks. |
+| symlink, junction, hardlink, ancestry/root replacement | No-follow/identity/mount and single-link checks, descriptor atomic publication or pinned Windows handles; escape and mid-write race tests plus native Windows tests. |
+| patch headers, link target, rename, mode | One explicit structured substring format, required hash, no header/options/path extraction; schema and special-object tests. |
+| recursive delete | Only ordinary-file `delete_file`; directory and special-object rejection tests. |
+| command ID/argv/shell/shadow injection | Simple allowlisted ID, forbidden extra fields, shell=False, absolute external executable; schema, cwd/env and shadow tests. |
+| huge output, hangs, cancellation | Bounded concurrent captures, command/group/Job termination and durable factual outcomes; stdout/stderr, descendant, timeout and cancellation tests. |
+| restart with dirty workspace | Durable metadata and ordinary interrupted-Task recovery; no replay/deletion, live diff and cleanup tests. |
+| wrong workspace ID/replaced cleanup root | Matching IDs, persisted root/admin identity and exact registration association; mismatch/link/root/gitdir replacement tests. |
+| subproject, dirty or moving primary | Only subtree copied/bound; immutable committed base; tests compare primary files/index/HEAD/branch/status and move primary HEAD independently. |
+| `.git` and sensitive paths | Existing policy plus portable component rules, applied to writes/reads/diff; parametrized denial and no secret diff tests. |
+| Explorer write/Council coder | Separate catalogs/capability rejection before I/O; renamed-coder Council and zero workspace/Task assertions. |
+| HTML/script/ANSI/control output | Plain-text normalization plus Jinja autoescaping and CSRF/confirmation; real ASGI tests. |
+| branch collision | Centrally generated full Task UUID ref, no force; collision/duplicate provisioning tests. |
+| hostile Git hooks/config/filters/LFS | No-checkout raw blob materialization, fixed isolated commands, no external diff/textconv/filters; marker-script adversarial test and redirected-metadata denial. |
 
 Known limitations are the trusted-validation and same-user-process boundaries,
 non-atomic Windows rewrite, bounded small ordinary repositories, special-object/

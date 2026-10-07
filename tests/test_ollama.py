@@ -19,6 +19,7 @@ from agentforge.core.provider_errors import (
     ProviderTimeout,
 )
 from agentforge.core.worker import Worker
+from agentforge.providers import ollama as protocol
 from agentforge.providers.ollama import OllamaProvider
 
 
@@ -292,6 +293,94 @@ class TrackedStream(httpx.AsyncByteStream):
 
 def record(**changes):
     return (json.dumps(chat_response(**changes)) + "\n").encode()
+
+
+@pytest.mark.parametrize("operation", ["generate", "health", "stream"])
+@pytest.mark.parametrize("failure", ["oversized", "compressed", "http_error"])
+def test_wire_bounds_close_responses(
+    worker, generation_request, monkeypatch, operation, failure
+):
+    monkeypatch.setattr(protocol, "MAX_RESPONSE_BYTES", 1024)
+    monkeypatch.setattr(protocol, "MAX_LINE_BYTES", 1024)
+    body = TrackedStream([b"x" * 4096], block=True)
+    status = 503 if failure == "http_error" else 200
+    headers = {"content-encoding": "gzip"} if failure == "compressed" else {}
+
+    def handler(request):
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(status, headers=headers, stream=body)
+
+    provider = provider_for(handler)
+
+    async def run():
+        if operation == "health":
+            assert not (await provider.health(worker)).available
+        else:
+            expected = (
+                BackendUnavailable
+                if failure == "http_error"
+                else InvalidProviderResponse
+            )
+            with pytest.raises(expected):
+                if operation == "generate":
+                    await provider.generate(worker, generation_request)
+                else:
+                    async with provider.stream(worker, generation_request) as chunks:
+                        _ = [chunk async for chunk in chunks]
+
+    asyncio.run(run())
+    assert body.closed
+    # Error/encoding rejection never consumes a body, even an infinite one.
+    assert not body.waiting.is_set()
+
+
+def test_stream_total_limit_includes_blank_lines(
+    worker, generation_request, monkeypatch
+):
+    monkeypatch.setattr(protocol, "MAX_STREAM_BYTES", 1024)
+    body = TrackedStream([b"\n" * 600, b"\n" * 600], block=True)
+    provider = provider_for(lambda _: httpx.Response(200, stream=body))
+
+    async def run():
+        async with provider.stream(worker, generation_request) as chunks:
+            with pytest.raises(InvalidProviderResponse):
+                _ = [chunk async for chunk in chunks]
+
+    asyncio.run(run())
+    assert body.closed and not body.waiting.is_set()
+
+
+def test_stream_fragmented_utf8_and_unterminated_final_line(worker, generation_request):
+    wire = json.dumps(
+        chat_response(message={"content": "héllo"}), ensure_ascii=False
+    ).encode("utf-8")
+    body = TrackedStream([wire[i : i + 1] for i in range(len(wire))])
+    provider = provider_for(lambda _: httpx.Response(200, stream=body))
+
+    async def run():
+        async with provider.stream(worker, generation_request) as chunks:
+            return [chunk async for chunk in chunks]
+
+    chunks = asyncio.run(run())
+    assert len(chunks) == 1 and chunks[0].content == "héllo" and chunks[0].done
+    assert body.closed
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        json.dumps(chat_response())
+        .replace('"done": true', '"done": false, "done": true')
+        .encode(),
+        json.dumps(chat_response(extra=float("nan"))).encode(),
+        json.dumps(chat_response(extra=float("inf"))).encode(),
+        b"[" * 2000 + b"]" * 2000,
+    ],
+)
+def test_ambiguous_or_nonstandard_json_is_rejected(worker, generation_request, body):
+    provider = provider_for(lambda _: httpx.Response(200, content=body))
+    with pytest.raises(InvalidProviderResponse):
+        asyncio.run(provider.generate(worker, generation_request))
 
 
 def test_stream_normalizes_deltas_and_final_metadata(worker, generation_request):

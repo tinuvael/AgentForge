@@ -1,4 +1,4 @@
-# Providers, connections and Workers (Phase 11)
+# Providers, connections and Workers
 
 A **Provider** implements an inference protocol/backend. A **Provider connection**
 names a trusted operator-configured base URL and optional authentication settings.
@@ -7,13 +7,12 @@ capabilities and deployment label. The external director selects Worker IDs.
 AgentForge does not route, rank, probe capabilities, retry inference or substitute
 another Worker. A Council runs only its explicitly selected participants.
 
-## Boundary decision and backward compatibility
+## Connections and compatibility
 
-Phase 02 put endpoints/options on Workers and keyed adapters by protocol type.
-With several authenticated endpoints using the same protocol, that would force
-connection/auth concerns into runtime dispatch. Phase 11 adds `ProviderConnection`
-and a small static factory, while retaining legacy inline Ollama Workers.
-No dynamic discovery, entry points or plugin framework is introduced.
+`ProviderConnection` keeps endpoints and authentication inside protocol adapters.
+A small static factory creates one adapter per named connection; multiple Workers
+can reference it. Legacy inline Ollama Workers remain supported intentionally.
+There is no dynamic discovery or Provider plugin loader.
 
 Preferred TOML has `[[providers]]` connections and `[[workers]]` referencing their
 IDs through `provider`. The loader resolves this into Worker `provider` (protocol
@@ -21,7 +20,7 @@ type) and `provider_connection` (connection ID). Runtime lookup uses the referen
 or the type for legacy entries. Durable Tasks/Councils/telemetry and discovery
 continue using protocol type and configured model; no connection credentials or
 endpoints are persisted or projected. The response model is only a transient
-Provider observation and cannot rebind execution identity. No migration is needed.
+Provider observation and cannot rebind execution identity. Provider connection configuration is not persisted in database schema.
 
 Existing `config/workers.example.toml` still works unchanged:
 
@@ -137,7 +136,30 @@ participant. Council order and existing partial-failure semantics are preserved.
 MCP `list_workers` and dashboard Workers show the same generic IDs, Provider type,
 model, deployment, context/tools/streaming facts, without endpoints/auth/options.
 
-## Implemented protocol subset and limits
+## Ollama protocol and limits
+
+Ollama uses `<base_url>/api/chat` for generation and newline-delimited streaming,
+and `/api/tags` for explicit health/model checks. Model names without a tag also
+match `:latest`. Runtime does not health-probe or replace a Worker before execution.
+Worker/request options are Ollama generation options; context window maps to
+`num_ctx`. Native tool names/arguments normalize into structured calls, with local
+correlation IDs when Ollama omits IDs. Tool results use native `tool_name`.
+
+Each operation owns its HTTP client and response. Bodies, including model lists,
+are limited to 2 MiB; stream lines to 256 KiB and total stream bytes to 4 MiB,
+including blank lines. Byte limits apply before JSON parsing. Identity encoding is
+requested; compressed responses and redirects are rejected, and HTTP error bodies
+are not read. Duplicate JSON keys, nonfinite numbers and malformed/deeply nested
+JSON fail with fixed diagnostics. A terminal `done` record is required; a final
+record without a newline is accepted. These are bounded small text/tool responses,
+not arbitrary bulk generation. Limits apply to direct Provider callers too.
+
+Reported token counts and nanosecond timings normalize into observed counts and
+seconds. Missing fields remain unknown. Native private `thinking` is carried only
+in ephemeral assistant history for protocol continuity. Direct streams must stay
+inside `async with`; completion, early break, timeout and cancellation close them.
+
+## OpenAI-compatible protocol subset and limits
 
 Direct httpx implements text-only `POST <base_url>/chat/completions`. Include `/v1`
 in configuration if the server requires it; the adapter does not append another
@@ -161,7 +183,7 @@ It accepts LF/CRLF `data:` frames, multi-line data, comments/keepalives and fram
 fragments are assembled, validated and emitted as complete calls in the terminal
 chunk. Usage-only frames are supported. A finish reason followed by `[DONE]` is
 required; a truncated/disconnected stream fails safely. The runtime continues
-using non-streaming `generate()` for tool execution, as before Phase 11.
+using non-streaming `generate()` for tool execution.
 
 `stream_usage = true` requests `stream_options.include_usage`; it defaults off
 because some compatible servers reject this extension. Reported usage is consumed
@@ -203,7 +225,7 @@ outside this subset. Adapt deployment/configuration accordingly.
 Only reported nonnegative integer `prompt_tokens`, `completion_tokens` and
 `total_tokens` are normalized. Missing counts remain unavailable, including streams;
 text length never estimates tokens. Per-Task total uses reported totals when all
-turns report them, otherwise retains Phase 07's sum of complete input/output counts.
+turns report them, otherwise uses the sum of complete input/output counts.
 Reported total-only observations can supply total without claiming input/output
 coverage. Extra usage fields are ignored. No backend generation duration is
 invented: generation/load/prompt durations and tokens/sec remain null for this
@@ -236,7 +258,7 @@ results AgentForge sends during that explicit execution. The Provider receives n
 direct filesystem access, but repository content can leave the central machine
 through HTTP context/tool results. Cloud Workers do **not** keep repository data
 local. Select Workers explicitly with this trust boundary in mind. Registering a
-Project does not send it to all Workers. Phase 11 introduces no DLP policy engine.
+Project does not send it to all Workers. There is no DLP policy engine.
 
 ## Adding a third Provider
 

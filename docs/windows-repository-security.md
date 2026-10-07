@@ -1,4 +1,4 @@
-# Native Windows repository security (Issue #23)
+# Native Windows repository security
 
 The central Windows workstation owns Project files, the database, the Index and
 all repository tools. Ollama Workers on the RTX 4080, home-i5, AI Max+ 395 or cloud
@@ -173,7 +173,7 @@ No automated test needs Ollama, a GPU or networking. See
 [native Windows smoke](native-windows-smoke.md) for actual acceptance.
 
 
-Phase 12 preserves this read-only backend and snapshot contract. The opt-in
+Repo Explorer uses the read-only backend and snapshot contract. The opt-in
 [coding backend](coding.md) reuses Win32 identity, path, volume, ordinal-case and
 pinned-ancestry primitives, adding exclusive mutation handles and manager-owned
 no-checkout worktree provisioning. Windows rewrites are durable handle operations,

@@ -142,6 +142,10 @@ class _Git:
                     stop()
                     process.wait()
                 finally:
+                    # A child may exit while a descendant still holds a pipe.
+                    # Stop the owned group and reap the parent before joining readers.
+                    stop()
+                    process.wait()
                     for reader in readers:
                         reader.join()
                 if timed_out:
@@ -229,46 +233,45 @@ class _Git:
         )
 
     def staged_diff(self, paths: list[str], budget: int):
-        if self.location.isolated:
-            # A pathspec for a file may also expand a HEAD directory at that name.
-            # The immutable snapshot allows validation BEFORE releasing a patch,
-            # including directory-to-file changes containing sensitive children.
-            names = self._run(
-                [
-                    "diff",
-                    "--cached",
-                    "--raw",
-                    "-z",
-                    "--no-renames",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--relative",
-                    "--ignore-submodules=all",
-                    "--",
-                    *paths,
-                ],
-                64 * 1024,
-            )
-            try:
-                records = names.data.split(b"\0")[:-1]
-                if len(records) % 2:
+        # A pathspec for a file may also expand a HEAD directory at that name.
+        # Validate raw paths before releasing a patch,
+        # including directory-to-file changes containing sensitive children.
+        names = self._run(
+            [
+                "diff",
+                "--cached",
+                "--raw",
+                "-z",
+                "--no-renames",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--relative",
+                "--ignore-submodules=all",
+                "--",
+                *paths,
+            ],
+            64 * 1024,
+        )
+        try:
+            records = names.data.split(b"\0")[:-1]
+            if len(records) % 2:
+                raise ValueError
+            returned = []
+            for metadata, name in zip(records[::2], records[1::2], strict=True):
+                fields = metadata.decode("ascii").split(" ")
+                if (
+                    len(fields) != 5
+                    or not fields[0].startswith(":")
+                    or fields[0][1:] not in {"000000", "100644", "100755"}
+                    or fields[1] not in {"000000", "100644", "100755"}
+                    or fields[4] not in {"A", "D", "M", "T"}
+                ):
                     raise ValueError
-                returned = []
-                for metadata, name in zip(records[::2], records[1::2], strict=True):
-                    fields = metadata.decode("ascii").split(" ")
-                    if (
-                        len(fields) != 5
-                        or not fields[0].startswith(":")
-                        or fields[0][1:] not in {"000000", "100644", "100755"}
-                        or fields[1] not in {"000000", "100644", "100755"}
-                        or fields[4] not in {"A", "D", "M", "T"}
-                    ):
-                        raise ValueError
-                    returned.append(name.decode("utf-8"))
-            except (UnicodeError, ValueError):
-                raise GitFailure("Git diff paths could not be decoded") from None
-            if names.truncated or any(name not in paths for name in returned):
-                raise GitFailure("Git diff expanded outside the approved files")
+                returned.append(name.decode("utf-8"))
+        except (UnicodeError, ValueError):
+            raise GitFailure("Git diff paths could not be decoded") from None
+        if names.truncated or any(name not in paths for name in returned):
+            raise GitFailure("Git diff expanded outside the approved files")
         return self._run(
             [
                 "diff",

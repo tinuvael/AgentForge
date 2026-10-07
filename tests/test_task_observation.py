@@ -50,6 +50,9 @@ def test_live_projection_drops_private_fields_and_limits_names():
         "security_error",
         "invalid_arguments",
         "path_not_found",
+        "edit_conflict",
+        "coding_limit",
+        "coding_unavailable",
     ]:
         assert (
             metadata(trace.model_copy(update={"error_code": code})).error_code == code

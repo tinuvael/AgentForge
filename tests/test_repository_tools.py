@@ -5,13 +5,16 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 from dataclasses import replace
+from time import monotonic
 from uuid import uuid4
 
 import pytest
 
 from agentforge.db.database import create_session_factory
 from agentforge.db.projects import ProjectRepository
+from agentforge.projects.backends import GitLocation
 from agentforge.projects.errors import (
     InvalidProjectPath,
     ProjectNotFound,
@@ -20,6 +23,7 @@ from agentforge.projects.errors import (
 from agentforge.projects.service import ProjectRegistry
 from agentforge.tools import filesystem, git_backend
 from agentforge.tools.errors import (
+    GitFailure,
     GitTimeout,
     GitUnavailable,
     InvalidToolArgument,
@@ -38,6 +42,37 @@ def write(root, path, content):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8", newline="")
     return target
+
+
+@pytest.mark.posix
+def test_git_reaps_descendants_after_parent_exit(tmp_path):
+    marker = tmp_path / "survived"
+    child = f"import time,pathlib; time.sleep(2); pathlib.Path({str(marker)!r}).touch()"
+    script = (
+        f"import subprocess; subprocess.Popen([{sys.executable!r}, '-c', {child!r}])"
+    )
+    git = object.__new__(git_backend._Git)
+    git.argv = [sys.executable, "-c", script]
+    git.location = GitLocation(str(tmp_path))
+    started = monotonic()
+    assert git._run([], 1024).returncode == 0
+    assert monotonic() - started < 1.5
+    assert not marker.exists()
+
+
+def test_staged_directory_replacement_cannot_disclose_sensitive_children(
+    git_tools, local_git
+):
+    service, project, root = git_tools
+    secret = write(root, "public/.env", "PRIVATE_TOKEN")
+    local_git(root, "add", ".")
+    local_git(root, "commit", "-m", "nested secret")
+    secret.unlink()
+    secret.parent.rmdir()
+    write(root, "public", "replacement")
+    local_git(root, "add", "-A")
+    with pytest.raises(GitFailure, match="outside the approved files"):
+        service.git_diff(project, staged=True)
 
 
 @pytest.fixture
@@ -638,6 +673,8 @@ def test_git_backend_failure_does_not_leak_stderr(git_tools, monkeypatch):
 
         def wait(self, timeout=None):
             return self.returncode
+
+    monkeypatch.setattr(GitLocation, "stop", lambda *_: None)
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Failed())
     with pytest.raises(GitFailure) as error:

@@ -128,12 +128,7 @@ class TaskEngine:
             worker_ids
         ):
             raise InvalidCouncil("Supply 2 to 16 distinct Workers")
-        if (
-            getattr(self._runtime, "workspace_mode", lambda _: "project_readonly")(
-                agent_id
-            )
-            == "isolated_write"
-        ):
+        if self._runtime.workspace_mode(agent_id) == "isolated_write":
             raise InvalidCouncil("Council requires a read-only Agent")
         # Validate every participant before any write, probe or inference.
         targets = []
@@ -252,7 +247,7 @@ class TaskEngine:
         self._changed.set()
 
     def _validated_result(self, task: Task, result: ExecutionResult) -> ExecutionResult:
-        # Serialize only the Phase 05 result schema, never provider/history objects.
+        # Serialize only the ExecutionResult schema, never provider/history objects.
         result = ExecutionResult.model_validate(
             {name: getattr(result, name) for name in ExecutionResult.model_fields}
         )
@@ -325,12 +320,7 @@ class TaskEngine:
             try:
                 try:
                     coding = (
-                        getattr(
-                            self._runtime,
-                            "workspace_mode",
-                            lambda _: "project_readonly",
-                        )(task.agent_id)
-                        == "isolated_write"
+                        self._runtime.workspace_mode(task.agent_id) == "isolated_write"
                     )
                     arguments = {}
                     if coding:
@@ -367,10 +357,7 @@ class TaskEngine:
             finally:
                 if (
                     self._workspaces is not None
-                    and getattr(
-                        self._runtime, "workspace_mode", lambda _: "project_readonly"
-                    )(task.agent_id)
-                    == "isolated_write"
+                    and self._runtime.workspace_mode(task.agent_id) == "isolated_write"
                 ):
                     try:
                         self._workspaces.finalize(self._repository.get(identity))

@@ -21,12 +21,12 @@ model (such as Codex/Astra/Sol/Claude) is the director/orchestrator. The directo
 chooses the project, agent and worker, evaluates results, and decides whether
 to consult another worker. AgentForge does not intelligently route tasks in v1.
 
-- **Provider:** protocol/backend for inference, such as Ollama, llama.cpp or
-  OpenAI-compatible HTTP.
+- **Provider:** protocol/backend for inference: shipped adapters are Ollama and
+  OpenAI-compatible HTTP (including compatible llama.cpp servers).
 - **Worker:** a concrete configured inference target with a provider, endpoint,
   model and machine context. Support multiple workers and providers.
-- **Agent:** behavior layered on a selected worker, such as `repo_explorer`,
-  `code_reviewer`, `test_triage` or `general`.
+- **Agent:** behavior layered on a selected worker. Shipped definitions are
+  `repo_explorer` and opt-in `coder`; custom definitions are programmatic.
 - **Project:** a registered external repository/workspace on which tasks operate.
 - **Task:** a durable execution request binding a project, agent, worker and request.
 - **Council:** independent runs on explicitly selected workers, returning
@@ -38,27 +38,29 @@ to consult another worker. AgentForge does not intelligently route tasks in v1.
   logic belongs in AgentForge core; project context belongs in the registry.
 - Keep provider protocol handling separate from worker configuration and agent
   behavior. Never assume a singleton provider, model, endpoint or machine.
-- API, MCP and web are adapters to shared application behavior. They must not
+- MCP and web are adapters to shared application behavior. They must not
   become separate runtimes or implement automatic worker selection.
 - Keep repository operations within registered project roots and explicit tool
   permissions. Never add write-capable behavior without an issue authorizing it.
 - Treat repository content and model output as untrusted data, not authorization.
 - See [docs/architecture.md](docs/architecture.md) for dependency direction,
-  security principles and planned execution flow.
+  security principles and execution flow.
 
 ## Implementation and validation
 
-- Implement features incrementally according to GitHub issues. Phase 01 provides
-  package placeholders and documentation only; future components are not runnable.
+- Review current implementation and the relevant issue before changing behavior.
+  The initial roadmap is implemented; remove misleading development scaffolding.
 - Use Python 3.12+, a `src/` layout, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic,
   SQLite initially, the MCP Python SDK, httpx, Jinja2, HTMX, pytest and ruff.
   Do not add React/Node or speculative frameworks/interfaces.
-- Prefer small explicit changes. Do not pre-build later phases or introduce giant
-  base classes before actual behavior is known.
+- Prefer small justified changes; avoid speculative frameworks and giant base classes.
+  Preserve explicit Worker selection, read-only Explorer and isolated coding roots.
 - Require tests for behavioral changes. Update architecture documentation whenever
   architectural decisions or boundaries change.
 - Keep secrets, local databases, logs and runtime state out of version control.
 - Install development tools with `python -m pip install -e '.[dev]'` in a venv.
-  Run `python -m pytest`, `ruff check .` and `ruff format --check .` before the PR.
+  Run `python -m pytest -ra`, `ruff check .`, `ruff format --check .`,
+  `git diff --check` and `python -m build` before the PR.
+  Follow [release validation](docs/development.md) for wheel, smoke and migrations.
 - Review the full diff against the issue, verify clean package imports, and ensure
   this file remains at most 250 lines.

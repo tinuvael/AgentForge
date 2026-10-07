@@ -1,7 +1,8 @@
-# Local operational dashboard (Phase 09)
+# Operator dashboard
 
 Install Python 3.12+ and the package, configure Workers using the existing TOML
-format, and migrate the explicitly selected database with `alembic upgrade head`
+format, and migrate the explicitly selected database with
+`python -m agentforge.db.migrate --database-url sqlite:///agentforge.db`
 (see [MCP setup](mcp.md) for database configuration). Then run:
 
 ```sh
@@ -46,13 +47,13 @@ inspection builds an authorized private source snapshot, so it is deliberately n
 invoked to render this page. The dashboard never recomputes an Index.
 
 Workers are inference targets, including single/multiple local targets, LAN/VPN
-machines and future API/cloud configurations. Configured capabilities do not prove
+machines and cloud endpoints. Configured capabilities do not prove
 availability. Endpoints and all Provider options are omitted, including credentials,
 URL userinfo and private endpoint paths. No Workers are probed on page refresh.
 
 ## Composition and lifecycle
 
-`web.app.create_app(application_factory)` owns one shared Phase 08 `Application`
+`web.app.create_app(application_factory)` owns one shared `Application`
 in its ASGI lifespan. Construction, startup, routes and shutdown run on TaskEngine's
 owning thread/event loop. MCP and web use the same Registry, Index, repository tools,
 Worker configuration, Agent definitions, Provider/runtime, TaskRepository/TaskEngine
@@ -63,12 +64,12 @@ HTTP handlers perform validation, rendering and existing application calls.
 TaskEngine owner within a process; it is not a distributed lease. Separate MCP and
 web CLI processes must not execute against the same database simultaneously. A
 combined transport deployment would need to inject one already-owned Application
-and coordinate its lifecycle; no combined-process entry point ships in Phase 09.
+and coordinate its lifecycle; no combined-process entry point ships.
 Use one Uvicorn process, without reload/multiple workers. The dashboard has no task
 submission/orchestration endpoint; directors can use the existing Python service
 in-process, and historical/queued work is observed through the same database.
 
-Startup retains Phase 06 interrupted-running recovery and queued work resumption.
+Startup applies interrupted-running recovery and queued work resumption.
 Shutdown shields executor cleanup and database disposal. Open SSE streams have a
 five-second Uvicorn graceful shutdown budget; disconnected/cancelled responses
 release their subscriptions before lifespan cleanup. Queued Tasks survive shutdown;
@@ -147,7 +148,7 @@ is not the CSRF defense.
 
 ## Telemetry and privacy boundary
 
-Phase 07 telemetry values are displayed directly, with `—` for NULL. Zero is shown
+Observed telemetry values are displayed directly, with `—` for NULL. Zero is shown
 only when observed. Terminal coverage is pending/recorded/unavailable; live timeline
 metadata does not fabricate interim token accounting. Complete token totals and
 observed partial sums are labeled separately, including covered-turn counts.
@@ -176,14 +177,14 @@ network, browser automation or external database is required. Native Windows tes
 retain their existing platform skips; Linux mocks/regressions do not establish
 native Windows integration evidence.
 
-Phase 09 does not provide authentication, cross-process subscriptions, a combined
+The dashboard does not provide authentication, cross-process subscriptions, a combined
 MCP/web launcher, task submission UI, live Worker health, live Git inspection,
 time-range filters, retention, distributed leases, event replay, Worker rankings,
 routing or a frontend build. Overview recent activity is recent submissions with
 current lifecycle; it is not a separately invented audit-event log. Live telemetry
 aggregates become available only at the existing terminal checkpoint.
 
-## Councils (Phase 10)
+## Councils
 
 See [Council operations](councils.md) for durable independent execution on 2–16
 explicit Workers, ordered per-participant results, partial failures and cancellation.

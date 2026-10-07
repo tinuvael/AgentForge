@@ -97,7 +97,8 @@ UUID, tool-call evidence, telemetry and native test results for acceptance.
 To test home-i5 or another remote Ollama Worker, add its reachable endpoint/model
 to the **central** Worker file and repeat with its explicit Worker ID. The Project
 and all tools stay on Windows. No share, checkout or repository synchronization
-belongs on the Worker. Other Provider protocols remain future work.
+belongs on the Worker. For compatible endpoints use named connections as described in
+[Providers](providers.md); this acceptance procedure specifically exercises Ollama.
 
 For restrictions and the Win32/Git threat model, see
 [Windows repository security](windows-repository-security.md).

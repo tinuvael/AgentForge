@@ -1,13 +1,11 @@
 """Read-only platform-authorized traversal under the registered canonical root."""
 
 import hashlib
-import os  # noqa: F401 -- preserve the scanner's filesystem test seam
 from collections.abc import Iterator
 
 from agentforge.index.models import IndexRefreshError
 from agentforge.projects.backends import backend_for
 from agentforge.projects.errors import UnsafeProjectPath
-from agentforge.projects.exclusions import EXCLUDED_DIRECTORIES  # noqa: F401
 from agentforge.tools.policy import FILE_SCAN_BYTES
 
 

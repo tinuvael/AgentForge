@@ -44,7 +44,7 @@ PY
 Registration and index refresh above are developer operations outside Agent
 execution. The Agent has no registration, refresh or database-write tool. If an
 old registration lacks root identity, explicitly remove and re-register it as
-described in the architecture; the runtime will not authorize a replacement root.
+described in [repository operations](repository.md); the runtime will not authorize a replacement root.
 
 Use the printed UUID explicitly:
 
@@ -105,5 +105,6 @@ Synchronous repository calls cannot be interrupted mid-call and are checked afte
 returning. Startup fails orphaned running Tasks as `execution_interrupted` and
 resumes queued Tasks; started work is never replayed. The script owns the sole
 Task Engine for this database; do not run it beside another control-plane process
-using the same database. MCP, external schedulers, shell, repository
-mutation and Agent-driven test execution remain outside this phase.
+using the same database. Repo Explorer has no shell, mutation or validation tools;
+opt-in coding uses a separate isolated-workspace Agent. MCP is covered by the
+[external client smoke](mcp.md#optional-manual-end-to-end-smoke).

@@ -20,17 +20,18 @@ from agentforge.db.models import (
     SymbolRecord,
 )
 from agentforge.db.projects import ProjectRepository
-from agentforge.index import scanner, service
+from agentforge.index import service
 from agentforge.index.models import IndexRefreshError, IndexStorageError, SymbolNotFound
 from agentforge.index.render import approximate_tokens
-from agentforge.index.scanner import EXCLUDED_DIRECTORIES
 from agentforge.index.service import ProjectIndex
+from agentforge.projects import filesystem
 from agentforge.projects import service as registry_service
 from agentforge.projects.errors import (
     InvalidProjectPath,
     ProjectNotFound,
     UnsafeProjectPath,
 )
+from agentforge.projects.exclusions import EXCLUDED_DIRECTORIES
 from agentforge.projects.service import ProjectRegistry
 from agentforge.tools.service import RepositoryTools
 
@@ -577,7 +578,7 @@ def test_file_replaced_by_symlink_between_stat_and_open(indexed, tmp_path, monke
     file = write(root, "module.py", "def original(): pass\n")
     index.refresh_index(project.id)
     outside = write(tmp_path, "outside.py", "def outside_secret(): pass\n")
-    original_open = scanner.os.open
+    original_open = filesystem.os.open
 
     def racing_open(path, flags, *args, **kwargs):
         if path == "module.py":
@@ -587,9 +588,9 @@ def test_file_replaced_by_symlink_between_stat_and_open(indexed, tmp_path, monke
 
     # Capability detection still refers to the same function after monkeypatch.
     monkeypatch.setattr(
-        scanner.os, "supports_dir_fd", scanner.os.supports_dir_fd | {racing_open}
+        filesystem.os, "supports_dir_fd", filesystem.os.supports_dir_fd | {racing_open}
     )
-    monkeypatch.setattr(scanner.os, "open", racing_open)
+    monkeypatch.setattr(filesystem.os, "open", racing_open)
     with pytest.raises(IndexRefreshError):
         index.refresh_index(project.id)
     assert one(index, project, "original")
@@ -740,7 +741,7 @@ def test_new_migration_follows_registry_and_preserves_registration(
         assert "indexed_files" not in inspect(connection).get_table_names()
         command.upgrade(config, "head")
         command.check(config)
-    # Downgrading to Phase 03 drops the later directory identity. The stable
+    # Downgrading to 0001_projects drops the later directory identity. The stable
     # registration survives; safe repository tools require re-registration.
     restored = registry.get_project(project.id)
     assert (restored.id, restored.name, restored.root_path, restored.created_at) == (
@@ -875,7 +876,7 @@ def test_source_changed_during_read_aborts_refresh(indexed, monkeypatch):
     write(root, "source.py", "def original(): pass\n")
     index.refresh_index(project.id)
     previous = index.render_project_map(project.id)
-    original_fstat = scanner.os.fstat
+    original_fstat = filesystem.os.fstat
     file_stat_calls = 0
 
     def racing_fstat(fd):
@@ -888,7 +889,7 @@ def test_source_changed_during_read_aborts_refresh(indexed, monkeypatch):
                 return original_fstat(fd)
         return result
 
-    monkeypatch.setattr(scanner.os, "fstat", racing_fstat)
+    monkeypatch.setattr(filesystem.os, "fstat", racing_fstat)
     with pytest.raises(IndexRefreshError):
         index.refresh_index(project.id)
     assert index.render_project_map(project.id) == previous

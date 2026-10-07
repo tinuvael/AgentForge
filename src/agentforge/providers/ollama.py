@@ -1,7 +1,6 @@
 """Ollama HTTP chat adapter with bounded execution and owned stream lifetimes."""
 
 import asyncio
-import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -34,7 +33,12 @@ from agentforge.core.provider_errors import (
     ProviderTimeout,
 )
 from agentforge.core.worker import Worker, WorkerHealth
+from agentforge.providers.json import parse_json
 from agentforge.workers.config import ProviderConnection
+
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_LINE_BYTES = 256 * 1024
+MAX_STREAM_BYTES = 4 * 1024 * 1024
 
 
 class _OllamaFunction(BaseModel):
@@ -106,11 +110,15 @@ class OllamaProvider:
             + "/",
             timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
             transport=self._transport,
+            headers={"Accept-Encoding": "identity"},
+            follow_redirects=False,
         )
 
     @staticmethod
     def _check_status(response: httpx.Response) -> None:
         if 200 <= response.status_code < 300:
+            if response.headers.get("content-encoding", "identity") != "identity":
+                raise InvalidProviderResponse("Compressed Ollama responses unsupported")
             return
         if response.status_code in {502, 503, 504}:
             raise BackendUnavailable("Ollama backend unavailable")
@@ -219,11 +227,13 @@ class OllamaProvider:
         )
 
     @staticmethod
-    def _json(data: str | bytes) -> object:
-        try:
-            return json.loads(data)
-        except (ValueError, UnicodeError):
-            raise InvalidProviderResponse("Invalid Ollama JSON response") from None
+    async def _body(response: httpx.Response) -> bytes:
+        body = bytearray()
+        async for chunk in response.aiter_bytes(chunk_size=4096):
+            if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+                raise InvalidProviderResponse("Ollama response exceeded its byte limit")
+            body.extend(chunk)
+        return bytes(body)
 
     async def health(self, worker: Worker) -> WorkerHealth:
         """Probe the backend and whether the configured model is installed."""
@@ -234,12 +244,16 @@ class OllamaProvider:
                 asyncio.timeout(timeout),
                 self._client(worker, timeout) as client,
             ):
-                response = await client.get("api/tags")
-                self._check_status(response)
-                try:
-                    tags = _TagsResponse.model_validate(self._json(response.content))
-                except ValidationError:
-                    raise InvalidProviderResponse("Invalid Ollama model list") from None
+                async with client.stream("GET", "api/tags") as response:
+                    self._check_status(response)
+                    try:
+                        tags = _TagsResponse.model_validate(
+                            parse_json(await self._body(response))
+                        )
+                    except ValidationError:
+                        raise InvalidProviderResponse(
+                            "Invalid Ollama model list"
+                        ) from None
                 model = (
                     worker.model
                     if ":" in worker.model.rsplit("/", 1)[-1]
@@ -272,11 +286,13 @@ class OllamaProvider:
                 asyncio.timeout(timeout),
                 self._client(worker, timeout) as client,
             ):
-                response = await client.post(
-                    "api/chat", json=self._payload(worker, request, stream=False)
-                )
-                self._check_status(response)
-                chunk = self._parse_chat(self._json(response.content))
+                async with client.stream(
+                    "POST",
+                    "api/chat",
+                    json=self._payload(worker, request, stream=False),
+                ) as response:
+                    self._check_status(response)
+                    chunk = self._parse_chat(parse_json(await self._body(response)))
                 if not chunk.done:
                     raise InvalidProviderResponse("Incomplete Ollama chat response")
                 return GenerationResult(**chunk.model_dump(exclude={"done"}))
@@ -286,10 +302,34 @@ class OllamaProvider:
             raise BackendUnavailable("Could not communicate with Ollama") from None
 
     async def _chunks(self, response: httpx.Response) -> AsyncIterator[GenerationChunk]:
-        async for line in response.aiter_lines():
-            if not line.strip():
-                continue
-            chunk = self._parse_chat(self._json(line))
+        buffer = bytearray()
+        total = 0
+        async for data in response.aiter_bytes():
+            total += len(data)
+            if total > MAX_STREAM_BYTES:
+                raise InvalidProviderResponse("Ollama stream exceeded its byte limit")
+            for offset in range(0, len(data), 4096):
+                buffer.extend(data[offset : offset + 4096])
+                while b"\n" in buffer:
+                    line, _, remainder = buffer.partition(b"\n")
+                    buffer = bytearray(remainder)
+                    if len(line) > MAX_LINE_BYTES:
+                        raise InvalidProviderResponse(
+                            "Ollama stream line exceeded its limit"
+                        )
+                    if line.strip():
+                        chunk = self._parse_chat(parse_json(bytes(line)))
+                        yield chunk
+                        if chunk.done:
+                            return
+                if len(buffer) > MAX_LINE_BYTES:
+                    raise InvalidProviderResponse(
+                        "Ollama stream line exceeded its limit"
+                    )
+                await asyncio.sleep(0)
+        # Preserve acceptance of a final JSON record without a trailing newline.
+        if buffer.strip():
+            chunk = self._parse_chat(parse_json(bytes(buffer)))
             yield chunk
             if chunk.done:
                 return

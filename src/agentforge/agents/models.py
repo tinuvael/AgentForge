@@ -38,7 +38,7 @@ class Agent(BaseModel):
 
 
 class CancellationToken:
-    """Thread-safe cooperative signal for future Task cancellation integration.
+    """Thread-safe signal for cooperative Task cancellation.
 
     Checked at execution boundaries. asyncio task cancellation still propagates.
     """

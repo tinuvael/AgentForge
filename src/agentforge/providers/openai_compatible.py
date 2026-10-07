@@ -32,6 +32,7 @@ from agentforge.core.provider_errors import (
     ProviderTimeout,
 )
 from agentforge.core.worker import Worker, WorkerHealth
+from agentforge.providers.json import parse_json as _json
 from agentforge.workers.config import ProviderConnection
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -94,26 +95,6 @@ class _Response(_WireModel):
 
 def _invalid() -> InvalidProviderResponse:
     return InvalidProviderResponse("Invalid compatible Provider response")
-
-
-def _json(data: str | bytes):
-    def invalid_constant(_):
-        raise ValueError
-
-    def unique_object(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError
-            result[key] = value
-        return result
-
-    try:
-        return json.loads(
-            data, parse_constant=invalid_constant, object_pairs_hook=unique_object
-        )
-    except (ValueError, UnicodeError, RecursionError):
-        raise _invalid() from None
 
 
 def _usage(value: _Usage | None) -> dict:

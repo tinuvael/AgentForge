@@ -13,7 +13,7 @@ from agentforge.projects.windows import WindowsDirectory
 from agentforge.tools.git_backend import _Git
 
 # Reuse the existing concurrent bounded-pipe implementation, with its environment
-# supplied per instance instead of changing the read-only Phase 04 boundary.
+# supplied per instance instead of changing the read-only repository boundary.
 
 
 class WorkspaceGit(_Git):
