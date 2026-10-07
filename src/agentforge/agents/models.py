@@ -1,5 +1,6 @@
 """Agent behavior, execution policy and ephemeral results; no Worker routing."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Event
 from typing import Literal
@@ -111,6 +112,16 @@ class ExecutionObservations:
     model_turns: list[ModelTurnObservation] = field(default_factory=list)
     trace: list[TraceEvent] = field(default_factory=list)
     tool_output_bytes: int = 0
+    on_trace: Callable[[TraceEvent], None] | None = field(default=None, repr=False)
+
+    def record_trace(self, event: TraceEvent) -> None:
+        self.trace.append(event)
+        if self.on_trace is not None:
+            try:
+                self.on_trace(event)
+            except Exception:
+                # Observation must never alter execution or its durable result.
+                pass
 
 
 class ExecutionResult(BaseModel):

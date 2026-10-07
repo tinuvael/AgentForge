@@ -13,8 +13,9 @@ adds durable Tasks, controlled lifecycle and a bounded in-process Task Engine.
 Phase 07 adds terminal Task telemetry, normalized backend timing observations and
 transport-independent comparison queries. Phase 08 adds the typed MCP stdio
 adapter and shared application composition/lifecycle. Issue #23 adds a native
-Windows NTFS security backend for central repository/Index execution. API endpoints
-and dashboard behavior remain **planned**.
+Windows NTFS security backend for central repository/Index execution. Phase 09
+adds the local Jinja2/HTMX dashboard and bounded live metadata observation.
+General API endpoints remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
 providers, workers, agents, tasks, tools, telemetry, an MCP interface and a web
@@ -91,7 +92,7 @@ models, or arbitrary OpenAI-compatible endpoints.
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
 Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/`,
-`tools/`, `agents/`, `tasks/`, `telemetry/`, `application/`, `mcp/` and `db/`
+`tools/`, `agents/`, `tasks/`, `telemetry/`, `application/`, `mcp/`, `web/` and `db/`
 remain placeholders. Alembic configuration and revision scripts live in `alembic.ini` and `migrations/` at the
 repository root.
 
@@ -775,7 +776,8 @@ requests and normal final answers are intentionally persisted user/model content
 the database is private runtime state, not a general-purpose content scrubber.
 Trace/result storage occurs at terminal checkpoints, not incrementally: after a
 crash, partial in-memory trace and counts are unavailable and are not invented.
-Retention and live streaming remain future work. Phase 07 telemetry aggregation
+Retention remains future work; Phase 09 adds ephemeral live observation.
+Phase 07 telemetry aggregation
 uses these terminal boundaries, as described below.
 
 Topology does not affect Task Engine behavior. `local-4080`, `home-i5`, `ai395` and
@@ -801,7 +803,8 @@ duration and `telemetry_status` to Tasks, plus one `task_telemetry` row per term
 Task execution. There are no JSON blobs, per-turn child tables or cascading foreign
 keys. Historical identifiers and observations survive Project deregistration,
 Worker edits and even Task deletion. Identity/time indexes support dashboard
-filters. Retention/deletion policy and live event delivery remain future work.
+filters. Retention/deletion policy remains future work; Phase 09 delivers live
+metadata hints independently of terminal telemetry persistence.
 
 Normal `TaskEngine.submit` snapshots the selected Worker's configured provider and
 model. Claim refreshes that snapshot from the runtime which will execute the Task:
@@ -989,12 +992,53 @@ resource bounds, migration/downgrade behavior and unsupported cases. See
 Project registration, external MCP delegation, source calls, durable results,
 telemetry, escape rejection and optional remote inference on the same central root.
 
-### Planned dashboard
+### Local operational dashboard (Phase 09)
 
-The dashboard will monitor projects, workers, tasks and telemetry using Jinja2
-and HTMX. It consumes shared application operations rather than accessing inference
-services directly. HTMX is a future browser asset, not a Python dependency;
-asset delivery is deferred. No React/Node stack or dashboard behavior is included.
+The dashboard observes Projects, configured Workers, durable Tasks and terminal
+telemetry through the existing Phase 08 `Application`. `web.app.create_app` owns
+one Application in its ASGI lifespan; async HTTP handlers keep TaskEngine calls
+on the owning event loop. There is no HTTP executor, Task store, provider proxy,
+Worker selection or routing logic. `application.dashboard` projects diagnostic
+reads, and Registry/TaskRepository supply compact metadata-only list queries.
+Task history joins Project names and recorded runtime in one bounded query,
+without loading request/answer/execution JSON. Project lists read registration and
+cached Index checkpoint metadata only: no live Git/source/Index traversal.
+
+Jinja2 renders overview, Workers, Projects, Task history and Task detail. HTMX is
+vendored with its upstream license for offline filtering, pagination, cancellation
+and diagnostic fragment refresh. Plain JavaScript uses EventSource for SSE hints;
+no frontend build or external CDN is needed. Run the explicit command documented
+in [dashboard setup](dashboard.md). Default bind is `127.0.0.1:8765`; intentional
+non-loopback binding warns about the absence of authentication. Trusted Host
+validation, signed double-submit CSRF, POST-only confirmed cancellation, CSP,
+autoescaping and fixed safe errors protect the local operator boundary.
+
+`ExecutionObservations.record_trace` retains existing trace evidence and invokes
+an optional non-fatal callback. TaskEngine's observer keeps at most 100 metadata
+events per executing Task (bounded by concurrency), 16 hints per subscriber and
+128 subscribers total. Publication uses non-blocking queues; overflow replaces
+pending hints with resync, preserving terminal/shutdown notifications. Terminal
+buffers are discarded; durable Task state/result remain authoritative. SSE sends
+only `refresh`, `resync`, `terminal`, `shutdown` with `{}`, plus idle keepalives.
+Reconnection reloads a snapshot, without replay or event sourcing. Response cleanup
+releases subscribers even on pre-iteration disconnect; browser availability cannot
+change Task execution. Uvicorn uses one process and a bounded graceful shutdown.
+
+Live and terminal timelines share an explicit projection of step, event type,
+tool name, success, safe error code, duration and termination reason. Arguments,
+call IDs, result/source bodies, reasoning and backend diagnostics are excluded.
+Request and normal completed answer are trusted-operator text displays with
+explicit caps. Telemetry renders existing Phase 07 values exactly: NULL is unknown,
+partial observed counts show coverage, throughput uses backend generation time,
+and no request-latency-derived TTFT or Worker rankings are produced. Cancellation
+reuses Application/TaskEngine's queued and cooperative-running semantics.
+
+MCP and web composition have the same meaning but ship separate entry points.
+Only one process may own a database; simultaneous standalone MCP/web executors
+are unsupported. Phase 09 does not provide combined transport hosting, live
+Worker health, live Git probes, authentication, task submission UI, event brokers
+or persistent browser sessions. Native Windows needs no new POSIX lifecycle
+dependencies; existing Windows/POSIX repository security backends are unchanged.
 
 ### Council
 

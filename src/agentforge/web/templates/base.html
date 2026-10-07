@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"allowScriptTags":false}'>
+  <title>{% block title %}AgentForge{% endblock %}</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/dashboard.js" defer></script>
+</head>
+<body hx-history="false">
+  <a class="skip" href="#main">Skip to content</a>
+  <header><a class="brand" href="/">AgentForge <span>operations</span></a>
+    <nav aria-label="Primary"><a href="/">Overview</a><a href="/workers">Workers</a><a href="/projects">Projects</a><a href="/tasks">Tasks</a></nav>
+  </header>
+  <main id="main"><div id="notice" role="alert"></div>{% block content %}{% endblock %}</main>
+  <footer>Trusted operator surface · explicit Worker selection · health is not probed</footer>
+</body>
+</html>

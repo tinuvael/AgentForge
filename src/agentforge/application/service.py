@@ -21,6 +21,7 @@ from agentforge.application.contracts import (
     WorkerInfo,
     WorkersPage,
 )
+from agentforge.application.dashboard import DashboardQueries
 from agentforge.core.inference import Provider
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
@@ -117,9 +118,9 @@ class Application:
             else {"ollama": OllamaProvider()},
             tools=repository_toolset(self.index, self.repository_tools),
         )
-        self.tasks = TaskEngine(
-            TaskRepository(sessions), runtime, concurrency=concurrency
-        )
+        task_repository = TaskRepository(sessions)
+        self.tasks = TaskEngine(task_repository, runtime, concurrency=concurrency)
+        self.dashboard = DashboardQueries(self.projects, self.tasks, self.telemetry)
         self._started = False
         self._closed = False
         self._shutdown_task: asyncio.Task | None = None

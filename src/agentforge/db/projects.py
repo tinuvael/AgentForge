@@ -8,10 +8,10 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from agentforge.db.models import ProjectRecord
+from agentforge.db.models import IndexStateRecord, ProjectRecord
 from agentforge.projects.errors import ProjectAlreadyRegistered, ProjectStorageError
 from agentforge.projects.identity import RootIdentity
-from agentforge.projects.models import Project
+from agentforge.projects.models import Project, ProjectSummary
 
 
 def _project(record: ProjectRecord) -> Project:
@@ -93,6 +93,31 @@ class ProjectRepository:
                 return session.scalar(select(func.count()).select_from(ProjectRecord))
         except SQLAlchemyError:
             raise ProjectStorageError("Could not count projects") from None
+
+    def summaries(self, *, limit: int, offset: int) -> list[ProjectSummary]:
+        # Only registration and index checkpoint metadata. No symbols/files or I/O.
+        query = select(
+            ProjectRecord.id,
+            ProjectRecord.name,
+            ProjectRecord.root_path,
+            IndexStateRecord.indexed_at,
+            IndexStateRecord.observed_head,
+        ).outerjoin(IndexStateRecord, ProjectRecord.id == IndexStateRecord.project_id)
+        query = query.order_by(ProjectRecord.name, ProjectRecord.id)
+        try:
+            with self._sessions() as session:
+                return [
+                    ProjectSummary(
+                        row.id,
+                        row.name,
+                        row.root_path,
+                        row.indexed_at.replace(tzinfo=UTC) if row.indexed_at else None,
+                        row.observed_head,
+                    )
+                    for row in session.execute(query.limit(limit).offset(offset))
+                ]
+        except SQLAlchemyError:
+            raise ProjectStorageError("Could not read Project summaries") from None
 
     def list(self, *, limit: int | None = None, offset: int = 0) -> list[Project]:
         try:

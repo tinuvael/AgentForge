@@ -1,0 +1,49 @@
+{% from "macros.html" import badge %}{% set task = detail.task %}
+<section id="task-detail" data-task-id="{{ task.task_id }}" data-state="{{ task.state }}" aria-label="Task diagnosis">
+  <div class="identity"><h2><code>{{ task.task_id }}</code></h2>{{ badge(task.state) }}
+    {% if task.cancellation_requested_at and task.state == 'running' %}<span class="badge">cancellation requested</span>{% endif %}
+  </div>
+  <p id="live-status" role="status" aria-live="polite">{% if task.state in ['queued','running'] %}Connecting live updates…{% else %}Terminal snapshot{% endif %}</p>
+  <dl class="facts">
+    <dt>Project</dt><dd>{{ detail.project_name|known }} · <code>{{ task.project_id }}</code></dd>
+    <dt>Agent / Worker</dt><dd>{{ task.agent_id }} / {{ task.worker_id }}</dd>
+    <dt>Historical Provider / model</dt><dd>{{ detail.provider|known }} / {{ detail.model|known }}</dd>
+    <dt>Created (UTC)</dt><dd>{{ task.created_at }}</dd>
+    <dt>Started (UTC)</dt><dd>{{ task.started_at|known }}</dd>
+    <dt>Finished (UTC)</dt><dd>{{ task.finished_at|known }}</dd>
+    <dt>Cancellation requested (UTC)</dt><dd>{{ task.cancellation_requested_at|known }}</dd>
+    <dt>Termination / error category</dt><dd>{{ task.reason|known }} / {{ task.error_code|known }}</dd>
+  </dl>
+  {% if task.state in ['queued','running'] %}
+  <form method="post" action="/tasks/{{ task.task_id }}/cancel" class="cancel" hx-post="/tasks/{{ task.task_id }}/cancel" hx-target="#task-detail" hx-swap="outerHTML">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> I confirm cancellation of this Task.</label>
+    <button type="submit">Request cancellation</button>
+    <p>Queued cancellation prevents execution. Running cancellation is cooperative at execution boundaries; remote inference may continue.</p>
+  </form>
+  {% endif %}
+  <h2>Telemetry</h2><p>Coverage: {{ task.telemetry_status }}. Metrics are recorded at terminal completion. Unknown values are —; durations are seconds.</p>
+  {% if detail.telemetry %}{% set t = detail.telemetry %}
+  <dl class="facts metrics">
+    {% for label, value in [('Queue duration',t.queue_duration_seconds),('Execution runtime',t.execution_duration_seconds),('Total Task runtime',t.total_duration_seconds),('Model request duration',t.model_request_duration_seconds),('Model generation duration',t.generation_duration_seconds),('Tool duration',t.total_tool_duration_seconds),('TTFT (only explicitly observed)',t.ttft_seconds)] %}<dt>{{ label }}</dt><dd>{{ value|seconds }}</dd>{% endfor %}
+    {% for label, value in [('Model turns',t.model_call_count),('Tool attempts',t.tool_call_count),('Prompt tokens',t.prompt_tokens),('Completion tokens',t.completion_tokens),('Total tokens',t.total_tokens),('Observed throughput (tokens/s)',t.tokens_per_second)] %}<dt>{{ label }}</dt><dd>{{ value|known }}</dd>{% endfor %}
+    <dt>Token accounting</dt><dd>{{ 'complete' if t.token_usage_complete else 'partial / incomplete' }}</dd>
+    <dt>Observed prompt tokens / covered turns</dt><dd>{{ t.observed_prompt_tokens|known }} / {{ t.prompt_observed_turns }} of {{ t.model_call_count|known }}</dd>
+    <dt>Observed completion tokens / covered turns</dt><dd>{{ t.observed_completion_tokens|known }} / {{ t.completion_observed_turns }} of {{ t.model_call_count|known }}</dd>
+  </dl>
+  {% elif task.execution_summary %}<p>Model steps: {{ task.execution_summary.steps }} · tool attempts: {{ task.execution_summary.tool_call_count }}. Other metrics not reported.</p>
+  {% else %}<p>Not reported yet. Live event metadata appears below.</p>{% endif %}
+  <h2>Execution timeline</h2><p>Safe metadata only. Tool arguments, tool output and reasoning are omitted.</p>
+  <ol class="lifecycle">
+    <li>queued · {{ task.created_at }}</li>
+    {% if task.started_at %}<li>running · {{ task.started_at }}</li>{% endif %}
+    {% if task.cancellation_requested_at %}<li>cancellation requested · {{ task.cancellation_requested_at }}</li>{% endif %}
+    {% if task.finished_at %}<li>{{ task.state }} · {{ task.finished_at }}</li>{% endif %}
+  </ol>
+  {% if detail.timeline_truncated %}<p role="status">Showing the latest 100 execution events; earlier metadata omitted.</p>{% endif %}
+  <div class="scroll"><table><thead><tr><th scope="col">Step</th><th scope="col">Event</th><th scope="col">Tool</th><th scope="col">Outcome</th><th scope="col">Duration</th><th scope="col">Category</th></tr></thead>
+  <tbody>{% for event in detail.timeline %}<tr><td>{{ event.step }}</td><td>{{ event.kind }}</td><td>{{ event.tool_name|known }}</td><td>{{ 'succeeded' if event.success == true else 'failed' if event.success == false else '—' }}</td><td>{{ event.duration_seconds|seconds }}</td><td>{{ event.error_code or event.reason or '—' }}</td></tr>{% else %}<tr><td colspan="6">No execution metadata observed.</td></tr>{% endfor %}</tbody></table></div>
+  <h2>Request</h2><pre>{{ detail.request }}</pre>
+  <h2>Final result</h2><pre>{{ detail.answer if detail.answer is not none else 'No final answer.' }}</pre>
+  {% if detail.text_truncated %}<p>Long request/result text truncated for display.</p>{% endif %}
+</section>

@@ -1,0 +1,2 @@
+{% from "macros.html" import history, pager %}
+<section id="task-table" aria-label="Task results">{{ history(tasks) }}{{ pager(previous, next, offset, true) }}</section>

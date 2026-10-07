@@ -23,6 +23,7 @@ from agentforge.tasks.models import (
     TaskStorageError,
     TaskValidationError,
 )
+from agentforge.tasks.observation import TaskObserver
 
 _OWNERS: set[object] = set()
 _OWNERS_LOCK = Lock()
@@ -58,6 +59,7 @@ class TaskEngine:
         self._shutdown_task: asyncio.Task | None = None
         self._clock = clock
         self._queued_at: dict[UUID, float] = {}
+        self.observer = TaskObserver()
 
     def _check_thread(self):
         if get_ident() != self._thread:
@@ -101,6 +103,7 @@ class TaskEngine:
         self._queued_at[submitted.task_id] = queued_at
         self._wake.set()
         self._changed.set()
+        self.observer.notify(submitted.task_id)
         return submitted
 
     @property
@@ -115,6 +118,14 @@ class TaskEngine:
     def active_counts(self) -> dict[TaskState, int]:
         self._check_thread()
         return self._repository.active_counts()
+
+    def state_counts(self) -> dict[TaskState, int]:
+        self._check_thread()
+        return self._repository.state_counts()
+
+    def history(self, **filters):
+        self._check_thread()
+        return self._repository.history(**filters)
 
     def get_task(self, task_id: UUID | str) -> Task:
         self._check_thread()
@@ -157,6 +168,9 @@ class TaskEngine:
             token.cancel()
         self._wake.set()
         self._changed.set()
+        self.observer.notify(
+            identity, "terminal" if task.state in TERMINAL_STATES else "refresh"
+        )
         return task
 
     async def start(self) -> None:
@@ -234,7 +248,12 @@ class TaskEngine:
             # No await between claim and registration: cancellation cannot miss start.
             self._tokens[identity] = token
             self._changed.set()
-            observations = ExecutionObservations()
+            self.observer.begin(identity)
+            observations = ExecutionObservations(
+                on_trace=lambda event, identity=identity: self.observer.record(
+                    identity, event
+                )
+            )
             execution_started = self._clock()
 
             def finish(
@@ -277,6 +296,7 @@ class TaskEngine:
             finally:
                 self._tokens.pop(identity, None)
                 self._changed.set()
+                self.observer.finish(identity)
             # Even a fully synchronous scripted Provider must yield to callers.
             await asyncio.sleep(0)
 
@@ -318,6 +338,7 @@ class TaskEngine:
         self._check_thread()
         self._closed = True
         self._queued_at.clear()
+        self.observer.close()
         if not self._started:
             return
         if self._shutdown_task is None:

@@ -6,8 +6,8 @@ AgentForge supplies the execution platform; it does not intelligently route task
 in v1.
 
 Phase 02 adds validated Workers and an async Ollama Provider with health checks,
-generation and streaming. Phase 08 adds a local stdio MCP server; API and
-dashboard behavior remain planned. Worker selection is always explicit;
+generation and streaming. Phase 08 adds a local stdio MCP server; Phase 09 adds
+a local operator dashboard. Worker selection is always explicit;
 configuration starts with
 [the TOML example](config/workers.example.toml).
 See [the architecture](docs/architecture.md) and [coding instructions](AGENTS.md).
@@ -47,6 +47,19 @@ native Windows. Repository tools and Index select POSIX descriptors or a native
 Windows NTFS handle backend, with fail-closed path/reparse/identity checks. See
 [Windows security](docs/windows-repository-security.md) and the
 [native Windows MCP smoke](docs/native-windows-smoke.md).
+
+Start the dashboard with the same migrated database and Worker configuration:
+
+```sh
+python -m agentforge.web.server --database-url sqlite:///agentforge.db --workers workers.local.toml
+```
+
+Open `http://127.0.0.1:8765` for overview, Workers, Projects, bounded Task history,
+live metadata timelines and confirmed cancellation. It uses the shared Application,
+Jinja2, locally vendored HTMX and SSE, without a frontend build. Run only one
+process per database; separate MCP and dashboard executors cannot share ownership.
+See [dashboard setup, security and limitations](docs/dashboard.md), including
+intentional LAN binding without a full authentication layer.
 
 Use the foundation directly from Python (inside your own async function):
 
