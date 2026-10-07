@@ -75,6 +75,13 @@ def summarize(
     values["total_tokens"] = (
         values["prompt_tokens"] + values["completion_tokens"] if complete else None
     )
+    totals = [
+        turn.token_usage.total_tokens
+        for turn in turns or ()
+        if turn.token_usage is not None and turn.token_usage.total_tokens is not None
+    ]
+    if count and len(totals) == count:
+        values["total_tokens"] = sum(totals)
     for name, field in (
         ("backend_total_duration_seconds", "total_seconds"),
         ("model_load_duration_seconds", "load_seconds"),

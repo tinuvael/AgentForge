@@ -98,7 +98,7 @@ class AgentRuntime:
             or not task.strip()
         ):
             raise ValueError("Invalid execution binding")
-        provider = self._providers.get(worker.provider)
+        provider = self._providers.get(worker.provider_connection or worker.provider)
         if (
             provider is None
             or provider.name != worker.provider
@@ -187,7 +187,7 @@ class AgentRuntime:
                 raise _Stop("invalid_configuration") from None
             agent = self._agents[agent_id]
             worker = self._workers[worker_id]
-            provider = self._providers[worker.provider]
+            provider = self._providers[worker.provider_connection or worker.provider]
             policy = limits or agent.limits
             deadline = started + policy.timeout_seconds
             check()

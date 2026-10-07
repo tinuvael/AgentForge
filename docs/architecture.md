@@ -15,7 +15,9 @@ transport-independent comparison queries. Phase 08 adds the typed MCP stdio
 adapter and shared application composition/lifecycle. Issue #23 adds a native
 Windows NTFS security backend for central repository/Index execution. Phase 09
 adds the local Jinja2/HTMX dashboard and bounded live metadata observation. Phase 10
-adds durable independent Councils on explicitly selected Workers.
+adds durable independent Councils on explicitly selected Workers. Phase 11 adds
+named Provider connections and OpenAI-compatible Chat Completions, validating
+heterogeneous execution without protocol-specific runtime branches.
 General API endpoints remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
@@ -1136,3 +1138,36 @@ boundaries are implemented as described above.
    The dashboard monitors the same task state through shared application behavior.
 6. The director evaluates sufficiency and may explicitly request another execution
    or a future Council run. AgentForge does not make that decision itself.
+
+### Second Provider and connection boundary (Phase 11)
+
+The Phase 02 inline Worker connection design needed a small extension for
+multiple authenticated endpoints sharing one protocol. `ProviderConnection`
+names the protocol type, trusted base URL and optional auth environment reference;
+Worker carries stable identity, a connection reference, model and capability facts.
+Legacy inline Ollama Workers remain valid. Runtime dispatch looks up a generic
+connection key; there are no protocol-name branches in runtime, TaskEngine,
+Council, telemetry, MCP or dashboard. Durable identity remains Provider type and
+configured model, without connection/auth state; no migration is introduced.
+
+`providers.factory.PROVIDER_TYPES` statically composes Ollama and OpenAI-compatible
+adapters. Constructors do not open resources. Application owns composed Providers
+and closes their clients after executor shutdown; injected Providers remain owned
+by their caller. Ollama retains its scoped per-operation clients. Compatible
+connections lazily share a client across Workers, with scoped bounded HTTP/SSE
+responses, explicit timeouts, no redirects, no inference retries and safe errors.
+The compatible adapter supports text/function Chat Completions, exact tool-call
+correlation and private optional reasoning; runtime still uses `generate()`.
+
+Normalized `TokenUsage` additionally accepts a reported total count. Telemetry
+uses reported totals with complete per-turn coverage, otherwise preserving the
+existing complete-input/output sum. Backend generation timings, TTFT and tokens/sec
+remain unknown for compatible responses. No timing is fabricated from HTTP frames
+or text. Existing Ollama timing normalization remains unchanged.
+
+The earlier Phase 02/05 configuration and protocol descriptions above describe
+the initial design. [Provider guidance](providers.md) defines current connection
+configuration, backward compatibility, authentication, limits, lifecycle, exact
+protocol subset, adding a third Provider and the remote repository-data egress
+boundary. Remote/cloud Workers receive model context and tool results; Providers
+have no direct filesystem access. Explicit Worker selection remains mandatory.

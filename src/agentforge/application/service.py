@@ -32,7 +32,7 @@ from agentforge.db.tasks import TaskRepository
 from agentforge.db.telemetry import TelemetryRepository
 from agentforge.index.service import ProjectIndex
 from agentforge.projects.service import ProjectRegistry
-from agentforge.providers.ollama import OllamaProvider
+from agentforge.providers.factory import create_providers
 from agentforge.tasks.engine import TaskEngine
 from agentforge.tasks.models import Task
 from agentforge.telemetry.service import TelemetryService
@@ -105,13 +105,14 @@ class Application:
             )
             for a in sorted(agents, key=lambda a: a.id)
         )
+        # Only composed resources are owned here; injected Providers retain caller
+        # ownership. Factory constructors are lazy, without open HTTP resources.
+        self._owned_providers = create_providers(workers) if providers is None else {}
         runtime = AgentRuntime(
             projects=self.projects,
             workers=workers,
             agents=agents,
-            providers=providers
-            if providers is not None
-            else {"ollama": OllamaProvider()},
+            providers=providers if providers is not None else self._owned_providers,
             tools=repository_toolset(self.index, self.repository_tools),
         )
         task_repository = TaskRepository(sessions)
@@ -143,14 +144,30 @@ class Application:
         if self._closed:
             raise ServiceError("service_unavailable")
         if not self._started:
-            await self.tasks.start()  # Includes interrupted-task recovery, once.
+            try:
+                await self.tasks.start()  # Includes interrupted-task recovery, once.
+            except BaseException:
+                await self.close()
+                raise
             self._started = True
 
     async def _shutdown(self):
         try:
             await self.tasks.close()
         finally:
-            self.database.dispose()
+            try:
+                results = await asyncio.gather(
+                    *(
+                        provider.aclose()
+                        for provider in self._owned_providers.values()
+                        if hasattr(provider, "aclose")
+                    ),
+                    return_exceptions=True,
+                )
+                if any(isinstance(result, BaseException) for result in results):
+                    raise ServiceError("service_unavailable")
+            finally:
+                self.database.dispose()
 
     async def close(self):
         self._closed = True
@@ -190,7 +207,7 @@ class Application:
                 "Delegation submits asynchronously; the director polls or cancels.",
                 "Repository tools require POSIX descriptors or native Windows "
                 "local NTFS handles; unsupported filesystems fail closed.",
-                "Only Ollama is shipped; other Provider adapters remain future work.",
+                "Ollama and the text/tool Chat Completions protocol are shipped.",
                 "Local trusted stdio only; one process per database, no "
                 "distributed lease.",
                 "No trace, reasoning, raw responses or telemetry analytics over MCP.",

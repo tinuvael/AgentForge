@@ -44,8 +44,9 @@ Optional `--concurrency` is 1–32 (default 1). It limits executor work, not sel
 of Workers. Resolve relative database/Worker file paths against the server's
 working directory; absolute paths are preferable in a director configuration.
 Projects come only from the existing durable ProjectRegistry. The shipped Agent
-is the actual `REPO_EXPLORER` definition; the shipped Provider is Ollama. No second
-Provider or Agent loading framework is introduced. Unsupported Provider bindings
+is the actual `REPO_EXPLORER` definition; Ollama and OpenAI-compatible Chat
+Completions Providers are shipped. No dynamic Provider or Agent loading framework
+is introduced. Unsupported Provider bindings
 are rejected before creating Tasks.
 
 For an initially empty registry, use the existing Python registration interface
@@ -268,8 +269,9 @@ AgentForge host**. Workers are inference endpoints; they need no mounted Project
 repository checkout, remote file synchronization or local filesystem access.
 Worker HTTP(S) endpoints come from administrator configuration and can be local,
 LAN/VPN, or cloud destinations. Neither MCP nor generic application logic assumes
-localhost or reads Ollama-specific response fields. Only the existing concrete
-Ollama Provider handles that protocol; other protocols still require future adapters.
+localhost or reads Ollama-specific response fields. Protocol handling stays in
+concrete Providers. Phase 11 also ships a compatible
+Chat Completions adapter; see [Provider guidance](providers.md).
 
 The public surface is exactly these eleven tools. There are no generic file-read,
 shell, arbitrary Git, SQL, environment, direct Provider HTTP, or registration tools.
@@ -318,8 +320,9 @@ verify it through `list_workers`, then run the same interaction with that Worker
 Project registration and files stay on the central host; no remote checkout is needed.
 Allow the configured inference timeout and RuntimeLimits to cover your request.
 The director decides whether a result warrants another Worker; the server never
-substitutes one. A cloud protocol other than Ollama is discoverable as configuration
-but cannot execute until a matching Provider adapter exists.
+substitutes one. Compatible remote/cloud Workers can execute through the Phase 11
+adapter. Repository tool results and model context may leave the central host;
+see [Provider protocol and data-egress guidance](providers.md).
 
 ## Councils (Phase 10)
 
@@ -328,3 +331,6 @@ explicit Workers, ordered per-participant results, partial failures and cancella
 MCP adds `delegate_council`, `get_council`, `cancel_council`. The dashboard navigation
 adds Council history/detail with Task links and live refresh using the same bounded
 TaskObserver. The external Director remains the judge; telemetry stays per Task.
+
+Phase 11 adds named connections and heterogeneous Ollama/OpenAI-compatible Workers
+without changing these tools. See [configuration and data-egress guidance](providers.md).

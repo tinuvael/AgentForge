@@ -34,6 +34,7 @@ from agentforge.core.provider_errors import (
     ProviderTimeout,
 )
 from agentforge.core.worker import Worker, WorkerHealth
+from agentforge.workers.config import ProviderConnection
 
 
 class _OllamaFunction(BaseModel):
@@ -76,17 +77,33 @@ class _TagsResponse(BaseModel):
 class OllamaProvider:
     name = "ollama"
 
-    def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        connection: ProviderConnection | None = None,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         # Optional transport supports offline tests, without sharing client ownership.
         self._transport = transport
+        self._connection = connection
+        if connection is not None and connection.type != self.name:
+            raise ProviderRejected("Mismatched Provider connection")
 
     def _validate_worker(self, worker: Worker) -> None:
         if worker.provider != self.name:
             raise ProviderRejected("Worker provider does not match Ollama")
+        if self._connection is not None:
+            if worker.provider_connection != self._connection.id:
+                raise ProviderRejected("Mismatched Worker/Provider connection")
+        elif worker.endpoint is None or worker.provider_connection is not None:
+            raise ProviderRejected("Worker requires a Provider connection")
 
     def _client(self, worker: Worker, timeout: float) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            base_url=str(worker.endpoint).rstrip("/") + "/",
+            base_url=str(
+                self._connection.base_url if self._connection else worker.endpoint
+            ).rstrip("/")
+            + "/",
             timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
             transport=self._transport,
         )
