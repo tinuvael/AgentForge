@@ -81,11 +81,15 @@ alembic check
 in a local Alembic configuration beside the root config for another database. Pass the same URL to
 `create_database_engine`, then wire `create_session_factory(engine)` →
 `ProjectRepository` → `ProjectRegistry`. Dispose the engine when its owner shuts
-down. The initial revision creates only project configuration. Tests migrate
+down. The initial revision creates the complete supported 0.1.0 schema. Tests migrate
 temporary SQLite databases and verify upgrade/downgrade and database reopening.
 
 The current Registry stores name, root and identity only; it has no per-Project
 validation profile, permissions editor or generated architecture summary.
+
+The [operator CLI](operator-cli.md#projects) wraps these existing services for
+registration, bounded listing, explicit live inspection, Index refresh and
+confirmed deregistration. No registration capability is added to model tools.
 
 ## Deterministic Python Index
 

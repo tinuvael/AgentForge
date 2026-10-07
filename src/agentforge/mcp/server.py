@@ -345,15 +345,15 @@ class _SafeDiagnostics(logging.Filter):
         return True
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="AgentForge local trusted MCP stdio server"
-    )
+def add_arguments(parser) -> None:
+    """Shared arguments for the operator CLI and supported module entrypoint."""
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--workers", required=True)
     parser.add_argument("--coding", help="Explicit trusted coding TOML configuration")
     parser.add_argument("--concurrency", type=int, choices=range(1, 33), default=1)
-    arguments = parser.parse_args()
+
+
+def run(arguments) -> int:
     diagnostics = logging.StreamHandler()  # Default stream is stderr.
     diagnostics.addFilter(_SafeDiagnostics())
     logging.basicConfig(level=logging.WARNING, handlers=[diagnostics], force=True)
@@ -377,6 +377,14 @@ def main() -> int:
         )
         return 1
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="AgentForge local trusted MCP stdio server"
+    )
+    add_arguments(parser)
+    return run(parser.parse_args())
 
 
 if __name__ == "__main__":

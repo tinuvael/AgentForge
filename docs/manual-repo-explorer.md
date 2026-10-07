@@ -13,38 +13,20 @@ The example Worker configuration explicitly defines `local-4080`, `gpt-oss:20b`,
 `http://localhost:11434` and native tool support. Copy/edit this file when your
 administrator-approved endpoint or deployment differs. No Worker is auto-selected.
 
-Prepare the existing registry/index schema and register this checkout once:
+Prepare the schema and register this checkout once:
 
 ```sh
-alembic upgrade head
-python - <<'PY'
-from pathlib import Path
-from agentforge.db.database import create_database_engine, create_session_factory
-from agentforge.db.projects import ProjectRepository
-from agentforge.db.index import IndexRepository
-from agentforge.projects.service import ProjectRegistry
-from agentforge.index.service import ProjectIndex
-
-engine = create_database_engine("sqlite:///agentforge.db")
-try:
-    sessions = create_session_factory(engine)
-    projects = ProjectRegistry(ProjectRepository(sessions))
-    root = Path.cwd().resolve()
-    # Reuse an existing registration, preserving its recorded root identity.
-    project = next((p for p in projects.list_projects() if p.root_path == root), None)
-    if project is None:
-        project = projects.register_project("AgentForge", root)
-    ProjectIndex(projects, IndexRepository(sessions)).refresh_index(project.id)
-    print(project.id)
-finally:
-    engine.dispose()
-PY
+agentforge db upgrade --database-url sqlite:///agentforge.db
+agentforge project add . --name AgentForge --database-url sqlite:///agentforge.db
+agentforge project index <PROJECT_UUID> --database-url sqlite:///agentforge.db
 ```
 
-Registration and index refresh above are developer operations outside Agent
-execution. The Agent has no registration, refresh or database-write tool. If a
-registered root is replaced, explicitly remove/re-register it only when you intend
-to authorize that directory; the runtime will not adopt a replacement root.
+Copy `registration.project_id` from registration output. For an existing
+registration, use `agentforge project list --database-url sqlite:///agentforge.db`
+and reuse its UUID. Registration/Index refresh are trusted operator operations.
+The Agent has no registration, refresh or database-write tool. If a root is
+replaced, explicitly remove/re-register it only when you intend to authorize the
+replacement directory; runtime never adopts a replacement root.
 
 Use the printed UUID explicitly:
 

@@ -26,31 +26,16 @@ These steps perform real inference and are never executed by pytest.
    endpoint `http://localhost:11434`, `supports_tools = true`, and factual deployment
    information. Verify Ollama/model availability yourself and warm up a cold model.
 
-3. Register a real Project and refresh its Index through the existing Python API.
-   Save this as a local bootstrap script or pipe the here-string to Python. Replace
-   the example path with the ordinary absolute path you intend to authorize:
+3. Register a real Project and refresh its Index through the operator CLI.
+   Replace the path with the ordinary absolute path you intend to authorize;
+   copy the returned `registration.project_id` for the Index command:
 
    ```powershell
-   @'
-   from pathlib import Path
-   from agentforge.db.database import create_database_engine, create_session_factory
-   from agentforge.db.projects import ProjectRepository
-   from agentforge.db.index import IndexRepository
-   from agentforge.projects.service import ProjectRegistry
-   from agentforge.index.service import ProjectIndex
-   engine = create_database_engine("sqlite:///agentforge.db")
-   try:
-       sessions = create_session_factory(engine)
-       registry = ProjectRegistry(ProjectRepository(sessions))
-       root = Path(r"C:\Projects\AgentForge")
-       project = next((p for p in registry.list_projects() if p.root_path == root), None)
-       if project is None:
-           project = registry.register_project("AgentForge", root)
-       ProjectIndex(registry, IndexRepository(sessions)).refresh_index(project.id)
-       print(project.id, project.root_identity)
-   finally:
-       engine.dispose()
-   '@ | .venv\Scripts\python.exe -
+   agentforge db upgrade --database-url sqlite:///agentforge.db
+   agentforge project add 'C:\Projects\AgentForge' --name AgentForge --database-url sqlite:///agentforge.db
+   agentforge project index <PROJECT_UUID> --database-url sqlite:///agentforge.db
+   agentforge worker config-check --workers workers.local.toml
+   agentforge worker check local-4080 --workers workers.local.toml
    ```
 
 4. Configure your external Codex/MCP director as shown in [MCP setup](mcp.md),

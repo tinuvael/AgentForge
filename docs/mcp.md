@@ -48,31 +48,20 @@ Completions Providers are shipped. No dynamic Provider or Agent loading framewor
 is introduced. Unsupported Provider bindings
 are rejected before creating Tasks.
 
-For an initially empty registry, use the existing Python registration interface
-once, pointing at a directory you intend to authorize:
+For an initially empty registry, use the trusted [operator CLI](operator-cli.md)
+with an explicit path you intend to authorize:
 
-```python
-from agentforge.db.database import create_database_engine, create_session_factory
-from agentforge.db.projects import ProjectRepository
-from agentforge.projects.service import ProjectRegistry
-
-engine = create_database_engine("sqlite:///agentforge.db")
-try:
-    registry = ProjectRegistry(ProjectRepository(create_session_factory(engine)))
-    project = registry.register_project(
-        "Example", "/absolute/path/to/authorized/project"
-    )
-    print(project.id)
-finally:
-    engine.dispose()
+```sh
+agentforge project add /absolute/path/to/authorized/project --name Example --database-url sqlite:///agentforge.db
+agentforge project index <PROJECT_UUID> --database-url sqlite:///agentforge.db
 ```
 
-Use a Windows absolute path when registering on Windows. This is administrator
-setup, not an MCP tool. No MCP caller can supply or register a project root.
-Index refresh remains an explicit administrator Python operation with
-`ProjectIndex(registry, IndexRepository(sessions)).refresh_index(project.id)`;
-startup/discovery never scans project files. Repo Explorer's cached map can be empty
-or stale; its allowlisted source tools provide evidence.
+Use a Windows absolute path when registering on Windows. These are operator
+commands; no MCP caller can supply or register a host root. Registration and Index
+refresh are explicit. Startup/discovery never scans project files. Repo Explorer's
+cached map can be empty or stale; its allowlisted source tools provide evidence.
+`agentforge mcp` shares the supported module entrypoint's arguments and lifecycle.
+The existing interpreter-based client configuration below remains supported.
 
 ## Connecting a director
 

@@ -22,8 +22,8 @@ class SafeDiagnostics(logging.Filter):
         return True
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="AgentForge trusted local dashboard")
+def add_arguments(parser) -> None:
+    """Shared arguments for the operator CLI and supported module entrypoint."""
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--workers", required=True)
     parser.add_argument("--coding", help="Explicit trusted coding TOML configuration")
@@ -31,11 +31,13 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--allowed-host", action="append", default=[])
-    args = parser.parse_args()
+
+
+def run(args) -> int:
     if not 1 <= args.port <= 65535:
-        parser.error("port must be between 1 and 65535")
+        raise ValueError("port must be between 1 and 65535")
     if any("*" in host or "/" in host for host in [args.host, *args.allowed_host]):
-        parser.error("use explicit bind addresses and host names")
+        raise ValueError("use explicit bind addresses and host names")
     handler = logging.StreamHandler()
     handler.addFilter(SafeDiagnostics())
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
@@ -79,6 +81,15 @@ def main() -> int:
         )
         return 1
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="AgentForge trusted local dashboard")
+    add_arguments(parser)
+    try:
+        return run(parser.parse_args())
+    except ValueError as error:
+        parser.error(str(error))
 
 
 if __name__ == "__main__":

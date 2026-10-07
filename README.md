@@ -99,43 +99,46 @@ connections, multiple Providers or authenticated remote endpoints, start with
 Explicit remote Worker selection sends gathered repository evidence to that endpoint.
 
 Initialize a fresh database explicitly using the
-[0.1.0 schema baseline](docs/development.md#migrations):
+[0.1.0 schema baseline](docs/development.md#migrations), then register exactly the
+existing directory you intend to authorize. This example registers this checkout:
 
 ```sh
-python -m agentforge.db.migrate --database-url sqlite:///agentforge.db
+agentforge db upgrade --database-url sqlite:///agentforge.db
+agentforge project add . --name AgentForge --database-url sqlite:///agentforge.db
+agentforge project list --database-url sqlite:///agentforge.db
 ```
 
-Register a Project and optionally refresh its Python Index. This example registers
-the AgentForge checkout itself; change `root` to the existing repository you intend
-to authorize. Registration/refresh use the operator Python API; they are not
-model tools or MCP commands.
+`project add` returns a Project UUID. Copy it from `registration.project_id` for
+subsequent commands. Registration does not index source; optionally refresh the
+Python Index using that UUID:
 
-```python
-from pathlib import Path
-from agentforge.db.database import create_database_engine, create_session_factory
-from agentforge.db.projects import ProjectRepository
-from agentforge.db.index import IndexRepository
-from agentforge.projects.service import ProjectRegistry
-from agentforge.index.service import ProjectIndex
-
-engine = create_database_engine("sqlite:///agentforge.db")
-try:
-    sessions = create_session_factory(engine)
-    projects = ProjectRegistry(ProjectRepository(sessions))
-    root = Path.cwd().resolve()
-    project = next((p for p in projects.list_projects() if p.root_path == root), None)
-    if project is None:
-        project = projects.register_project("AgentForge", root)
-    ProjectIndex(projects, IndexRepository(sessions)).refresh_index(project.id)
-    print(project.id)
-finally:
-    engine.dispose()
+```sh
+agentforge project index <PROJECT_UUID> --database-url sqlite:///agentforge.db
 ```
+
+Validate setup before starting a service:
+
+```sh
+agentforge db status --database-url sqlite:///agentforge.db
+agentforge worker config-check --workers workers.local.toml
+agentforge worker list --workers workers.local.toml
+agentforge agent list
+```
+
+For an explicit bounded Ollama model-availability check, run
+`agentforge worker check local-4080 --workers workers.local.toml`.
+OpenAI-compatible connections report `not_probed`; their current contract cannot
+verify generic backend/model availability. Config validation and listing perform
+no network probes. See `agentforge --help` and the
+[operator command guide](docs/operator-cli.md) for administration and exit codes.
+The installed wheel includes the CLI, migrations and web assets; it does not need
+the source checkout. To create Worker configuration without the example files,
+save the minimal TOML shown above to `workers.local.toml` and edit it.
 
 Configure your MCP client to launch:
 
 ```sh
-python -m agentforge.mcp.server --database-url sqlite:///agentforge.db --workers workers.local.toml
+agentforge mcp --database-url sqlite:///agentforge.db --workers workers.local.toml
 ```
 
 Use absolute interpreter/config/database paths in client settings; relative paths
@@ -162,7 +165,7 @@ call `cancel_task`. For independent opinions, use `delegate_council` with explic
 To view the dashboard, stop the MCP executor first and run:
 
 ```sh
-python -m agentforge.web.server --database-url sqlite:///agentforge.db --workers workers.local.toml
+agentforge web --database-url sqlite:///agentforge.db --workers workers.local.toml
 ```
 
 Open `http://127.0.0.1:8765` for Projects, Workers, Task/Council history, telemetry,
@@ -174,8 +177,12 @@ The shipped CLI does not host MCP and dashboard together.
 For coding, create a private workspace parent **outside registered repositories**
 and edit [coding.example.toml](config/coding.example.toml) with absolute real Git
 and validator executables. Add `--coding config/coding.local.toml` to the chosen
-server command, then discover/select `coder`. Validators are optional and must be
-installed/configured by the operator. See [coding](docs/coding.md) for portable
+server command, then discover/select `coder`. Before startup, run
+`agentforge coding show --coding config/coding.local.toml` and
+`agentforge coding check --coding config/coding.local.toml --database-url sqlite:///agentforge.db`.
+These inspect configuration and host access without running validators. Validators
+are optional and must be installed/configured by the operator. See
+[coding](docs/coding.md) for portable
 paths, write preconditions, validation trust, diffs and cleanup. Export/review
 uncommitted changes before `cleanup_coding_workspace` discards them; retaining the
 branch does not retain the worktree's uncommitted edits.
@@ -219,6 +226,7 @@ for explicit review/recovery.
 
 ## Documentation and development
 
+- [Operator setup and administration](docs/operator-cli.md)
 - [Architecture and ownership](docs/architecture.md)
 - [Projects, Python Index and read-only tools](docs/repository.md)
 - [Tasks, lifecycle and telemetry definitions](docs/tasks.md)

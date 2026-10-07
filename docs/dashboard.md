@@ -2,11 +2,11 @@
 
 Install Python 3.12+ and the package, configure Workers using the existing TOML
 format, and migrate the explicitly selected database with
-`python -m agentforge.db.migrate --database-url sqlite:///agentforge.db`
+`agentforge db upgrade --database-url sqlite:///agentforge.db`
 (see [MCP setup](mcp.md) for database configuration). Then run:
 
 ```sh
-python -m agentforge.web.server --database-url sqlite:///agentforge.db --workers workers.local.toml
+agentforge web --database-url sqlite:///agentforge.db --workers workers.local.toml
 ```
 
 Open `http://127.0.0.1:8765`. The defaults bind **127.0.0.1**, port **8765**, with
@@ -15,10 +15,14 @@ one executor slot. `--concurrency 1..32` controls the existing TaskEngine;
 there is no automatic database migration, Project discovery, Worker health probe,
 or model/endpoint selection. No Node/npm build or network asset fetch is needed.
 
-The module command works on native Windows with the same Python dependencies.
+The operator CLI and retained module entrypoint work on native Windows with the same Python dependencies.
 No POSIX signal, `/proc`, Unix socket or native Windows integration service is
 required by the dashboard. Repository execution still uses the shared native
 Windows NTFS or POSIX security backend and its documented platform limitations.
+
+Project administration stays in the [operator CLI](operator-cli.md). Stop the
+executor before registration/removal, Index refresh or database upgrades.
+No new dashboard configuration forms or destructive actions are introduced.
 
 ## Pages and operations
 
@@ -135,7 +139,7 @@ access logging is disabled; generic third-party diagnostics are filtered.
 To bind intentionally to a LAN address:
 
 ```sh
-python -m agentforge.web.server --database-url sqlite:///agentforge.db --workers workers.local.toml --host 192.168.50.2 --port 8765
+agentforge web --database-url sqlite:///agentforge.db --workers workers.local.toml --host 192.168.50.2 --port 8765
 ```
 
 The CLI warns that there is **no authentication layer**. Protect access with a

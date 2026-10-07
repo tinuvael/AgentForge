@@ -103,13 +103,18 @@ itself is offline and creates only temporary synthetic storage. It checks:
 
 - All production module imports resolve under the clean venv.
 - Migration scripts/template and dashboard templates, CSS, JS, HTMX/license data.
-- `--help` for packaged migration, MCP and dashboard module entrypoints.
+- Console-script metadata and `--help` for the operator CLI and retained modules.
+- Installed operator setup, Project lifecycle, read-only DB status, Worker/Agent
+  config inspection, examples and confirmed deregistration.
 - The installed migration command creates the initial schema and upgrades twice.
 - Actual SDK in-memory MCP discovery, scripted Task execution and telemetry.
-- Installed MCP module startup/discovery/status over real stdio, without inference.
+- Installed MCP console script and module startup/discovery/status over real
+  stdio, without inference.
 - Real ASGI dashboard lifespan, pages/static resources and clean shutdown.
 
-There are no console-script aliases; supported commands are `python -m` modules.
+The wheel declares `agentforge = agentforge.cli:main`; `python -m agentforge`
+is an equivalent operator entrypoint. Original migration, MCP and dashboard
+module commands remain supported.
 The dashboard's direct Starlette imports are declared explicitly; other runtime
 dependencies are used by production modules. Build tooling belongs in the dev
 extra. Jinja2 and HTMX assets are vendored package data, without a Node build.
