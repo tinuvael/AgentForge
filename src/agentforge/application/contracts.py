@@ -4,9 +4,17 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StringConstraints,
+    field_validator,
+)
 
 from agentforge.agents.models import RuntimeLimits
+from agentforge.councils.models import MAX_PARTICIPANTS, CouncilHistoryItem
 from agentforge.tasks.models import TaskReason, TaskState
 
 Identifier = Annotated[
@@ -22,6 +30,8 @@ ErrorCode = Literal[
     "agent_not_found",
     "invalid_execution_binding",
     "task_not_found",
+    "invalid_council",
+    "council_not_found",
     "storage_unavailable",
     "service_unavailable",
     "internal_error",
@@ -52,6 +62,31 @@ class TaskArguments(Contract):
     task_id: UUID
 
 
+class DelegateCouncilArguments(Contract):
+    project_id: UUID
+    agent_id: Identifier
+    task: RequestText
+    worker_ids: tuple[Identifier, ...] = Field(
+        min_length=2, max_length=MAX_PARTICIPANTS
+    )
+
+    @field_validator("worker_ids")
+    @classmethod
+    def distinct_workers(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("Worker IDs must be distinct")
+        return value
+
+
+class CouncilArguments(Contract):
+    council_id: UUID
+
+
+class CouncilsPage(Contract):
+    councils: tuple[CouncilHistoryItem, ...] = Field(max_length=100)
+    next_offset: int | None
+
+
 class SafeError(Contract):
     code: ErrorCode
     message: str
@@ -75,6 +110,8 @@ class Capabilities(Contract):
     agent_discovery_tool: Literal["list_agents"] = "list_agents"
     worker_discovery_tool: Literal["list_workers"] = "list_workers"
     task_operations: tuple[str, ...]
+    council_operations: tuple[str, ...]
+    council_max_participants: Literal[16] = MAX_PARTICIPANTS
     repository_access: Literal["central_host_agent_allowlisted_read_only"]
     telemetry: Literal["terminal_task_status_only; metrics_via_python_service"]
     limitations: tuple[str, ...]

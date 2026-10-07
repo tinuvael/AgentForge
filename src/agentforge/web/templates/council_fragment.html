@@ -1,0 +1,23 @@
+{% from "macros.html" import badge %}{% set council = detail.council %}
+<section id="council-detail" data-council-id="{{ council.council_id }}" data-state="{{ 'completed' if council.terminal else 'running' }}" aria-label="Council snapshot">
+  <h2><code>{{ council.council_id }}</code></h2>
+  <p id="live-status" role="status" aria-live="polite">{% if council.terminal %}Terminal snapshot{% else %}Connecting live updates…{% endif %}</p>
+  <dl class="facts"><dt>Project</dt><dd>{{ council.project_id }}</dd><dt>Agent</dt><dd>{{ council.agent_id }}</dd><dt>Created (UTC)</dt><dd>{{ council.created_at }}</dd><dt>Participants</dt><dd>{{ council.participants|length }}</dd><dt>Terminal</dt><dd>{{ 'yes' if council.terminal else 'no' }}</dd></dl>
+  <p>{% for state, count in council.participant_counts.items() %}{{ state }}: {{ count }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <p>Every participant executes independently. The external Director evaluates the results.</p>
+  {% if not council.terminal %}
+  <form method="post" action="/councils/{{ council.council_id }}/cancel" class="cancel" hx-post="/councils/{{ council.council_id }}/cancel" hx-target="#council-detail" hx-swap="outerHTML">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> I confirm cancellation of remaining participants.</label>
+    <button type="submit">Cancel remaining participants</button>
+    <p>Queued participants will not execute. Running cancellation is cooperative; remote inference may continue.</p>
+  </form>{% endif %}
+  <h2>Request</h2><pre>{{ detail.request }}</pre>
+  {% for p in council.participants %}{% set index = loop.index0 %}{% set t = detail.telemetry[index] %}
+  <article><h2>Participant {{ loop.index }} · {{ p.worker_id }}</h2>{{ badge(p.state) }}
+    <dl class="facts"><dt>Task</dt><dd><a href="/tasks/{{ p.task_id }}"><code>{{ p.task_id }}</code></a></dd><dt>Provider / model</dt><dd>{{ p.provider|known }} / {{ p.model|known }}</dd><dt>Termination / error</dt><dd>{{ p.reason|known }} / {{ p.error_code|known }}</dd><dt>Cancellation requested (UTC)</dt><dd>{{ p.cancellation_requested_at|known }}</dd><dt>Telemetry coverage</dt><dd>{{ p.telemetry_status }}</dd></dl>
+    {% if t %}<dl class="facts metrics"><dt>Execution runtime</dt><dd>{{ t.execution_duration_seconds|seconds }}</dd><dt>Prompt tokens</dt><dd>{{ t.prompt_tokens|known }}</dd><dt>Completion tokens</dt><dd>{{ t.completion_tokens|known }}</dd><dt>Token accounting</dt><dd>{{ 'complete' if t.token_usage_complete else 'partial / incomplete' }}</dd><dt>Observed prompt tokens / covered turns</dt><dd>{{ t.observed_prompt_tokens|known }} / {{ t.prompt_observed_turns }} of {{ t.model_call_count|known }}</dd><dt>Observed completion tokens / covered turns</dt><dd>{{ t.observed_completion_tokens|known }} / {{ t.completion_observed_turns }} of {{ t.model_call_count|known }}</dd><dt>Observed throughput (tokens/s)</dt><dd>{{ t.tokens_per_second|known }}</dd></dl>{% endif %}
+    <h3>Final answer</h3><pre>{{ detail.answers[index] if detail.answers[index] is not none else 'No final answer.' }}</pre>
+  </article>{% endfor %}
+  {% if detail.text_truncated %}<p>Long request/result text truncated for display.</p>{% endif %}
+</section>

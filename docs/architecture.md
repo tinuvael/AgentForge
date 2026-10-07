@@ -14,7 +14,8 @@ Phase 07 adds terminal Task telemetry, normalized backend timing observations an
 transport-independent comparison queries. Phase 08 adds the typed MCP stdio
 adapter and shared application composition/lifecycle. Issue #23 adds a native
 Windows NTFS security backend for central repository/Index execution. Phase 09
-adds the local Jinja2/HTMX dashboard and bounded live metadata observation.
+adds the local Jinja2/HTMX dashboard and bounded live metadata observation. Phase 10
+adds durable independent Councils on explicitly selected Workers.
 General API endpoints remain **planned**.
 
 AgentForge is a generic agent execution/runtime platform. It supplies projects,
@@ -92,7 +93,8 @@ models, or arbitrary OpenAI-compatible endpoints.
 
 `tests/` holds pytest tests; `docs/` holds durable architecture documentation.
 Packages other than `core/`, `providers/`, `workers/`, `projects/`, `index/`,
-`tools/`, `agents/`, `tasks/`, `telemetry/`, `application/`, `mcp/`, `web/` and `db/`
+`tools/`, `agents/`, `tasks/`, `councils/`, `telemetry/`, `application/`, `mcp/`,
+`web/` and `db/`
 remain placeholders. Alembic configuration and revision scripts live in `alembic.ini` and `migrations/` at the
 repository root.
 
@@ -941,7 +943,8 @@ Project filesystem access. Their endpoints need not be localhost.
 `mcp.server` uses the official Python MCP SDK's low-level Server, Pydantic-generated
 tool schemas, lifespan and stdio transport (tested with SDK 1.30.0). It exposes
 exactly `agentforge_status`, `describe_capabilities`, `list_projects`, `list_workers`,
-`list_agents`, `delegate_task`, `get_task`, `cancel_task`. Explicit Project/Agent/
+`list_agents`, `delegate_task`, `get_task`, `cancel_task`, `delegate_council`,
+`get_council`, `cancel_council`. Explicit Project/Agent/
 Worker/request bindings are required; delegate submits through TaskEngine and
 returns a durable queued snapshot without waiting for inference. Task get/cancel
 reuse durable Phase 06 operations and recovery/cancellation semantics. There is
@@ -968,8 +971,8 @@ Stdio is for a trusted local director, uses SDK UTF-8 handling on Windows, and k
 application diagnostics on stderr. Repository tools and Index support native
 Windows local NTFS handles as well as the existing POSIX backend. The same central
 Project boundary remains authoritative; Workers remain inference-only endpoints.
-No HTTP/SSE, remote authentication, second Provider, routing, Council or dashboard
-infrastructure is added.
+Phase 08 introduced no HTTP/SSE, remote authentication, second Provider or routing.
+Phases 09–10 add the dashboard and Councils as described below.
 
 See [MCP setup and contracts](mcp.md) for full schemas, error mapping, asynchronous
 flow, central/remote Worker architecture, platform restrictions, and the optional
@@ -1040,12 +1043,36 @@ Worker health, live Git probes, authentication, task submission UI, event broker
 or persistent browser sessions. Native Windows needs no new POSIX lifecycle
 dependencies; existing Windows/POSIX repository security backends are unchanged.
 
-### Council
+### Council (Phase 10)
 
-Council is a future application operation: the director explicitly selects several
-workers, each executes the same problem independently, and all results are returned
-with worker identity and execution evidence. AgentForge does not rank answers,
-seek consensus or choose a winner. No Council implementation is part of Phase 01.
+`Application.councils` exposes a shared `CouncilService` for submission, consistent
+snapshots, bounded history and cancellation. Councils are durable groups of ordinary
+Tasks for the same request on 2–16 distinct explicitly supplied Workers. The external
+Director remains the orchestrator and judge; participants share no answers/context.
+
+Migration `0007_councils` adds small Council metadata and ordered membership tables.
+Task state, result, configured target and telemetry remain authoritative in existing
+Task/telemetry tables. Project deregistration preserves historical IDs; membership
+FKs cannot cascade-delete Tasks. Complete request/binding validation precedes one
+transaction inserting all queued Tasks, Council and membership. Only successful
+commit wakes the existing bounded executor; no session spans inference.
+
+Snapshots expose ordered participant states, completed answers, safe outcomes and
+per-Task telemetry coverage. Terminal means all participants are terminal, including
+mixed completed/failed/cancelled outcomes; no success, consensus or winner is inferred.
+Cancellation uses normal TaskEngine queued/cooperative-running semantics, is safe to
+repeat and preserves terminal participants. Restart uses ordinary interrupted-running
+recovery and persistent queued Tasks without replay or replacement.
+
+MCP adds `delegate_council`, `get_council`, `cancel_council`, with prompt durable
+submission and explicit `worker_ids`. Request text remains absent from MCP snapshots,
+consistent with Task contracts; reasoning/trace/source/Provider diagnostics/secrets
+are omitted. The dashboard adds Council history/detail, per-participant telemetry,
+confirmed CSRF-protected cancellation and links to ordinary Task detail. Council SSE
+uses one existing bounded TaskObserver queue subscribed to participant IDs; individual
+terminal notices refresh until all participants are terminal. No second event or
+execution engine is introduced. See [Council contracts, persistence, bounds,
+privacy and non-goals](councils.md).
 
 ## Dependency direction and extension points
 

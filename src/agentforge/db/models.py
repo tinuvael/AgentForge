@@ -198,3 +198,33 @@ class TaskTelemetryRecord(Base):
     tool_call_count: Mapped[int | None] = mapped_column(Integer)
     total_tool_duration_seconds: Mapped[float | None] = mapped_column(Float)
     tool_output_bytes: Mapped[int | None] = mapped_column(Integer)
+
+
+class CouncilRecord(Base):
+    __tablename__ = "councils"
+    __table_args__ = (Index("ix_councils_created", "created_at", "council_id"),)
+
+    council_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    # Like Tasks, history survives Project deregistration.
+    project_id: Mapped[UUID] = mapped_column(Uuid)
+    agent_id: Mapped[str] = mapped_column(String(100))
+    request: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CouncilParticipantRecord(Base):
+    __tablename__ = "council_participants"
+    __table_args__ = (
+        UniqueConstraint("council_id", "worker_id", name="uq_council_worker"),
+        UniqueConstraint("task_id", name="uq_council_task"),
+        CheckConstraint("ordinal >= 0 AND ordinal < 16", name="ck_council_ordinal"),
+    )
+
+    council_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("councils.council_id"), primary_key=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # RESTRICT/NO ACTION: deleting membership never deletes Tasks, and a referenced
+    # Task cannot disappear leaving an accidental incomplete historical Council.
+    task_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tasks.task_id"))
+    worker_id: Mapped[str] = mapped_column(Text)

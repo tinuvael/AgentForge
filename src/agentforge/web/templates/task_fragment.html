@@ -4,6 +4,7 @@
     {% if task.cancellation_requested_at and task.state == 'running' %}<span class="badge">cancellation requested</span>{% endif %}
   </div>
   <p id="live-status" role="status" aria-live="polite">{% if task.state in ['queued','running'] %}Connecting live updates…{% else %}Terminal snapshot{% endif %}</p>
+  {% if council_id %}<p>Council: <a href="/councils/{{ council_id }}"><code>{{ council_id }}</code></a></p>{% endif %}
   <dl class="facts">
     <dt>Project</dt><dd>{{ detail.project_name|known }} · <code>{{ task.project_id }}</code></dd>
     <dt>Agent / Worker</dt><dd>{{ task.agent_id }} / {{ task.worker_id }}</dd>

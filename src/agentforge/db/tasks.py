@@ -12,7 +12,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from agentforge.agents.models import ExecutionObservations, ExecutionResult, TraceEvent
-from agentforge.db.models import ProjectRecord, TaskRecord, TaskTelemetryRecord
+from agentforge.councils.models import Council
+from agentforge.db.models import (
+    CouncilParticipantRecord,
+    CouncilRecord,
+    ProjectRecord,
+    TaskRecord,
+    TaskTelemetryRecord,
+)
 from agentforge.db.telemetry import record_checkpoint
 from agentforge.tasks.models import (
     Task,
@@ -98,6 +105,30 @@ class TaskRepository:
         )
         return _task(record) if record else None
 
+    @staticmethod
+    def _queued_record(
+        *,
+        project_id: UUID,
+        agent_id: str,
+        worker_id: str,
+        request: str,
+        provider: str | None = None,
+        model: str | None = None,
+        now: datetime,
+    ) -> TaskRecord:
+        return TaskRecord(
+            task_id=uuid4(),
+            project_id=project_id,
+            agent_id=agent_id,
+            worker_id=worker_id,
+            request=request,
+            state="queued",
+            created_at=now,
+            updated_at=now,
+            provider=provider,
+            model=model,
+        )
+
     def add(
         self,
         *,
@@ -108,23 +139,82 @@ class TaskRepository:
         provider: str | None = None,
         model: str | None = None,
     ) -> Task:
-        now = datetime.now(UTC)
         with self._session() as session:
-            record = TaskRecord(
-                task_id=uuid4(),
+            record = self._queued_record(
+                now=datetime.now(UTC),
                 project_id=project_id,
                 agent_id=agent_id,
                 worker_id=worker_id,
                 request=request,
-                state="queued",
-                created_at=now,
-                updated_at=now,
                 provider=provider,
                 model=model,
             )
             session.add(record)
+            session.flush()
+            task = _task(record)
             session.commit()
-            return _task(record)
+            return task
+
+    def add_council(
+        self,
+        *,
+        project_id: UUID,
+        agent_id: str,
+        request: str,
+        targets: tuple[tuple[str, str | None, str | None], ...],
+    ) -> tuple[Council, tuple[Task, ...]]:
+        """All bindings must be validated before entry. One short transaction.
+
+        Flush/snapshot/commit failure rolls back Council, membership and Tasks;
+        nothing wakes the executor until this operation returns successfully.
+        """
+        now = datetime.now(UTC)
+        council = Council(
+            council_id=uuid4(),
+            project_id=project_id,
+            agent_id=agent_id,
+            request=request,
+            created_at=now,
+        )
+        with self._session() as session:
+            session.add(CouncilRecord(**council.model_dump()))
+            records = [
+                self._queued_record(
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    request=request,
+                    worker_id=worker,
+                    provider=provider,
+                    model=model,
+                    now=now,
+                )
+                for worker, provider, model in targets
+            ]
+            session.add_all(records)
+            # Explicit flush makes parent FK ordering independent of ORM relationships.
+            session.flush()
+            session.add_all(
+                [
+                    CouncilParticipantRecord(
+                        council_id=council.council_id,
+                        task_id=record.task_id,
+                        worker_id=record.worker_id,
+                        ordinal=ordinal,
+                    )
+                    for ordinal, record in enumerate(records)
+                ]
+            )
+            session.flush()
+            tasks = tuple(_task(record) for record in records)
+            try:
+                session.commit()
+            except SQLAlchemyError:
+                # A failed commit can deactivate SQLAlchemy's transaction before
+                # the DBAPI transaction has rolled back. Discard that connection
+                # rather than letting a later pooled checkout commit pending rows.
+                session.invalidate()
+                raise
+            return council, tasks
 
     def get(self, task_id: UUID) -> Task:
         with self._session() as session:

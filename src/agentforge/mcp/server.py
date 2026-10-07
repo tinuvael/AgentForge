@@ -18,7 +18,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from agentforge.application.contracts import (
     AgentsPage,
     Capabilities,
+    CouncilArguments,
     DelegateArguments,
+    DelegateCouncilArguments,
     NoArguments,
     PageArguments,
     ProjectsPage,
@@ -29,6 +31,7 @@ from agentforge.application.contracts import (
     WorkersPage,
 )
 from agentforge.application.service import Application, ServiceError
+from agentforge.councils.models import CouncilNotFound, CouncilSnapshot, InvalidCouncil
 from agentforge.projects.errors import ProjectNotFound, ProjectStorageError
 from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidationError
 
@@ -41,6 +44,8 @@ _MESSAGES = {
         "Check the Agent tools and selected Worker/Provider configuration."
     ),
     "task_not_found": "No durable Task exists for this task_id.",
+    "council_not_found": "No durable Council exists for this council_id.",
+    "invalid_council": "Supply a valid request and 2 to 16 distinct Worker IDs.",
     "storage_unavailable": (
         "Storage is unavailable; check database configuration and migrations."
     ),
@@ -58,6 +63,10 @@ def safe_error(error: Exception) -> SafeError:
         code = "project_not_found"
     elif isinstance(error, TaskNotFound):
         code = "task_not_found"
+    elif isinstance(error, CouncilNotFound):
+        code = "council_not_found"
+    elif isinstance(error, InvalidCouncil):
+        code = "invalid_council"
     elif isinstance(error, (ProjectStorageError, TaskStorageError, SQLAlchemyError)):
         code = "storage_unavailable"
     elif isinstance(error, TaskValidationError):
@@ -78,6 +87,32 @@ class ToolContract:
 
 
 TOOL_CONTRACTS = (
+    ToolContract(
+        "delegate_council",
+        "delegate_council",
+        "Durably submit the same request independently on 2 to 16 explicitly selected "
+        "Workers; returns promptly, without judging or sharing answers.",
+        DelegateCouncilArguments,
+        CouncilSnapshot,
+        False,
+    ),
+    ToolContract(
+        "get_council",
+        "get_council",
+        "Ordered participant states and completed answers; terminal means all Tasks "
+        "are terminal, including mixed outcomes. No request text, trace or reasoning.",
+        CouncilArguments,
+        CouncilSnapshot,
+    ),
+    ToolContract(
+        "cancel_council",
+        "cancel_council",
+        "Cancel remaining participants via queued/cooperative Task cancellation; "
+        "terminal participants remain unchanged. Safe to repeat.",
+        CouncilArguments,
+        CouncilSnapshot,
+        False,
+    ),
     ToolContract(
         "agentforge_status",
         "status",
@@ -175,7 +210,8 @@ def create_server(application_factory: Callable[[], Application]) -> Server:
         lifespan=lifespan,
         instructions=(
             "The director explicitly selects Project, Agent and "
-            "Worker. Delegate submits; poll get_task or cancel_task."
+            "Worker(s). Delegate submits; poll get_task/get_council or cancel. "
+            "Council participants are independent; the external director judges."
         ),
     )
     contracts = {tool.name: tool for tool in TOOL_CONTRACTS}
@@ -191,8 +227,8 @@ def create_server(application_factory: Callable[[], Application]) -> Server:
                 annotations=types.ToolAnnotations(
                     readOnlyHint=t.read_only,
                     destructiveHint=False,
-                    idempotentHint=t.name != "delegate_task",
-                    openWorldHint=t.name == "delegate_task",
+                    idempotentHint=t.name not in {"delegate_task", "delegate_council"},
+                    openWorldHint=t.name in {"delegate_task", "delegate_council"},
                 ),
             )
             for t in TOOL_CONTRACTS

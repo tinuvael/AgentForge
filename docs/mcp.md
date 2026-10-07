@@ -4,7 +4,8 @@ AgentForge is the execution/control plane. A trusted local MCP director (Codex,
 ChatGPT/Astra, Claude, or another MCP client) chooses **Project, Agent, Worker and
 request explicitly**. AgentForge validates that binding and submits a durable
 Task. The director evaluates results and decides when to poll, cancel, or explicitly
-submit another Task. There is no routing, Worker ranking, fallback, judging or Council.
+submit another Task or an independent Council. There is no routing, Worker ranking,
+fallback or judging. Phase 10 Councils require 2–16 explicit participants.
 
 ## Installation and startup
 
@@ -109,7 +110,8 @@ there is no remote listener, authentication platform, or remote exposure contrac
 ## Public typed tool contracts
 
 The SDK `tools/list` response provides JSON Schema for every input and output,
-generated from explicit Pydantic models in `application/contracts.py`.
+generated from explicit Pydantic models in `application/contracts.py` and
+`councils/models.py`.
 Unknown arguments are rejected. UUIDs are JSON strings with `format: uuid`.
 IDs are strict nonempty strings of at most 100 characters. Requests are strict
 nonblank strings of at most 32,768 characters.
@@ -117,13 +119,16 @@ nonblank strings of at most 32,768 characters.
 | Tool | Input object | Successful output |
 | --- | --- | --- |
 | agentforge_status | `{}` | `Status`: availability, version, database availability, TaskEngine availability, registered Project/configured Worker/Agent counts, queued/running Task counts |
-| describe_capabilities | `{}` | `Capabilities`: responsibility, explicit selection rule, Agent/Worker discovery tool names, Task operation names, read-only central repository boundary, telemetry availability, fixed limitations |
+| describe_capabilities | `{}` | `Capabilities`: responsibility, explicit selection rule, Agent/Worker discovery tool names, Task/Council operation names, Council participant maximum, read-only central repository boundary, telemetry availability, fixed limitations |
 | list_projects | `{limit?: integer=100, offset?: integer=0}` | `ProjectsPage`: `projects` and nullable `next_offset` |
 | list_workers | `{limit?: integer=100, offset?: integer=0}` | `WorkersPage`: `workers` and nullable `next_offset` |
 | list_agents | `{limit?: integer=100, offset?: integer=0}` | `AgentsPage`: `agents` and nullable `next_offset` |
 | delegate_task | `{project_id: UUID, agent_id: string, worker_id: string, task: string}`; **all required** | `TaskSnapshot`: durable queued identity/snapshot; does not wait for inference |
 | get_task | `{task_id: UUID}` | `TaskSnapshot`: persisted current state and completed answer |
 | cancel_task | `{task_id: UUID}` | `TaskSnapshot`: resulting persisted state/cancellation request |
+| delegate_council | `{project_id: UUID, agent_id: string, task: string, worker_ids: string[]}`; **all required**, 2–16 distinct Workers | `CouncilSnapshot`: durable identity and ordered queued participants; returns promptly |
+| get_council | `{council_id: UUID}` | `CouncilSnapshot`: current participant outcomes/answers, state counts and terminal flag |
+| cancel_council | `{council_id: UUID}` | `CouncilSnapshot`: cancel remaining participants through ordinary Task semantics |
 
 Page limits are 1–100; offsets are 0–1,000,000. Fetch `next_offset` until null.
 Projects order by creation time/UUID; Workers and Agents order by ID, without
@@ -266,7 +271,7 @@ LAN/VPN, or cloud destinations. Neither MCP nor generic application logic assume
 localhost or reads Ollama-specific response fields. Only the existing concrete
 Ollama Provider handles that protocol; other protocols still require future adapters.
 
-The public surface is exactly these eight tools. There are no generic file-read,
+The public surface is exactly these eleven tools. There are no generic file-read,
 shell, arbitrary Git, SQL, environment, direct Provider HTTP, or registration tools.
 The director delegates to an Agent whose allowlisted tools are enforced by
 AgentRuntime with server-side Project binding. Registered-root containment,
@@ -315,3 +320,11 @@ Allow the configured inference timeout and RuntimeLimits to cover your request.
 The director decides whether a result warrants another Worker; the server never
 substitutes one. A cloud protocol other than Ollama is discoverable as configuration
 but cannot execute until a matching Provider adapter exists.
+
+## Councils (Phase 10)
+
+See [Council operations](councils.md) for durable independent execution on 2–16
+explicit Workers, ordered per-participant results, partial failures and cancellation.
+MCP adds `delegate_council`, `get_council`, `cancel_council`. The dashboard navigation
+adds Council history/detail with Task links and live refresh using the same bounded
+TaskObserver. The external Director remains the judge; telemetry stays per Task.

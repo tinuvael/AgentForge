@@ -29,7 +29,7 @@ to consult another worker. AgentForge does not intelligently route tasks in v1.
   `code_reviewer`, `test_triage` or `general`.
 - **Project:** a registered external repository/workspace on which tasks operate.
 - **Task:** a durable execution request binding a project, agent, worker and request.
-- **Council (future):** independent runs on explicitly selected workers, returning
+- **Council:** independent runs on explicitly selected workers, returning
   all results to the director without AgentForge judging the answers.
 
 ## Architectural boundaries

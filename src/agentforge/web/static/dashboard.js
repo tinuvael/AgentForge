@@ -2,6 +2,8 @@
 (() => {
   let source = null;
   let taskId = null;
+  let resource = "tasks";
+  let target = "#task-detail";
   let timer = null;
   let loading = false;
   let dirty = false;
@@ -21,8 +23,8 @@
       loading = true;
       const current = generation;
       try {
-        await htmx.ajax('GET', `/tasks/${taskId}/fragment`, {
-          target: '#task-detail', swap: 'outerHTML'
+        await htmx.ajax('GET', `/${resource}/${taskId}/fragment`, {
+          target: target, swap: 'outerHTML'
         });
       } catch (_) {
         status('Snapshot refresh unavailable; reload to reconnect.');
@@ -33,10 +35,12 @@
     }, 200);
   };
   const connect = () => {
-    const node = document.getElementById('task-detail');
+    const node = document.getElementById('task-detail') || document.getElementById('council-detail');
     if (!node) return;
     const active = ['queued', 'running'].includes(node.dataset.state);
-    const id = node.dataset.taskId;
+    const id = node.dataset.taskId || node.dataset.councilId;
+    resource = node.dataset.councilId ? "councils" : "tasks";
+    target = node.dataset.councilId ? "#council-detail" : "#task-detail";
     if (!active) {
       if (source) source.close();
       source = null;
@@ -53,7 +57,7 @@
     taskId = id;
     generation += 1;
     stopped = false;
-    source = new EventSource(`/tasks/${id}/events`);
+    source = new EventSource(`/${resource}/${id}/events`);
     source.onopen = () => status('Live updates connected');
     source.onerror = () => status('Live updates interrupted; reconnecting…');
     ['refresh', 'resync'].forEach((kind) => source.addEventListener(kind, refresh));

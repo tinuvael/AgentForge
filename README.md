@@ -7,7 +7,10 @@ in v1.
 
 Phase 02 adds validated Workers and an async Ollama Provider with health checks,
 generation and streaming. Phase 08 adds a local stdio MCP server; Phase 09 adds
-a local operator dashboard. Worker selection is always explicit;
+a local operator dashboard. Phase 10 adds durable independent Councils with
+2–16 explicitly selected Workers and per-participant outcomes. The external Director
+judges the answers; see [Council usage and limits](docs/councils.md).
+Worker selection is always explicit;
 configuration starts with
 [the TOML example](config/workers.example.toml).
 See [the architecture](docs/architecture.md) and [coding instructions](AGENTS.md).
@@ -31,7 +34,8 @@ routing or recommending Workers. See
 [Task telemetry](docs/architecture.md#task-telemetry-phase-07) for exact metric
 definitions, coverage rules and failure semantics. Upgrade with `alembic upgrade head`.
 
-Phase 08 exposes eight typed MCP tools for discovery and asynchronous delegation:
+Phases 08 and 10 expose eleven typed MCP tools for discovery, Task delegation and
+independent Councils:
 `agentforge_status`, `describe_capabilities`, `list_projects`, `list_workers`,
 `list_agents`, `delegate_task`, `get_task`, `cancel_task`. Start with an explicitly
 configured migrated database and Worker file:

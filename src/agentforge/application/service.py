@@ -12,7 +12,6 @@ from agentforge.application.contracts import (
     AgentInfo,
     AgentsPage,
     Capabilities,
-    ErrorCode,
     ExecutionSummary,
     ProjectInfo,
     ProjectsPage,
@@ -21,8 +20,11 @@ from agentforge.application.contracts import (
     WorkerInfo,
     WorkersPage,
 )
+from agentforge.application.councils import CouncilService
 from agentforge.application.dashboard import DashboardQueries
+from agentforge.application.errors import ServiceError
 from agentforge.core.inference import Provider
+from agentforge.db.councils import CouncilRepository
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
 from agentforge.db.projects import ProjectRepository
@@ -36,12 +38,6 @@ from agentforge.tasks.models import Task
 from agentforge.telemetry.service import TelemetryService
 from agentforge.tools.service import RepositoryTools
 from agentforge.workers.config import WorkersConfig, load_workers
-
-
-class ServiceError(Exception):
-    def __init__(self, code: ErrorCode):
-        self.code = code
-        super().__init__(code)
 
 
 def snapshot(task: Task) -> TaskSnapshot:
@@ -120,6 +116,14 @@ class Application:
         )
         task_repository = TaskRepository(sessions)
         self.tasks = TaskEngine(task_repository, runtime, concurrency=concurrency)
+        self.councils = CouncilService(
+            CouncilRepository(sessions),
+            self.tasks,
+            self.projects,
+            self._agents,
+            self._workers,
+            self.telemetry,
+        )
         self.dashboard = DashboardQueries(self.projects, self.tasks, self.telemetry)
         self._started = False
         self._closed = False
@@ -177,10 +181,11 @@ class Application:
             ),
             worker_selection="explicit_project_agent_worker_required",
             task_operations=("delegate_task", "get_task", "cancel_task"),
+            council_operations=("delegate_council", "get_council", "cancel_council"),
             repository_access="central_host_agent_allowlisted_read_only",
             telemetry="terminal_task_status_only; metrics_via_python_service",
             limitations=(
-                "No routing, ranking, fallback, judging or Council.",
+                "No routing, ranking, fallback, judging or answer sharing.",
                 "Worker capabilities are configuration, not observed availability.",
                 "Delegation submits asynchronously; the director polls or cancels.",
                 "Repository tools require POSIX descriptors or native Windows "
@@ -249,3 +254,12 @@ class Application:
 
     def cancel_task(self, *, task_id: UUID) -> TaskSnapshot:
         return snapshot(self.tasks.cancel_task(task_id))
+
+    def delegate_council(self, **arguments):
+        return self.councils.submit(**arguments)
+
+    def get_council(self, *, council_id: UUID):
+        return self.councils.get(council_id)
+
+    def cancel_council(self, *, council_id: UUID):
+        return self.councils.cancel(council_id)
