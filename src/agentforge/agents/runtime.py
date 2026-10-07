@@ -144,7 +144,7 @@ class AgentRuntime:
         deadline = started + policy.timeout_seconds
 
         def event(kind, **values):
-            trace.append(TraceEvent(step=step, kind=kind, **values))
+            observations.record_trace(TraceEvent(step=step, kind=kind, **values))
 
         def check():
             if cancellation.cancelled:

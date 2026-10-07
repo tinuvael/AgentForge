@@ -1,1 +1,1 @@
-"""Planned Jinja2 and HTMX monitoring interface."""
+"""Local operator dashboard adapter for the shared Application."""

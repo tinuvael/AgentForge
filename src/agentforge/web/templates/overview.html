@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% from "macros.html" import history %}
+{% block title %}Overview · AgentForge{% endblock %}
+{% block content %}
+<h1>Overview</h1><p>Version {{ status.version }} · TaskEngine {{ 'available' if status.task_engine_available else 'unavailable' }} · database queried successfully</p>
+<section class="stats" aria-label="Current counts">
+  <article><span>Projects</span><strong>{{ status.project_count }}</strong></article>
+  <article><span>Configured Workers</span><strong>{{ status.worker_count }}</strong></article>
+  <article><span>Configured Agents</span><strong>{{ status.agent_count }}</strong></article>
+  {% for state in ['queued','running','completed','failed','cancelled'] %}<article><span>{{ state }}</span><strong>{{ counts.get(state, 0) }}</strong></article>{% endfor %}
+</section>
+<h2>Recent Tasks</h2><p>Latest 10 submissions. State counts above cover durable history.</p>{{ history(tasks) }}
+<h2>Observed telemetry by Worker</h2><p>Up to 20 Worker groups in identifier order, over terminal telemetry records. Unknown metrics are —. Observed tokens can be partial.</p>
+<div class="scroll"><table><thead><tr><th scope="col">Worker</th><th scope="col">Observed Tasks / outcomes</th><th scope="col">Average execution runtime / coverage</th><th scope="col">Observed prompt / completion tokens</th><th scope="col">Complete token accounting</th><th scope="col">Observed throughput / coverage</th></tr></thead>
+<tbody>{% for item in comparisons %}<tr><td>{{ item.value|known }}</td><td>{{ item.execution_count }} total<br>{{ item.completed_count }} completed · {{ item.failed_count }} failed · {{ item.cancelled_count }} cancelled</td><td>{{ item.average_execution_duration_seconds|seconds }}<br>{{ item.runtime_observation_count }} / {{ item.execution_count }} Tasks</td><td>{{ item.observed_prompt_tokens|known }} / {{ item.observed_completion_tokens|known }}<br>Observed sums; may be partial</td><td>{{ item.token_complete_execution_count }} / {{ item.execution_count }} Tasks</td><td>{{ item.tokens_per_second|known }} tokens/s<br>{{ item.throughput_execution_count }} / {{ item.execution_count }} Tasks</td></tr>{% else %}<tr><td colspan="6">No terminal telemetry recorded.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

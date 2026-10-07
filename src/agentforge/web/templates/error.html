@@ -1,0 +1,2 @@
+{% extends "base.html" if not fragment else "error_fragment.html" %}
+{% block content %}<h1>Operation unavailable</h1><p>{{ code }}</p><p>Check the server configuration and safe diagnostics.</p>{% endblock %}

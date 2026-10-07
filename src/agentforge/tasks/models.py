@@ -86,3 +86,21 @@ class Task(BaseModel):
     @property
     def failure_diagnostic(self) -> str | None:
         return f"Execution failed: {self.error_code}" if self.error_code else None
+
+
+class TaskHistoryItem(BaseModel):
+    """Compact history query: no requests, answers or execution JSON loaded."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    task_id: UUID
+    project_id: UUID
+    project_name: str | None
+    agent_id: str
+    worker_id: str
+    state: TaskState
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_code: TaskReason | None
+    execution_duration_seconds: float | None

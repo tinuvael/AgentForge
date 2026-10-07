@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% from "macros.html" import pager %}
+{% block title %}Workers · AgentForge{% endblock %}
+{% block content %}<h1>Configured Workers</h1><p>Configuration only. Availability unknown: no health probe performed. Endpoints and Provider options are omitted.</p>
+<div class="scroll"><table><thead><tr><th scope="col">Worker ID</th><th scope="col">Provider / model</th><th scope="col">Deployment</th><th scope="col">Context window</th><th scope="col">Tools</th><th scope="col">Streaming</th><th scope="col">Health</th></tr></thead>
+<tbody>{% for worker in workers %}<tr><td>{{ worker.worker_id }}</td><td>{{ worker.provider }}<br>{{ worker.model }}</td><td>{{ worker.deployment_label|known }}</td><td>{{ worker.context_window|known }}</td><td>{{ worker.supports_tools|capability }}</td><td>{{ worker.supports_streaming|capability }}</td><td>configured / unknown</td></tr>{% else %}<tr><td colspan="7">No Workers configured.</td></tr>{% endfor %}</tbody></table></div>{{ pager(previous, next, offset) }}{% endblock %}

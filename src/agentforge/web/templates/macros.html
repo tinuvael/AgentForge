@@ -1,0 +1,21 @@
+{% macro badge(state) %}<span class="badge {{ state }}">{{ state }}</span>{% endmacro %}
+{% macro pager(previous, next, offset, htmx=false) %}
+<nav class="pager" aria-label="Pagination">
+  {% if previous %}<a href="{{ previous }}" {% if htmx %}hx-get="{{ previous }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Previous page</a>{% endif %}
+  <span>Offset {{ offset }}</span>
+  {% if next %}<a href="{{ next }}" {% if htmx %}hx-get="{{ next }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Next page</a>{% endif %}
+</nav>
+{% endmacro %}
+{% macro history(tasks) %}
+<div class="scroll"><table>
+  <caption class="sr-only">Task history</caption>
+  <thead><tr><th scope="col">Task / state</th><th scope="col">Project</th><th scope="col">Agent / Worker</th><th scope="col">Created / started / finished (UTC)</th><th scope="col">Execution runtime</th><th scope="col">Error</th></tr></thead>
+  <tbody>{% for task in tasks %}<tr>
+    <td><a href="/tasks/{{ task.task_id }}"><code>{{ task.task_id }}</code></a><br>{{ badge(task.state) }}</td>
+    <td>{{ task.project_name|known }}<br><code>{{ task.project_id }}</code></td>
+    <td>{{ task.agent_id }}<br>{{ task.worker_id }}</td>
+    <td>{{ task.created_at }}<br>{{ task.started_at|known }}<br>{{ task.finished_at|known }}</td>
+    <td>{{ task.execution_duration_seconds|seconds }}</td><td>{{ task.error_code|known }}</td>
+  </tr>{% else %}<tr><td colspan="6">No Tasks in this view.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endmacro %}

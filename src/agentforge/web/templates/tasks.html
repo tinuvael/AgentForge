@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Tasks · AgentForge{% endblock %}
+{% block content %}<h1>Task history</h1><p>Newest creation time, then Task ID. Runtime uses recorded telemetry and stays unknown when absent.</p>
+<form action="/tasks" method="get" class="filters" hx-get="/tasks" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true">
+  <label>State<select name="state"><option value="">Any</option>{% for state in ['queued','running','completed','failed','cancelled'] %}<option value="{{ state }}" {% if filters.state == state %}selected{% endif %}>{{ state }}</option>{% endfor %}</select></label>
+  <label>Project ID<input name="project_id" value="{{ filters.project_id or '' }}" maxlength="36"></label>
+  <label>Agent ID<input name="agent_id" value="{{ filters.agent_id or '' }}" maxlength="100"></label>
+  <label>Worker ID<input name="worker_id" value="{{ filters.worker_id or '' }}" maxlength="100"></label>
+  <label>Page size<input name="limit" type="number" min="1" max="100" value="{{ filters.limit }}"></label>
+  <button type="submit">Filter</button>
+</form>
+{% include "task_table.html" %}{% endblock %}

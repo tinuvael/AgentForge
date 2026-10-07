@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% from "macros.html" import pager %}
+{% block title %}Projects · AgentForge{% endblock %}
+{% block content %}<h1>Registered Projects</h1><p>Registration and cached Index checkpoints only. Roots are visible to the trusted local operator. No repository scan or live Git probe is performed.</p>
+<div class="scroll"><table><thead><tr><th scope="col">Name / Project ID</th><th scope="col">Registered root</th><th scope="col">Git / branch</th><th scope="col">Index snapshot (UTC)</th><th scope="col">HEAD observed at indexing</th></tr></thead>
+<tbody>{% for project in projects %}<tr><td>{{ project.name }}<br><code>{{ project.project_id }}</code></td><td><code>{{ project.root_path }}</code></td><td>not probed / —</td><td>{{ project.indexed_at|known }}</td><td><code>{{ project.observed_head|known }}</code></td></tr>{% else %}<tr><td colspan="5">No Projects registered.</td></tr>{% endfor %}</tbody></table></div>{{ pager(previous, next, offset) }}{% endblock %}

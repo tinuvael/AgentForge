@@ -62,6 +62,16 @@ class ProjectRegistry:
     def count_projects(self) -> int:
         return self._repository.count()
 
+    def list_summaries(self, *, limit: int = 25, offset: int = 0):
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 101
+            or type(offset) is not int
+            or not 0 <= offset <= 1_000_000
+        ):
+            raise ValueError("Invalid Project summary bounds")
+        return self._repository.summaries(limit=limit, offset=offset)
+
     def list_projects(
         self, *, limit: int | None = None, offset: int = 0
     ) -> list[Project]:

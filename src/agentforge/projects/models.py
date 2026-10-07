@@ -49,3 +49,12 @@ class GitMetadata:
 class ProjectInspection:
     project: Project
     git: GitMetadata
+
+
+@dataclass(frozen=True)
+class ProjectSummary:
+    project_id: UUID
+    name: str
+    root_path: str
+    indexed_at: datetime | None
+    observed_head: str | None

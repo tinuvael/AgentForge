@@ -1,5 +1,7 @@
 """Task storage with short transactions and conditional lifecycle checkpoints."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,10 +12,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from agentforge.agents.models import ExecutionObservations, ExecutionResult, TraceEvent
-from agentforge.db.models import TaskRecord
+from agentforge.db.models import ProjectRecord, TaskRecord, TaskTelemetryRecord
 from agentforge.db.telemetry import record_checkpoint
 from agentforge.tasks.models import (
     Task,
+    TaskHistoryItem,
     TaskNotFound,
     TaskReason,
     TaskState,
@@ -179,6 +182,73 @@ class TaskRepository:
                     .group_by(TaskRecord.state)
                 ).all()
             )
+
+    def state_counts(self) -> dict[TaskState, int]:
+        with self._session() as session:
+            return dict(
+                session.execute(
+                    select(TaskRecord.state, func.count()).group_by(TaskRecord.state)
+                ).all()
+            )
+
+    def history(
+        self,
+        *,
+        state: TaskState | None = None,
+        project_id: UUID | None = None,
+        agent_id: str | None = None,
+        worker_id: str | None = None,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> list[TaskHistoryItem]:
+        if (
+            type(limit) is not int
+            or not 1 <= limit <= 101
+            or type(offset) is not int
+            or not 0 <= offset <= 1_000_000
+            or state is not None
+            and state not in {"queued", "running", "completed", "failed", "cancelled"}
+        ):
+            raise TaskValidationError("Invalid Task history query")
+        row = TaskRecord
+        query = (
+            select(
+                row.task_id,
+                row.project_id,
+                ProjectRecord.name.label("project_name"),
+                row.agent_id,
+                row.worker_id,
+                row.state,
+                row.created_at,
+                row.started_at,
+                row.finished_at,
+                row.error_code,
+                TaskTelemetryRecord.execution_duration_seconds,
+            )
+            .outerjoin(ProjectRecord, row.project_id == ProjectRecord.id)
+            .outerjoin(TaskTelemetryRecord, row.task_id == TaskTelemetryRecord.task_id)
+        )
+        for name, value in (
+            ("state", state),
+            ("project_id", project_id),
+            ("agent_id", agent_id),
+            ("worker_id", worker_id),
+        ):
+            if value is not None:
+                query = query.where(getattr(row, name) == value)
+        query = query.order_by(row.created_at.desc(), row.task_id.desc())
+        with self._session() as session:
+            return [
+                TaskHistoryItem(
+                    **{
+                        name: _utc(value) if name.endswith("_at") else value
+                        for name, value in values.items()
+                    }
+                )
+                for values in session.execute(
+                    query.limit(limit).offset(offset)
+                ).mappings()
+            ]
 
     def next_queued_id(self) -> UUID | None:
         with self._session() as session:
