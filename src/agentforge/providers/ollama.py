@@ -138,6 +138,8 @@ class OllamaProvider:
             options["num_ctx"] = worker.context_window
         if request.temperature is not None:
             options["temperature"] = request.temperature
+        if request.max_output_tokens is not None:
+            options["num_predict"] = request.max_output_tokens
         payload = {
             "model": worker.model,
             "messages": [OllamaProvider._message(message) for message in messages],
@@ -261,6 +263,7 @@ class OllamaProvider:
                 )
                 return WorkerHealth(
                     backend_available=True,
+                    backend_reachable=True,
                     model_available=any(
                         tag.name in {worker.model, model} for tag in tags.models
                     ),
@@ -271,10 +274,14 @@ class OllamaProvider:
             )
         except httpx.RequestError:
             return WorkerHealth(
-                backend_available=False, error_code=BackendUnavailable.code
+                backend_available=False,
+                backend_reachable=False,
+                error_code=BackendUnavailable.code,
             )
         except ProviderError as error:
-            return WorkerHealth(backend_available=False, error_code=error.code)
+            return WorkerHealth(
+                backend_available=False, backend_reachable=True, error_code=error.code
+            )
 
     async def generate(
         self, worker: Worker, request: GenerationRequest

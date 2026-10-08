@@ -4,7 +4,7 @@ A **Provider** implements an inference protocol/backend. A **Provider connection
 names a trusted operator-configured base URL and optional authentication settings.
 A **Worker** supplies a stable ID, connection reference, model identifier, explicit
 capabilities and deployment label. The external director selects Worker IDs.
-AgentForge does not route, rank, probe capabilities, retry inference or substitute
+AgentForge does not route, rank, automatically probe capabilities, retry inference or substitute
 another Worker. A Council runs only its explicitly selected participants.
 
 ## Connections and compatibility
@@ -148,7 +148,10 @@ correlation IDs when Ollama omits IDs. Tool results use native `tool_name`.
 The [operator CLI](operator-cli.md#workers) reuses TOML parsing/factory validation
 for offline `worker config-check`/`worker list` and existing Provider health for
 an explicit `worker check <id>`. Ollama checks model availability; compatible
-Providers truthfully return `not_probed`. No benchmark or health history is added.
+Providers truthfully return `not_probed`. A separate operator-only diagnostics
+service records optional health and explicitly requested synthetic inference
+observations; see [Worker diagnostics](worker-diagnostics.md). Normal discovery
+and Task execution do not probe.
 
 Each operation owns its HTTP client and response. Bodies, including model lists,
 are limited to 2 MiB; stream lines to 256 KiB and total stream bytes to 4 MiB,
@@ -235,8 +238,10 @@ Reported total-only observations can supply total without claiming input/output
 coverage. Extra usage fields are ignored. No backend generation duration is
 invented: generation/load/prompt durations and tokens/sec remain null for this
 adapter. Runtime request and Task/queue timers retain their existing definitions.
-TTFT remains null: this implementation does not measure time to first meaningful
-output, and headers/first SSE frames are not used as token timing evidence.
+Task telemetry TTFT remains null: ordinary runtime calls are non-streaming.
+Explicit diagnostics can measure client first visible content delta through scoped
+streaming; headers/empty frames/private reasoning do not qualify. This is distinct
+from backend generation timing and exact token arrival.
 
 The Application owns factory-created adapters; injected adapters retain caller
 ownership. OpenAI-compatible clients are lazy and reused per connection across
@@ -276,3 +281,13 @@ resource-free/lazy; resource-owning implementations supply `aclose()`. Add offli
 MockTransport tests and repeat the heterogeneous integration tests. Runtime,
 TaskEngine, telemetry, Council, MCP and dashboard must need no Provider-specific
 branches. No new schema is needed for connection secrets.
+
+`GenerationRequest.max_output_tokens` is an optional normalized output budget.
+Ollama maps it to `num_predict`; compatible generation maps to `max_tokens`, or
+`max_completion_tokens` when that option is present, with one effective cap.
+It overrides configured/request option budgets without altering model/connection.
+Diagnostics omit Worker options and therefore use the portable `max_tokens`
+variant. Providers may reject unsupported parameters; diagnostics do not retry.
+Ollama health additionally exposes backend reachability separately from availability.
+A received error/invalid body proves contact, network failure reports unreachable,
+and timeout remains unknown. Compatible health makes no reachability claim.

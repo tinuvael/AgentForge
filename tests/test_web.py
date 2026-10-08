@@ -177,7 +177,7 @@ def test_worker_configuration_without_health_or_secrets(setup, count):
             assert f"<strong>{count}</strong>" in overview.text
             response = await client.get("/workers")
             assert response.status_code == 200
-            assert response.text.count("configured / unknown") == count
+            assert response.text.count("data-worker-id=") == count
             assert "32768" in response.text and "yes" in response.text
             for private in (
                 PRIVATE,
@@ -908,11 +908,11 @@ def test_worker_and_project_pagination_bounds(setup):
         setup.registry.register_project("Another", setup.root.parent)
         async with client_for(setup.app) as (client, _):
             workers = await client.get("/workers?limit=1")
-            assert workers.text.count("configured / unknown") == 1
+            assert workers.text.count("data-worker-id=") == 1
             assert "Next page" in workers.text
             next_workers = await client.get("/workers?limit=1&offset=1")
             assert "Previous page" in next_workers.text
-            assert next_workers.text.count("configured / unknown") == 1
+            assert next_workers.text.count("data-worker-id=") == 1
             projects = await client.get("/projects?limit=1")
             assert projects.text.count("not probed / —") == 1
             assert "Next page" in projects.text

@@ -214,6 +214,16 @@ class OpenAICompatibleProvider:
         options = {**worker.options, **request.options}
         if set(options) - _OPTIONS:
             raise ProviderRejected("Unsupported generation options")
+        if request.max_output_tokens is not None:
+            # Preserve the configured protocol variant, with one effective cap.
+            key = (
+                "max_completion_tokens"
+                if "max_completion_tokens" in options
+                else "max_tokens"
+            )
+            options.pop("max_tokens", None)
+            options.pop("max_completion_tokens", None)
+            options[key] = request.max_output_tokens
         messages = request.messages
         if request.system is not None:
             messages = [Message(role="system", content=request.system), *messages]

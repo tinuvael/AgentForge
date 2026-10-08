@@ -8,8 +8,9 @@ or automatic TOML editing. See the [README quick start](../README.md#install-and
 
 Administrative commands print JSON to stdout. Errors use fixed safe diagnostics
 on stderr without traceback, SQL, backend bodies or credential values. UUIDs,
-timestamps and paths are strings. JSON escapes terminal controls. Worker display
-strings are capped at 256 characters; use ordinary short identifiers. No debug
+timestamps and paths are strings. JSON escapes terminal controls. Configuration
+listing display strings are capped at 256 characters; typed diagnostic snapshots
+retain configured identities. Use ordinary short identifiers. No debug
 mode dumps internal exceptions. Service commands retain their existing safe
 logging and MCP stdout stays reserved for the protocol.
 
@@ -29,8 +30,9 @@ spaces. Create the parent directory yourself and protect private runtime storage
 Status opens existing files read-only and never creates a missing database. It
 reports `current`, `uninitialized`, `unsupported`, `out_of_date` or `inaccessible`.
 `current` means the recorded revision matches the packaged head; this is not a
-full schema/data integrity audit. At 0.1.0 there are no supported earlier revisions,
-so old development revisions are `unsupported`. Empty storage is `uninitialized`;
+full schema/data integrity audit. The first supported baseline and current head are
+`0001_initial`, including Worker diagnostic checkpoints. Old development revisions
+remain `unsupported`. Empty storage is `uninitialized`;
 unstamped storage with existing tables/views is `unsupported` and cannot be
 adopted. Upgrade uses packaged Alembic migrations, does not wipe/stamp storage,
 and rejects unknown revisions and nonempty unstamped databases. The original
@@ -97,9 +99,14 @@ bounded model list; an absent model is unavailable. OpenAI-compatible health
 returns `not_probed` without network activity, with availability fields unknown.
 Exit zero for `not_probed` means the operation completed, not that inference works.
 Health failure codes are allowlisted; arbitrary Provider diagnostics are omitted.
-Owned clients are closed. No generation, benchmark, health persistence, ranking,
-task routing or fallback occurs. Remote health requests go only to the explicitly
-configured endpoint; remote task execution/data egress remains explicit.
+Owned clients are closed. Add `--database-url` to retain the health observation.
+`worker probe <id> --kind generation|tools|streaming --workers FILE --database-url URL`
+explicitly performs one small fixed synthetic inference and persists its factual
+observation. `worker diagnostics <id>` or `worker diagnostics --all` reads current
+configuration and separate persisted observations without Provider calls; both
+require `--workers` and `--database-url`. See [Worker diagnostics](worker-diagnostics.md)
+for fixed requests, unknown metrics, safe failures, remote data egress, bounds,
+retention and concurrency. No ranking, task routing or fallback occurs.
 
 ## Coding and Agents
 
@@ -160,10 +167,10 @@ stays isolated-write. External orchestration and explicit Worker selection remai
 | 4 | Uninitialized, out-of-date or unsupported schema |
 | 5 | Project missing/already registered or Worker ID missing |
 | 6 | Unsafe, missing or replaced Project root |
-| 7 | Explicit Worker health unavailable, model absent or check failed |
+| 7 | Explicit Worker health/probe failed or model absent |
 
 MCP/web preserve their original service exit behavior (startup failure 1).
 No live Provider, cloud, GPU or native Windows acceptance is implied by offline
-CLI tests. Rich Worker diagnostics/benchmarks (#34), Director-facing progress
-events (#35) and a general Agent (#36) are separate work. Shared service ownership
+CLI tests. Director-facing progress events (#35), Companion (#32) and a general
+Agent (#36) remain separate work. Shared service ownership
 and a combined daemon also remain outside this feature.

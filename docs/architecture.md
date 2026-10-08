@@ -118,7 +118,8 @@ be removed without deleting historical Tasks/Councils/telemetry. Retention and
 history deletion are not implemented.
 
 Database initialization/upgrades are explicit. The packaged `0001_initial`
-migration creates the first supported complete schema. Executor startup verifies
+migration creates the first supported complete schema, including bounded operator
+diagnostic checkpoints. Executor startup verifies
 the revision before recovery/execution and never creates or migrates schemas.
 Registrations require a recorded platform-tagged
 identity, which is never replaced by observing today's path during an upgrade.
@@ -174,8 +175,31 @@ normalization and offline tests, without a dynamic plugin framework. Custom Agen
 are supplied programmatically with explicit tools and limits; no TOML Agent loader
 ships. The Python Index is conservative AST navigation, not type inference,
 runtime dispatch proof or an architecture summarizer. There is no general REST
-API, scheduler, autonomous planning, benchmark/ranking engine or remote MCP server.
+API, scheduler, autonomous planning, quality benchmark/ranking engine or remote MCP server.
 
 Specialist references: [Providers](providers.md), [MCP](mcp.md),
 [dashboard](dashboard.md), [Council](councils.md), [coding](coding.md),
 [Projects/Index/tools](repository.md), [Tasks/telemetry](tasks.md).
+
+## Operator diagnostics boundary
+
+`workers.diagnostic_service.WorkerDiagnosticsService` exposes typed configured and
+observed evidence via `workers.diagnostics`, composed as Application's
+`worker_diagnostics`. CLI active health/probes and passive dashboard reads share
+this boundary; MCP discovery remains configuration-only. The service sends fixed
+synthetic requests through the existing Provider/GenerationRequest boundary,
+without Project, Agent, tools dispatcher or Task creation. TokenUsage and
+GenerationTiming retain the same semantics as Task telemetry; no raw dictionaries
+or request-latency throughput estimates enter observations.
+
+A small separate SQLite checkpoint store survives CLI/dashboard process changes:
+one record per Worker/probe kind, latest observation and last success/failure
+timestamps, configuration invalidation and atomic completion ordering. Writes
+update only the selected Worker/probe-kind checkpoint. Current configuration
+controls visibility; observations for absent Workers remain dormant without an
+automatic retention/pruning policy. A changed configuration fingerprint suppresses
+old evidence for the same Worker. Passive reads never mutate storage, and no
+transaction spans inference.
+There is no accumulating probe history, metrics warehouse, routing, ranking,
+background probing or active MCP control. See [Worker diagnostics](worker-diagnostics.md)
+for lifecycle, security, remote egress and future Companion service contracts.
