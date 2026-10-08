@@ -31,6 +31,7 @@ from agentforge.core.inference import Provider
 from agentforge.db.coding import WorkspaceRepository
 from agentforge.db.councils import CouncilRepository
 from agentforge.db.database import create_database_engine, create_session_factory
+from agentforge.db.diagnostics import DiagnosticsRepository
 from agentforge.db.index import IndexRepository
 from agentforge.db.projects import ProjectRepository
 from agentforge.db.tasks import TaskRepository
@@ -43,6 +44,7 @@ from agentforge.tasks.models import TERMINAL_STATES, Task
 from agentforge.telemetry.service import TelemetryService
 from agentforge.tools.service import RepositoryTools
 from agentforge.workers.config import WorkersConfig, load_workers
+from agentforge.workers.diagnostic_service import WorkerDiagnosticsService
 
 
 def snapshot(task: Task) -> TaskSnapshot:
@@ -127,6 +129,11 @@ class Application:
         # Only composed resources are owned here; injected Providers retain caller
         # ownership. Factory constructors are lazy, without open HTTP resources.
         self._owned_providers = create_providers(workers) if providers is None else {}
+        self.worker_diagnostics = WorkerDiagnosticsService(
+            workers,
+            providers if providers is not None else self._owned_providers,
+            DiagnosticsRepository(sessions),
+        )
         runtime = AgentRuntime(
             projects=self.projects,
             workers=workers,
@@ -187,7 +194,10 @@ class Application:
 
     async def _shutdown(self):
         try:
-            await self.tasks.close()
+            try:
+                await self.worker_diagnostics.close()
+            finally:
+                await self.tasks.close()
         finally:
             try:
                 results = await asyncio.gather(

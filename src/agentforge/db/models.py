@@ -23,6 +23,26 @@ from sqlalchemy.orm import Mapped, mapped_column
 from agentforge.db.database import Base
 
 
+class WorkerDiagnosticRecord(Base):
+    """One bounded factual checkpoint per stable Worker ID and probe kind."""
+
+    __tablename__ = "worker_diagnostic_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "probe_kind IN ('health', 'generation', 'tools', 'streaming')",
+            name="ck_worker_diagnostics_probe_kind",
+        ),
+    )
+
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    probe_kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    configuration_fingerprint: Mapped[str] = mapped_column(String(64))
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    latest: Mapped[dict] = mapped_column(JSON(none_as_null=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ProjectRecord(Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("root_path", name="uq_projects_root_path"),)

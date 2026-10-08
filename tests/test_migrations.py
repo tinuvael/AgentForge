@@ -38,7 +38,8 @@ def configuration():
 
 def assert_schema(connection):
     assert (
-        MigrationContext.configure(connection).get_current_revision() == "0001_initial"
+        MigrationContext.configure(connection).get_current_revision()
+        == "0002_worker_diagnostics"
     )
     config = configuration()
     config.attributes["connection"] = connection
@@ -101,14 +102,44 @@ def populate(engine, tmp_path):
         identities={},
         observations={},
     )
+    from agentforge.core.worker import Worker
+    from agentforge.db.diagnostics import DiagnosticsRepository
+    from agentforge.workers.config import WorkersConfig
+    from agentforge.workers.diagnostic_service import WorkerDiagnosticsService
+    from agentforge.workers.diagnostics import DiagnosticObservation
+
+    config = WorkersConfig(
+        workers=[
+            Worker(
+                id="local",
+                provider="ollama",
+                endpoint="http://localhost",
+                model="model",
+            )
+        ]
+    )
+    service = WorkerDiagnosticsService(config, {})
+    DiagnosticsRepository(sessions).save(
+        DiagnosticObservation(
+            configuration=service.get("local").configuration,
+            probe_kind="health",
+            checked_at=datetime.now(UTC),
+            status="available",
+            backend_available=True,
+            model_available=True,
+        ),
+        service._fingerprints["local"],
+        ("local",),
+    )
     return project
 
 
-def test_single_initial_revision():
+def test_linear_diagnostics_revision_preserves_baseline():
     scripts = ScriptDirectory.from_config(configuration())
     revisions = list(scripts.walk_revisions())
-    assert scripts.get_heads() == scripts.get_bases() == ["0001_initial"]
-    assert len(revisions) == 1 and revisions[0].down_revision is None
+    assert scripts.get_heads() == ["0002_worker_diagnostics"]
+    assert scripts.get_bases() == ["0001_initial"]
+    assert len(revisions) == 2 and revisions[0].down_revision == "0001_initial"
 
 
 def test_source_alembic_online_and_offline_entrypoints(tmp_path):
@@ -208,3 +239,34 @@ def test_required_identity_and_lifecycle_checks_reject_invalid_writes(
         connection.execute(update(table).values({field: value}))
     with engine.begin() as connection:
         assert_schema(connection)
+
+
+def test_incremental_baseline_upgrade_and_downgrade_preserves_existing_data(
+    database, tmp_path
+):
+    engine, _ = database
+    populate(engine, tmp_path)
+    config = configuration()
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        before = counts(connection)
+        command.downgrade(config, "0001_initial")
+        assert (
+            MigrationContext.configure(connection).get_current_revision()
+            == "0001_initial"
+        )
+        assert (
+            "worker_diagnostic_observations"
+            not in inspect(connection).get_table_names()
+        )
+        for name, count in before.items():
+            if name != "worker_diagnostic_observations":
+                assert (
+                    connection.scalar(
+                        select(func.count()).select_from(Base.metadata.tables[name])
+                    )
+                    == count
+                )
+        command.upgrade(config, "head")
+        assert_schema(connection)
+        assert counts(connection) == before | {"worker_diagnostic_observations": 0}

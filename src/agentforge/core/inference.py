@@ -85,6 +85,8 @@ class GenerationRequest(BaseModel):
     temperature: float | None = Field(default=None, ge=0)
     options: dict[str, JsonValue] = Field(default_factory=dict)
     timeout_seconds: float | None = Field(default=None, gt=0)
+    # Normalized output budget; adapters map it to their native protocol option.
+    max_output_tokens: int | None = Field(default=None, gt=0)
     tools: list[ToolDefinition] = Field(default_factory=list)
 
 

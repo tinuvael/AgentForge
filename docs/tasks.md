@@ -284,3 +284,9 @@ endpoint userinfo or URLs. Task's existing intentional request/result/trace stor
 is separate. Telemetry adds no logging/export infrastructure or heavyweight dependency.
 The manual Repo Explorer smoke script prints persisted telemetry after execution;
 it remains opt-in and is not run by the test suite.
+
+Synthetic Worker diagnostics use the existing normalized token/timing semantics
+but have a distinct bounded checkpoint store and provenance. They never create
+Tasks or change Task telemetry/selection. Their optional streaming TTFT measures
+first visible content delta; ordinary non-streaming Task TTFT remains unknown.
+See [Worker diagnostics](worker-diagnostics.md).

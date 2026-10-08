@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import json
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from uuid import UUID
 
@@ -16,6 +16,7 @@ from agentforge.coding.inspection import check_coding_host
 from agentforge.coding.service import CodingWorkspaceManager
 from agentforge.db.coding import WorkspaceRepository
 from agentforge.db.database import create_database_engine, create_session_factory
+from agentforge.db.diagnostics import DiagnosticsRepository
 from agentforge.db.index import IndexRepository
 from agentforge.db.migrate import (
     UnsupportedSchema,
@@ -38,6 +39,8 @@ from agentforge.projects.errors import (
 from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.factory import create_providers, validate_provider_bindings
 from agentforge.workers.config import ConfigurationError, load_workers
+from agentforge.workers.diagnostic_service import WorkerDiagnosticsService
+from agentforge.workers.diagnostics import DiagnosticsUnavailable
 
 
 class OperatorError(Exception):
@@ -123,19 +126,45 @@ def parser():
             )
 
     workers = group(
-        "worker", "Inspect/validate TOML; explicitly request existing health"
+        "worker",
+        "Inspect configuration/diagnostics; explicitly request health or inference",
     )
     for name, help_text in (
         ("list", "Configuration only; does not establish availability"),
         ("config-check", "Validate TOML, authentication and factory bindings offline"),
-        ("check", "Health of one Worker; Ollama model list or compatible not_probed"),
+        ("check", "Cheap health; Ollama model list or compatible not_probed"),
+        (
+            "probe",
+            "Explicit small synthetic inference; sends data to selected Provider",
+        ),
+        ("diagnostics", "Read persisted observations only; no Provider requests"),
     ):
         command = workers.add_parser(name, help=help_text, description=help_text)
         command.add_argument(
             "--workers", required=True, help="Explicit Worker TOML file"
         )
-        if name == "check":
+        if name in {"check", "probe"}:
             command.add_argument("worker_id", help="Explicit configured Worker ID")
+            command.add_argument(
+                "--database-url",
+                required=name == "probe",
+                help="Current SQLite database for durable observations",
+            )
+        if name == "probe":
+            command.add_argument(
+                "--kind",
+                choices=("generation", "tools", "streaming"),
+                default="generation",
+                help="One bounded inference probe",
+            )
+        if name == "diagnostics":
+            command.add_argument("worker_id", nargs="?", help="Configured Worker ID")
+            command.add_argument(
+                "--all", action="store_true", help="Read all Workers, paginated"
+            )
+            database(command)
+            command.add_argument("--limit", type=_range(1, 100), default=25)
+            command.add_argument("--offset", type=_range(0, 1_000_000), default=0)
 
     agents = group("agent", "Inspect actual shipped Agent definitions and limits")
     command = agents.add_parser(
@@ -167,18 +196,23 @@ def parser():
 
 
 @contextmanager
-def project_services(database_url):
+def storage_sessions(database_url):
     if database_status(database_url) != "current":
         raise OperatorError(
             "schema_not_current", "Run db status and the explicit db upgrade.", 4
         )
     engine = create_database_engine(operator_database_url(database_url))
     try:
-        sessions = create_session_factory(engine)
-        registry = ProjectRegistry(ProjectRepository(sessions))
-        yield registry, ProjectIndex(registry, IndexRepository(sessions)), sessions
+        yield create_session_factory(engine)
     finally:
         engine.dispose()
+
+
+@contextmanager
+def project_services(database_url):
+    with storage_sessions(database_url) as sessions:
+        registry = ProjectRegistry(ProjectRepository(sessions))
+        yield registry, ProjectIndex(registry, IndexRepository(sessions)), sessions
 
 
 def database_command(args):
@@ -266,16 +300,27 @@ def registration(project):
     }
 
 
-async def check_worker(config, worker):
+async def observe_worker(config, worker_id, operation, kind, repository):
     providers = create_providers(config)
+    service = WorkerDiagnosticsService(config, providers, repository)
     try:
-        provider = providers[worker.provider_connection or worker.provider]
-        async with asyncio.timeout(5):
-            return await provider.health(worker)
+        return (
+            await service.check(worker_id)
+            if operation == "check"
+            else await service.probe(worker_id, kind=kind)
+        )
     finally:
-        for provider in providers.values():
-            if hasattr(provider, "aclose"):
-                await provider.aclose()
+        await service.close()
+        results = await asyncio.gather(
+            *(
+                provider.aclose()
+                for provider in providers.values()
+                if hasattr(provider, "aclose")
+            ),
+            return_exceptions=True,
+        )
+        if any(isinstance(result, BaseException) for result in results):
+            raise OperatorError("provider_unavailable", "Provider cleanup failed.", 7)
 
 
 def worker_command(args):
@@ -310,50 +355,68 @@ def worker_command(args):
                 ],
             }
         )
+    elif args.operation == "diagnostics":
+        if bool(args.worker_id) == args.all:
+            raise OperatorError("invalid_arguments", "Supply a Worker ID or --all.", 2)
+        if args.worker_id and not any(w.id == args.worker_id for w in config.workers):
+            raise OperatorError(
+                "worker_not_found", "Use worker list for configured IDs.", 5
+            )
+        with storage_sessions(args.database_url) as sessions:
+            service = WorkerDiagnosticsService(
+                config, {}, DiagnosticsRepository(sessions)
+            )
+            emit(
+                service.list(limit=args.limit, offset=args.offset).model_dump(
+                    mode="json"
+                )
+                if args.all
+                else service.get(args.worker_id).model_dump(mode="json")
+            )
     else:
         worker = next((w for w in config.workers if w.id == args.worker_id), None)
         if worker is None:
             raise OperatorError(
                 "worker_not_found", "Use worker list for configured IDs.", 5
             )
-        try:
-            health = asyncio.run(check_worker(config, worker))
-        except Exception:
-            raise OperatorError(
-                "provider_unavailable",
-                "Worker health operation failed or timed out.",
-                7,
-            ) from None
-        # Fixed projection: no raw error strings, response bodies, endpoints or options.
-        if health.error_code == "not_probed":
+        context = (
+            storage_sessions(args.database_url)
+            if args.database_url
+            else nullcontext(None)
+        )
+        with context as sessions:
+            observation = asyncio.run(
+                observe_worker(
+                    config,
+                    worker.id,
+                    args.operation,
+                    getattr(args, "kind", "generation"),
+                    DiagnosticsRepository(sessions) if sessions else None,
+                )
+            )
+        if args.operation == "check":
+            # Preserve #33's status vocabulary; enrich it with typed observation.
             emit(
                 {
                     "worker_id": bounded(worker.id),
-                    "status": "not_probed",
-                    "backend_available": None,
-                    "model_available": None,
+                    "status": "unavailable"
+                    if observation.status == "failed"
+                    else observation.status,
+                    "backend_available": observation.backend_available,
+                    "model_available": observation.model_available,
+                    "backend_reachable": observation.backend_reachable,
+                    "error_code": observation.error_code,
+                    "checked_at": observation.checked_at.isoformat(),
+                    "observation": observation.model_dump(mode="json"),
+                    "persisted": sessions is not None,
                 }
             )
-            return 0
-        emit(
-            {
-                "worker_id": bounded(worker.id),
-                "status": "available" if health.available else "unavailable",
-                "backend_available": health.backend_available,
-                "model_available": health.model_available,
-                "error_code": health.error_code
-                if health.error_code
-                in {
-                    "backend_unavailable",
-                    "timeout",
-                    "invalid_response",
-                    "rejected",
-                    "provider_error",
-                }
-                else None,
-            }
-        )
-        return 0 if health.available else 7
+        else:
+            emit(
+                {"observation": observation.model_dump(mode="json"), "persisted": True}
+            )
+        return 7 if observation.status == "failed" else 0
+
     return 0
 
 
@@ -463,7 +526,12 @@ def main(argv=None) -> int:
             "Check command arguments and configuration files.",
             2,
         )
-    except (SQLAlchemyError, ProjectStorageError, IndexStorageError):
+    except (
+        SQLAlchemyError,
+        ProjectStorageError,
+        IndexStorageError,
+        DiagnosticsUnavailable,
+    ):
         code, message, result = (
             "storage_unavailable",
             "Check database access and migrations.",

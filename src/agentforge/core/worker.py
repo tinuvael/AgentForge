@@ -59,6 +59,7 @@ class WorkerHealth(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     backend_available: bool
+    backend_reachable: bool | None = None
     model_available: bool | None = None
     error_code: str | None = None
 

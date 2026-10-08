@@ -1,5 +1,28 @@
 {% extends "base.html" %}{% from "macros.html" import pager %}
 {% block title %}Workers · AgentForge{% endblock %}
-{% block content %}<h1>Configured Workers</h1><p>Configuration only. Availability unknown: no health probe performed. Endpoints and Provider options are omitted.</p>
-<div class="scroll"><table><thead><tr><th scope="col">Worker ID</th><th scope="col">Provider / model</th><th scope="col">Deployment</th><th scope="col">Context window</th><th scope="col">Tools</th><th scope="col">Streaming</th><th scope="col">Health</th></tr></thead>
-<tbody>{% for worker in workers %}<tr><td>{{ worker.worker_id }}</td><td>{{ worker.provider }}<br>{{ worker.model }}</td><td>{{ worker.deployment_label|known }}</td><td>{{ worker.context_window|known }}</td><td>{{ worker.supports_tools|capability }}</td><td>{{ worker.supports_streaming|capability }}</td><td>configured / unknown</td></tr>{% else %}<tr><td colspan="7">No Workers configured.</td></tr>{% endfor %}</tbody></table></div>{{ pager(previous, next, offset) }}{% endblock %}
+{% block content %}
+<h1>Workers</h1>
+<p>Configuration declares capabilities. Diagnostics are point-in-time observations, not guarantees or rankings. This page never contacts a Provider.</p>
+<p>Use <code>agentforge worker check ID --workers FILE --database-url URL</code> for cheap health, or <code>agentforge worker probe ID --kind generation|tools|streaming --workers FILE --database-url URL</code> to explicitly perform one small inference. Probes send only fixed synthetic data to the selected Provider, including remote/cloud deployments.</p>
+<h2>Configuration</h2>
+<div class="scroll"><table><thead><tr><th scope="col">Worker ID</th><th scope="col">Provider / model</th><th scope="col">Deployment / endpoint class</th><th scope="col">Configured context window</th><th scope="col">Configured tools</th><th scope="col">Configured streaming</th><th scope="col">Source</th></tr></thead>
+<tbody>{% for worker in workers %}<tr data-worker-id="{{ worker.worker_id }}"><td>{{ worker.worker_id }}</td><td>{{ worker.provider }}<br>{{ worker.model }}</td><td>{{ worker.deployment_label|known }}<br>{{ diagnostics[worker.worker_id].configuration.endpoint_class }}</td><td>{{ worker.context_window|known }}</td><td>{{ worker.supports_tools|capability }}</td><td>{{ worker.supports_streaming|capability }}</td><td>TOML declaration</td></tr>{% else %}<tr><td colspan="7">No Workers configured.</td></tr>{% endfor %}</tbody></table></div>
+<h2>Last observed diagnostics</h2>
+<p>Unknown is shown as — or unknown. TTFT measures request start to the first nonempty visible streaming content delta; it is not exact token arrival. Throughput uses reported output tokens / reported backend output duration. Health never performs inference. No endpoint URLs, options or Provider bodies are displayed.</p>
+{% for worker in workers %}
+<h3>{{ worker.worker_id }}</h3>
+<div class="scroll"><table><thead><tr><th scope="col">Probe</th><th scope="col">Last status / safe failure</th><th scope="col">Backend reachable / available</th><th scope="col">Model present</th><th scope="col">Generation / tool call / streaming</th><th scope="col">Request latency</th><th scope="col">TTFT</th><th scope="col">Backend output duration</th><th scope="col">Input / output tokens</th><th scope="col">Output tok/s</th><th scope="col">Checked at</th><th scope="col">Last success / failure</th></tr></thead>
+<tbody>{% for kind in ('health', 'generation', 'tools', 'streaming') %}{% set history = diagnostics[worker.worker_id][kind] %}{% set observed = history.latest %}
+<tr><td>{{ kind }}</td><td>{% if observed %}{{ observed.status }}<br>{{ observed.error_code|known }}{% elif history.previous_configuration %}unknown (previous configuration){% else %}not checked{% endif %}</td>
+<td>{{ (observed.backend_reachable if observed else none)|capability }} / {{ (observed.backend_available if observed else none)|capability }}</td>
+<td>{{ (observed.model_available if observed else none)|capability }}</td>
+<td>{{ (observed.generation_success if observed else none)|capability }} / {{ (observed.tool_call_success if observed else none)|capability }} / {{ (observed.streaming_success if observed else none)|capability }}</td>
+<td>{{ (observed.request_duration_seconds if observed else none)|seconds }}</td><td>{{ (observed.ttft_seconds if observed else none)|seconds }}</td>
+<td>{{ (observed.generation_timing.output_seconds if observed and observed.generation_timing else none)|seconds }}</td>
+<td>{{ (observed.token_usage.input_tokens if observed and observed.token_usage else none)|known }} / {{ (observed.token_usage.output_tokens if observed and observed.token_usage else none)|known }}</td>
+<td>{{ (observed.tokens_per_second if observed else none)|known }}</td><td>{{ (observed.checked_at if observed else none)|known }}</td><td>{{ history.last_success_at|known }} / {{ history.last_failure_at|known }}</td></tr>
+{% endfor %}</tbody></table></div>
+{% endfor %}
+<p>Historical Task telemetry remains in Task detail and the overview with its own coverage; synthetic probes create no Tasks. Compatible Provider health may remain not_probed even after a successful generation probe.</p>
+{{ pager(previous, next, offset) }}
+{% endblock %}

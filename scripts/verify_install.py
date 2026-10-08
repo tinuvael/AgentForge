@@ -8,11 +8,14 @@ import pkgutil
 import subprocess
 import sys
 import sysconfig
+from contextlib import redirect_stdout
 from importlib import metadata, resources
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import httpx
+from alembic import command
 from alembic.runtime.migration import MigrationContext
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -20,8 +23,10 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from sqlalchemy import inspect
 
 from agentforge.application.service import Application
+from agentforge.cli import main as operator_main
 from agentforge.core.worker import Worker
 from agentforge.db.database import Base, create_database_engine
+from agentforge.db.migrate import _configuration
 from agentforge.mcp.server import TOOL_CONTRACTS, create_server
 from agentforge.providers.ollama import OllamaProvider
 from agentforge.web.app import create_app
@@ -53,6 +58,7 @@ def package_checks():
         "db/migrations/env.py",
         "db/migrations/script.py.mako",
         "db/migrations/versions/0001_initial.py",
+        "db/migrations/versions/0002_worker_diagnostics.py",
         "web/templates/base.html",
         "web/static/dashboard.css",
         "web/static/dashboard.js",
@@ -65,7 +71,7 @@ def package_checks():
         file.name
         for file in root.joinpath("db/migrations/versions").iterdir()
         if file.name.endswith(".py")
-    } == {"0001_initial.py"}
+    } == {"0001_initial.py", "0002_worker_diagnostics.py"}
     for module in ("db.migrate", "mcp.server", "web.server"):
         result = subprocess.run(
             [sys.executable, "-m", "agentforge." + module, "--help"],
@@ -87,6 +93,8 @@ def package_checks():
         ("db",),
         ("project",),
         ("worker",),
+        ("worker", "probe"),
+        ("worker", "diagnostics"),
         ("agent",),
         ("coding",),
         ("mcp",),
@@ -102,6 +110,57 @@ def package_checks():
     )
     assert "project" in result.stdout
     print("Installed package, migrations, web assets and CLI help: OK")
+
+
+def offline_diagnostic_actions(config, url):
+    # Actual installed CLI dispatch with offline adapters; the console script
+    # exercises passive diagnostics in a separate fresh process below.
+    import agentforge.cli as cli
+
+    original = cli.create_providers
+    cli.create_providers = lambda _: {
+        "ollama": OllamaProvider(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={"models": [{"name": "offline:latest"}]}
+                    if request.method == "GET"
+                    else {
+                        "model": "offline",
+                        "message": {"content": "agentforge"},
+                        "done": True,
+                        "prompt_eval_count": 5,
+                        "eval_count": 2,
+                        "eval_duration": 500_000_000,
+                    },
+                )
+            )
+        )
+    }
+    try:
+        for operation in ("check", "probe"):
+            output = StringIO()
+            with redirect_stdout(output):
+                assert (
+                    operator_main(
+                        [
+                            "worker",
+                            operation,
+                            "offline",
+                            "--workers",
+                            str(config),
+                            "--database-url",
+                            url,
+                        ]
+                    )
+                    == 0
+                )
+            observed = json.loads(output.getvalue())["observation"]
+            assert observed["status"] == (
+                "available" if operation == "check" else "successful"
+            )
+    finally:
+        cli.create_providers = original
 
 
 async def smoke():
@@ -126,7 +185,7 @@ async def smoke():
             with engine.connect() as connection:
                 assert (
                     MigrationContext.configure(connection).get_current_revision()
-                    == "0001_initial"
+                    == "0002_worker_diagnostics"
                 )
                 assert set(inspect(connection).get_table_names()) == {
                     *Base.metadata.tables,
@@ -144,13 +203,25 @@ async def smoke():
                     column["name"] == "root_identity" and not column["nullable"]
                     for column in columns
                 )
+            # Supported incremental downgrade removes only the diagnostics table.
+            with engine.begin() as connection:
+                migration = _configuration()
+                migration.attributes["connection"] = connection
+                command.downgrade(migration, "0001_initial")
+                assert (
+                    "worker_diagnostic_observations"
+                    not in inspect(connection).get_table_names()
+                )
+                command.upgrade(migration, "head")
+                command.check(migration)
         finally:
             engine.dispose()
-        print("Installed migration CLI, fresh initial schema and idempotency: OK")
+        print("Installed migration CLI, fresh head and baseline roundtrip: OK")
         config = root / "workers.toml"
         config.write_text(
             '[[workers]]\nid = "offline"\nprovider = "ollama"\n'
             'endpoint = "http://worker.invalid"\nmodel = "offline"\n'
+            "supports_tools = true\n"
         )
         operator("worker", "config-check", "--workers", config)
         assert (
@@ -197,6 +268,20 @@ async def smoke():
         if os.name != "nt":
             operator("coding", "show", "--coding", examples / "coding.example.toml")
         print("Installed operator setup, Project lifecycle, configuration/examples: OK")
+        await asyncio.to_thread(offline_diagnostic_actions, config, url)
+        last = operator(
+            "worker",
+            "diagnostics",
+            "offline",
+            "--workers",
+            config,
+            "--database-url",
+            url,
+        )
+        assert last["health"]["latest"]["status"] == "available"
+        assert last["generation"]["latest"]["tokens_per_second"] == 4.0
+        assert last["generation"]["latest"]["ttft_seconds"] is None
+        print("Installed diagnostic CLI: health/probe and passive restart snapshot: OK")
         executable = Path(sysconfig.get_path("scripts")) / (
             "agentforge.exe" if os.name == "nt" else "agentforge"
         )
@@ -283,6 +368,9 @@ async def smoke():
                 for path in ("/", "/workers", "/projects", "/tasks", "/councils"):
                     response = await client.get(path)
                     assert response.status_code == 200, path
+                    if path == "/workers":
+                        assert "Configuration" in response.text
+                        assert "Last observed diagnostics" in response.text
                 assert (await client.get("/static/dashboard.css")).status_code == 200
         print("Dashboard migrated startup, pages, static assets and shutdown: OK")
 

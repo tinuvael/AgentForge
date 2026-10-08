@@ -31,6 +31,10 @@ Their databases are not an upgrade source. Preserve/export any development histo
 and uncommitted workspaces you need, then select a fresh database and register roots
 explicitly. No command wipes, stamps or silently adopts an old database.
 
+The current head is `0002_worker_diagnostics`, a linear addition to the preserved
+baseline for bounded operator diagnostic checkpoints. Upgrade supported baseline
+databases explicitly.
+
 Migrations live under `src/agentforge/db/migrations/` and ship in the wheel. Root
 `alembic.ini` selects those same files. After this baseline is released, add new
 linear revisions (`0002`, `0003`, ...) rather than rewriting `0001_initial`.
@@ -45,6 +49,8 @@ The schema separates registration/cache from durable execution history:
 - `tasks` and `councils` retain historical Project IDs without Project FKs.
   Council membership references both parents without cascading deletion; Task
   membership and each Council's Worker/ordinal are unique.
+- `worker_diagnostic_observations` keeps one safe checkpoint and last success/failure
+  timestamps per configured Worker/probe kind, with no Task/Project FK or bodies.
 - `task_telemetry` is independently retained immutable terminal observation data.
   `coding_workspaces` independently retains private ownership for safe cleanup even
   after deregistration; neither is cascaded by deleting another record. There is no
@@ -75,8 +81,8 @@ alembic -c alembic.ini check
 
 For another URL, set `sqlalchemy.url` in a local config beside the root config, or
 supply a Connection through `Config.attributes["connection"]` as tests do. Do not
-casually modify released revisions. `tests/test_migrations.py` checks one initial
-head, empty upgrades, idempotency with populated storage, and populated
+casually modify released revisions. `tests/test_migrations.py` checks the linear
+baseline/diagnostics head, empty upgrades, idempotency with populated storage, and populated
 head → base → head against ORM types, defaults, FKs, indexes and CHECK constraints.
 Registry/index/Task/telemetry/Council tests additionally check identity, historical
 retention, foreign keys and lifecycle behavior. Downgrades remove schema/data;
@@ -104,6 +110,8 @@ itself is offline and creates only temporary synthetic storage. It checks:
 - All production module imports resolve under the clean venv.
 - Migration scripts/template and dashboard templates, CSS, JS, HTMX/license data.
 - Console-script metadata and `--help` for the operator CLI and retained modules.
+- Installed diagnostic CLI health/probe/read with offline synthetic Providers,
+  checkpoint restart and the baseline → head → baseline → head migration roundtrip.
 - Installed operator setup, Project lifecycle, read-only DB status, Worker/Agent
   config inspection, examples and confirmed deregistration.
 - The installed migration command creates the initial schema and upgrades twice.

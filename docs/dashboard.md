@@ -29,7 +29,7 @@ No new dashboard configuration forms or destructive actions are introduced.
 | Route | Behavior |
 | --- | --- |
 | `/` | Package version, queried database/TaskEngine status, Project/Worker/Agent counts, durable state counts, latest 10 submissions, first 20 telemetry Worker groups in identifier order |
-| `/workers` | Paginated configured IDs, Provider/model, deployment label, context window, tools/streaming capabilities; health is configured/unknown |
+| `/workers` | Paginated configured IDs, Provider/model, deployment label, context window, declared tools/streaming capabilities and separate persisted health/probe observations |
 | `/projects` | Paginated Registry names/IDs/roots and cached Index checkpoint timestamp/observed HEAD; no source reads or recursive inspection |
 | `/tasks` | Bounded history with state, Project UUID, Agent ID and Worker ID filters; deterministic descending creation time then Task ID |
 | `/tasks/{task_id}` | Identity, state, historical Provider/model, lifecycle timestamps, request, final answer, safe termination category, telemetry and metadata timeline |
@@ -182,7 +182,7 @@ retain their existing platform skips; Linux mocks/regressions do not establish
 native Windows integration evidence.
 
 The dashboard does not provide authentication, cross-process subscriptions, a combined
-MCP/web launcher, task submission UI, live Worker health, live Git inspection,
+MCP/web launcher, task submission UI, active Worker probes, live Git inspection,
 time-range filters, retention, distributed leases, event replay, Worker rankings,
 routing or a frontend build. Overview recent activity is recent submissions with
 current lifecycle; it is not a separately invented audit-event log. Live telemetry
@@ -203,3 +203,19 @@ and observed write counters. Source/output stays escaped plain text. “Remove
 workspace” is a terminal-only POST with confirmation and existing CSRF checks;
 review/export uncommitted changes first. The task branch is retained and no
 push/merge controls are provided. See [coding](coding.md) for trust/recovery limits.
+
+## Worker diagnostics
+
+The Workers page separates TOML Configuration from Last observed diagnostics.
+It reads the small durable diagnostic checkpoints, including unknown/partial
+metrics, configured capability labels, health/model presence, each explicit probe
+outcome and completion/last success/failure timestamps. Endpoint class is conservative
+literal address scope; hostnames stay unknown and no endpoint URL/path is displayed.
+A configuration change suppresses earlier target evidence.
+
+Use the CLI instructions on the page for explicit cheap health or one synthetic
+inference. There are no dashboard probe buttons or inference on GET, page load or
+refresh. Remote/cloud probes send fixed synthetic data and can incur cost/retention.
+Task telemetry remains separately available on overview/detail. See
+[Worker diagnostics](worker-diagnostics.md) for metrics and limits. Existing trusted
+local exposure, Host/CSRF protections and escaping apply unchanged.

@@ -52,6 +52,12 @@ validators in its own worktree, based on committed HEAD. Dirty primary changes
 are preserved. Workspaces remain for review and explicit cleanup. Runtime coding
 does not commit, push, merge or create PRs.
 
+Worker diagnostics separate declared capabilities, cheap health, synthetic inference
+observations and historical Task telemetry. Use `agentforge worker probe --help`
+for an explicit small generation/tool/streaming probe and `worker diagnostics`
+for persisted evidence. The dashboard never probes on load. Remote probes send
+fixed synthetic data and can incur cost. See [Worker diagnostics](docs/worker-diagnostics.md).
+
 ## Install and quick start
 
 Requires Python 3.12+ and a reachable, operator-configured inference endpoint with
@@ -227,6 +233,7 @@ for explicit review/recovery.
 ## Documentation and development
 
 - [Operator setup and administration](docs/operator-cli.md)
+- [Worker diagnostics and explicit probes](docs/worker-diagnostics.md)
 - [Architecture and ownership](docs/architecture.md)
 - [Projects, Python Index and read-only tools](docs/repository.md)
 - [Tasks, lifecycle and telemetry definitions](docs/tasks.md)

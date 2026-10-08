@@ -33,6 +33,7 @@ from agentforge.tasks.models import (
 )
 from agentforge.tasks.observation import ObservationUnavailable
 from agentforge.telemetry.models import TelemetryUnavailable
+from agentforge.workers.diagnostics import DiagnosticsUnavailable
 
 _ASSETS = Path(__file__).parent
 _COOKIE = "agentforge_csrf"
@@ -246,10 +247,18 @@ def create_app(
     async def workers(request: Request):
         values = query(request)
         page = core().list_workers(limit=values.limit, offset=values.offset)
+        try:
+            diagnostics = {
+                worker.worker_id: core().worker_diagnostics.get(worker.worker_id)
+                for worker in page.workers
+            }
+        except DiagnosticsUnavailable:
+            return failure(request, "storage_unavailable", 503)
         return render(
             request,
             "workers.html",
             workers=page.workers,
+            diagnostics=diagnostics,
             **pagination(request, values, page.next_offset is not None),
         )
 

@@ -553,7 +553,9 @@ def test_start_requires_current_schema_before_recovery_or_execution(setup):
             await engine.close()
         with setup.database[0].begin() as connection:
             connection.execute(
-                text("UPDATE alembic_version SET version_num = '0001_initial'")
+                text(
+                    "UPDATE alembic_version SET version_num = '0002_worker_diagnostics'"
+                )
             )
         # Rejection releases the process owner; a properly initialized database
         # can subsequently recover and execute on a new engine.
