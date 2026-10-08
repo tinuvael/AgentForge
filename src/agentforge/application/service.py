@@ -7,7 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import Engine
 
-from agentforge.agents import REPO_EXPLORER, Agent, AgentRuntime, repository_toolset
+from agentforge.agents import Agent, AgentRuntime, repository_toolset
 from agentforge.application.contracts import (
     AgentInfo,
     AgentsPage,
@@ -22,10 +22,11 @@ from agentforge.application.contracts import (
 )
 from agentforge.application.councils import CouncilService
 from agentforge.application.dashboard import DashboardQueries
+from agentforge.application.definitions import shipped_agents
 from agentforge.application.errors import ServiceError
 from agentforge.coding.config import load_coding
 from agentforge.coding.service import CodingWorkspaceManager
-from agentforge.coding.tools import CODER, coding_toolset
+from agentforge.coding.tools import coding_toolset
 from agentforge.core.inference import Provider
 from agentforge.db.coding import WorkspaceRepository
 from agentforge.db.councils import CouncilRepository
@@ -82,7 +83,7 @@ class Application:
         agents = (
             tuple(agents)
             if agents is not None
-            else ((REPO_EXPLORER, CODER) if coding_config else (REPO_EXPLORER,))
+            else shipped_agents(coding_enabled=coding_config is not None)
         )
         self.database = database
         sessions = create_session_factory(database)

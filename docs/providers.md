@@ -145,6 +145,11 @@ Worker/request options are Ollama generation options; context window maps to
 `num_ctx`. Native tool names/arguments normalize into structured calls, with local
 correlation IDs when Ollama omits IDs. Tool results use native `tool_name`.
 
+The [operator CLI](operator-cli.md#workers) reuses TOML parsing/factory validation
+for offline `worker config-check`/`worker list` and existing Provider health for
+an explicit `worker check <id>`. Ollama checks model availability; compatible
+Providers truthfully return `not_probed`. No benchmark or health history is added.
+
 Each operation owns its HTTP client and response. Bodies, including model lists,
 are limited to 2 MiB; stream lines to 256 KiB and total stream bytes to 4 MiB,
 including blank lines. Byte limits apply before JSON parsing. Identity encoding is

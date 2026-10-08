@@ -38,7 +38,7 @@ The implementation, trust boundaries and tested limits follow below.
 
 Coding is opt-in. Supply `coding_config=CodingConfig(...)` when composing the
 Application, or `--coding /absolute/path/coding.local.toml` to either
-`python -m agentforge.mcp.server` or `python -m agentforge.web.server`.
+`agentforge mcp` or `agentforge web` (the original module entrypoints also work).
 Without that configuration, only Repo Explorer is shipped by default. With it,
 `coder` is additionally discoverable. Custom Agents must explicitly declare
 `workspace_mode="isolated_write"` and an explicit tool allowlist. Council rejects
@@ -65,7 +65,13 @@ argv. Configuration is global to this host instance; per-Project
 validation profiles are not implemented.
 
 Migrate explicitly with
-`python -m agentforge.db.migrate --database-url sqlite:///agentforge.db`.
+`agentforge db upgrade --database-url sqlite:///agentforge.db`.
+Inspect/validate setup with `agentforge coding show --coding coding.local.toml`
+and `agentforge coding check --coding coding.local.toml --database-url sqlite:///agentforge.db`.
+Show omits validator argv; check reads host configuration and registered roots
+without running Git or validators or creating worktrees. Passing these checks
+never replaces Task-time root/repository/identity checks. See the
+[operator guide](operator-cli.md#coding-and-agents).
 `coding_workspaces` stores one record per Task: workspace/Project/Worker identity,
 branch, base, private paths, opened root identities, UTC creation time, lifecycle
 state and bounded counters/validation observations. Source bodies and complete

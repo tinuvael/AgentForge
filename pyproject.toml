@@ -26,6 +26,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.9,<1", "build>=1.2,<2"]
 
+[project.scripts]
+agentforge = "agentforge.cli:main"
+
 [project.urls]
 Repository = "https://github.com/tinuvael/AgentForge"
 Issues = "https://github.com/tinuvael/AgentForge/issues"

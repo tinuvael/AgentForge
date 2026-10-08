@@ -2,10 +2,13 @@
 
 import asyncio
 import importlib
+import json
+import os
 import pkgutil
 import subprocess
 import sys
-from importlib import resources
+import sysconfig
+from importlib import metadata, resources
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -23,6 +26,18 @@ from agentforge.mcp.server import TOOL_CONTRACTS, create_server
 from agentforge.providers.ollama import OllamaProvider
 from agentforge.web.app import create_app
 from agentforge.workers.config import WorkersConfig
+
+
+def operator(*args, expected=0):
+    executable = Path(sysconfig.get_path("scripts")) / (
+        "agentforge.exe" if os.name == "nt" else "agentforge"
+    )
+    result = subprocess.run(
+        [str(executable), *map(str, args)], capture_output=True, text=True, timeout=15
+    )
+    assert result.returncode == expected, result.stderr
+    assert "Traceback" not in result.stderr
+    return json.loads(result.stdout) if result.stdout.startswith("{") else result.stdout
 
 
 def package_checks():
@@ -60,6 +75,32 @@ def package_checks():
             timeout=10,
         )
         assert "--database-url" in result.stdout
+    entry = metadata.distribution("agentforge").entry_points
+    assert any(
+        e.name == "agentforge"
+        and e.value == "agentforge.cli:main"
+        and e.group == "console_scripts"
+        for e in entry
+    )
+    for arguments in (
+        (),
+        ("db",),
+        ("project",),
+        ("worker",),
+        ("agent",),
+        ("coding",),
+        ("mcp",),
+        ("web",),
+    ):
+        assert "usage:" in operator(*arguments, "--help")
+    result = subprocess.run(
+        [sys.executable, "-m", "agentforge", "--help"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert "project" in result.stdout
     print("Installed package, migrations, web assets and CLI help: OK")
 
 
@@ -67,6 +108,12 @@ async def smoke():
     with TemporaryDirectory() as directory:
         root = Path(directory)
         url = "sqlite:///" + (root / "smoke.db").as_posix()
+        assert (
+            operator("db", "status", "--database-url", url, expected=4)["state"]
+            == "uninitialized"
+        )
+        assert not (root / "smoke.db").exists()
+        operator("db", "upgrade", "--database-url", url)
         for _ in range(2):
             subprocess.run(
                 [sys.executable, "-m", "agentforge.db.migrate", "--database-url", url],
@@ -105,26 +152,74 @@ async def smoke():
             '[[workers]]\nid = "offline"\nprovider = "ollama"\n'
             'endpoint = "http://worker.invalid"\nmodel = "offline"\n'
         )
-        parameters = StdioServerParameters(
-            command=sys.executable,
-            args=[
-                "-m",
-                "agentforge.mcp.server",
-                "--database-url",
-                url,
-                "--workers",
-                str(config),
-            ],
+        operator("worker", "config-check", "--workers", config)
+        assert (
+            operator("worker", "list", "--workers", config)["availability"]
+            == "not_probed"
         )
-        async with asyncio.timeout(15), stdio_client(parameters) as (read, write):
-            async with ClientSession(read, write) as client:
-                await client.initialize()
-                assert {tool.name for tool in (await client.list_tools()).tools} == {
-                    contract.name for contract in TOOL_CONTRACTS
-                }
-                status = await client.call_tool("agentforge_status", {})
-                assert not status.isError and status.structuredContent["available"]
-        print("Installed MCP module: stdio startup, discovery, status and shutdown: OK")
+        assert operator("agent", "list")["agents"][0]["id"] == "repo_explorer"
+        project_root = root / "project with spaces"
+        project_root.mkdir()
+        (project_root / "example.py").write_text("def example(): return 1\n")
+        identity = operator(
+            "project", "add", project_root, "--name", "Synthetic", "--database-url", url
+        )["registration"]["project_id"]
+        operator(
+            "project",
+            "add",
+            project_root,
+            "--name",
+            "Duplicate",
+            "--database-url",
+            url,
+            expected=5,
+        )
+        assert (
+            operator("project", "list", "--database-url", url)["projects"][0][
+                "indexed_at"
+            ]
+            is None
+        )
+        operator("project", "inspect", identity, "--database-url", url)
+        assert (
+            operator("project", "index", identity, "--database-url", url)["file_count"]
+            == 1
+        )
+        operator("project", "remove", identity, "--database-url", url, expected=2)
+        operator("project", "remove", identity, "--database-url", url, "--yes")
+        assert operator("project", "list", "--database-url", url)["projects"] == []
+        assert (project_root / "example.py").exists()
+        assert operator("db", "status", "--database-url", url)["state"] == "current"
+        # Example files are explicit verification inputs, never runtime defaults.
+        examples = Path(__file__).resolve().parents[1] / "config"
+        for example in ("workers.example.toml", "workers.providers.example.toml"):
+            operator("worker", "config-check", "--workers", examples / example)
+        if os.name != "nt":
+            operator("coding", "show", "--coding", examples / "coding.example.toml")
+        print("Installed operator setup, Project lifecycle, configuration/examples: OK")
+        executable = Path(sysconfig.get_path("scripts")) / (
+            "agentforge.exe" if os.name == "nt" else "agentforge"
+        )
+        for launcher, arguments in (
+            (str(executable), ["mcp"]),
+            (sys.executable, ["-m", "agentforge.mcp.server"]),
+        ):
+            parameters = StdioServerParameters(
+                command=launcher,
+                args=[*arguments, "--database-url", url, "--workers", str(config)],
+            )
+            async with asyncio.timeout(15), stdio_client(parameters) as (read, write):
+                async with ClientSession(read, write) as client:
+                    await client.initialize()
+                    assert {
+                        tool.name for tool in (await client.list_tools()).tools
+                    } == {contract.name for contract in TOOL_CONTRACTS}
+                    status = await client.call_tool("agentforge_status", {})
+                    assert not status.isError and status.structuredContent["available"]
+        print(
+            "Installed MCP console script/module: stdio startup, discovery, "
+            "status and shutdown: OK"
+        )
         workers = WorkersConfig(
             workers=[
                 Worker(

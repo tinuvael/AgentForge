@@ -11,6 +11,7 @@ has no automatic routing, replacement, ranking or local answer synthesis.
 | --- | --- |
 | Director | Chooses the binding and request, polls/cancels, evaluates results and accepts changes. |
 | Application | Composes and owns one database, TaskEngine, registry, Index, tools, Councils and telemetry. |
+| Operator CLI | Explicit trusted host setup/admin adapter to Registry, Index, packaged migrations, configuration parsers and Provider health. |
 | Agent | Defines behavior, allowed tools, runtime limits and read-only or isolated-write workspace mode. |
 | Worker | Identifies a configured inference target: protocol, connection, model and capabilities. |
 | ProviderConnection | Names an operator-controlled endpoint and optional credential environment variable. |
@@ -55,6 +56,16 @@ inside a process; there is no distributed/cross-process lease. The shipped CLI
 entrypoints host MCP and dashboard separately. They must not run simultaneously
 against the same database. An embedding can share one Application, but no combined
 server entrypoint is provided.
+
+The installed `agentforge` CLI is separate from model tools. Administrative
+commands compose only the required Registry/Index/storage/configuration services;
+they never construct/start a TaskEngine or perform task recovery. Agent discovery
+shares shipped definitions with Application; factory binding validation and TOML
+parsing are reused. `mcp` and `web` share the existing service parsers/lifecycles
+and retain one-owner semantics. No host registration capability is exposed through
+MCP. Database status is read-only; registration/index/removal/upgrade are explicit,
+with confirmation for deregistration. Stop executors before administrative writes.
+See [operator contracts and exit codes](operator-cli.md).
 
 ## Execution and permissions
 
