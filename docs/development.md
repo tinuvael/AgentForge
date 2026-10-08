@@ -117,7 +117,8 @@ itself is offline and creates only temporary synthetic storage. It checks:
 - Installed operator setup, Project lifecycle, read-only DB status, Worker/Agent
   config inspection, examples and confirmed deregistration.
 - The installed migration command creates the initial schema and upgrades twice.
-- Actual SDK in-memory MCP discovery, scripted Task execution and telemetry.
+- Application/CLI/MCP discovery of the shipped Agents, scripted General Agent
+  document comparison using actual read-only tools, bounded execution and telemetry.
 - Installed MCP console script and module startup/discovery/status over real
   stdio, without inference.
 - Real ASGI dashboard lifespan, pages/static resources and clean shutdown.

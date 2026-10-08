@@ -5,6 +5,7 @@ import importlib
 import json
 import os
 import pkgutil
+import shutil
 import subprocess
 import sys
 import sysconfig
@@ -22,8 +23,10 @@ from mcp.client.stdio import stdio_client
 from mcp.shared.memory import create_connected_server_and_client_session
 from sqlalchemy import inspect
 
+from agentforge.agents import GENERAL_AGENT, REPO_EXPLORER
 from agentforge.application.service import Application
 from agentforge.cli import main as operator_main
+from agentforge.coding.config import load_coding
 from agentforge.core.worker import Worker
 from agentforge.db.database import Base, create_database_engine
 from agentforge.db.migrate import _configuration
@@ -234,7 +237,10 @@ async def smoke():
             operator("worker", "list", "--workers", config)["availability"]
             == "not_probed"
         )
-        assert operator("agent", "list")["agents"][0]["id"] == "repo_explorer"
+        assert [a["id"] for a in operator("agent", "list")["agents"]] == [
+            "general_agent",
+            "repo_explorer",
+        ]
         project_root = root / "project with spaces"
         project_root.mkdir()
         (project_root / "example.py").write_text("def example(): return 1\n")
@@ -307,6 +313,15 @@ async def smoke():
                     } == {contract.name for contract in TOOL_CONTRACTS}
                     status = await client.call_tool("agentforge_status", {})
                     assert not status.isError and status.structuredContent["available"]
+                    assert status.structuredContent["agent_count"] == 2
+                    agents = await client.call_tool("list_agents", {})
+                    assert not agents.isError
+                    assert [
+                        a["agent_id"] for a in agents.structuredContent["agents"]
+                    ] == [
+                        "general_agent",
+                        "repo_explorer",
+                    ]
         print(
             "Installed MCP console script/module: stdio startup, discovery, "
             "status and shutdown: OK"
@@ -322,18 +337,80 @@ async def smoke():
                 )
             ]
         )
-        provider = OllamaProvider(
-            transport=httpx.MockTransport(
-                lambda _: httpx.Response(
-                    200,
-                    json={
-                        "model": "offline",
-                        "message": {"content": "Offline smoke completed."},
-                        "done": True,
-                    },
-                )
-            )
+        private = root / "coding workspaces"
+        private.mkdir(mode=0o700)
+        git_executable = shutil.which("git")
+        assert git_executable, "Installed discovery smoke requires local Git"
+        coding_path = root / "coding.toml"
+        coding_path.write_text(
+            "workspace_parent=" + json.dumps(str(private)) + "\n"
+            "git_executable=" + json.dumps(str(Path(git_executable).resolve())) + "\n"
         )
+        assert [
+            a["id"]
+            for a in operator("agent", "list", "--coding", coding_path)["agents"]
+        ] == ["general_agent", "repo_explorer", "coder"]
+        coding_app = Application(
+            create_database_engine(url),
+            workers,
+            coding_config=load_coding(str(coding_path)),
+        )
+        async with create_connected_server_and_client_session(
+            create_server(lambda: coding_app)
+        ) as client:
+            assert [a.agent_id for a in coding_app.list_agents().agents] == [
+                "coder",
+                "general_agent",
+                "repo_explorer",
+            ]
+            assert coding_app.status().agent_count == 3
+            agents = await client.call_tool("list_agents", {})
+            assert not agents.isError
+            assert [a["agent_id"] for a in agents.structuredContent["agents"]] == [
+                "coder",
+                "general_agent",
+                "repo_explorer",
+            ]
+        print("Coding-enabled installed CLI/Application/MCP Agent discovery: OK")
+        requests = []
+        final = (
+            "README.md:1 specifies one process per database; operations.txt:1 "
+            "places two services on separate databases. The notes are consistent."
+        )
+
+        def scripted(request):
+            payload = json.loads(request.content)
+            requests.append(payload)
+            assert {t["function"]["name"] for t in payload["tools"]} == set(
+                GENERAL_AGENT.allowed_tools
+            )
+            if len(requests) == 1:
+                assert payload["messages"][0]["content"] == GENERAL_AGENT.system_prompt
+                message = {
+                    "content": "",
+                    "tool_calls": [
+                        {"function": {"name": "read_file", "arguments": {"path": path}}}
+                        for path in ("README.md", "operations.txt")
+                    ],
+                }
+            else:
+                assert len(requests) == 2
+                evidence = [
+                    json.loads(m["content"])
+                    for m in payload["messages"]
+                    if m["role"] == "tool"
+                ]
+                assert len(evidence) == 2 and all(body["ok"] for body in evidence)
+                assert [body["result"]["content"] for body in evidence] == [
+                    "Deployment uses one process per database.\n",
+                    "Run two services on separate databases.\n",
+                ]
+                message = {"content": final}
+            return httpx.Response(
+                200, json={"model": "offline", "message": message, "done": True}
+            )
+
+        provider = OllamaProvider(transport=httpx.MockTransport(scripted))
         apps = []
 
         def factory():
@@ -351,21 +428,55 @@ async def smoke():
                 t.name for t in TOOL_CONTRACTS
             }
             app = apps[-1]
-            project = app.projects.register_project("Synthetic", root)
+            assert [a.agent_id for a in app.list_agents().agents] == [
+                "general_agent",
+                "repo_explorer",
+            ]
+            agents = await client.call_tool("list_agents", {})
+            assert not agents.isError
+            for observed, definition in zip(
+                agents.structuredContent["agents"],
+                (GENERAL_AGENT, REPO_EXPLORER),
+                strict=True,
+            ):
+                assert observed["agent_id"] == definition.id
+                assert observed["allowed_tools"] == list(definition.allowed_tools)
+                assert observed["workspace_mode"] == "project_readonly"
+                assert observed["limits"] == definition.limits.model_dump()
+            (project_root / "README.md").write_text(
+                "Deployment uses one process per database.\n"
+            )
+            (project_root / "operations.txt").write_text(
+                "Run two services on separate databases.\n"
+            )
+            before = {path.name: path.read_bytes() for path in project_root.iterdir()}
+            project = app.projects.register_project("Synthetic", project_root)
             result = await client.call_tool(
                 "delegate_task",
                 {
                     "project_id": str(project.id),
-                    "agent_id": "repo_explorer",
+                    "agent_id": "general_agent",
                     "worker_id": "offline",
-                    "task": "Return a brief answer.",
+                    "task": (
+                        "Compare README.md and operations.txt "
+                        "for deployment contradictions."
+                    ),
                 },
             )
             assert not result.isError
             task = await app.tasks.wait_task(result.structuredContent["task_id"])
-            assert task.state == "completed"
-            assert app.telemetry.get_for_task(task.task_id).model_call_count == 1
-        print("MCP SDK discovery, scripted Task, telemetry and shutdown: OK")
+            assert task.state == "completed" and task.final_answer == final
+            execution = task.execution_result
+            assert execution.steps == 2 and execution.tool_call_count == 2
+            assert (
+                execution.tool_output_bytes
+                <= GENERAL_AGENT.limits.max_tool_output_bytes
+            )
+            assert app.telemetry.get_for_task(task.task_id).model_call_count == 2
+            assert {
+                path.name: path.read_bytes() for path in project_root.iterdir()
+            } == before
+        print("Application/MCP discovery, General Agent document Task, telemetry: OK")
         web = create_app(factory)
         async with web.router.lifespan_context(web):
             async with httpx.AsyncClient(
@@ -374,6 +485,11 @@ async def smoke():
                 for path in ("/", "/workers", "/projects", "/tasks", "/councils"):
                     response = await client.get(path)
                     assert response.status_code == 200, path
+                    if path == "/":
+                        assert (
+                            "Configured Agents</span><strong>2</strong>"
+                            in response.text
+                        )
                     if path == "/workers":
                         assert "Configuration" in response.text
                         assert "Last observed diagnostics" in response.text

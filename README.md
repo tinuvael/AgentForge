@@ -1,8 +1,8 @@
 # AgentForge
 
 AgentForge is execution infrastructure for agents directed by an external
-orchestrator. It lets a Director delegate repository exploration or isolated
-coding work to an explicitly selected inference Worker, then inspect durable
+orchestrator. It lets a Director delegate read-only analysis, repository exploration
+or isolated coding work to an explicitly selected inference Worker, then inspect durable
 results, evidence and telemetry.
 
 Use it when your Director needs controlled repository tools, multiple local or
@@ -16,7 +16,7 @@ AgentForge does not automatically route, rank, replace Workers or choose a winne
 | --- | --- |
 | **Director** | External orchestrator, such as Codex or another MCP client. Chooses Project, Agent, Worker and request; evaluates answers and accepts changes. |
 | **AgentForge** | Central execution host. Validates bindings, enforces tool boundaries, manages Tasks/worktrees and persists history. |
-| **Agent** | Behavior, allowed tools and runtime limits. Shipped Agents are `repo_explorer` and opt-in `coder`. |
+| **Agent** | Behavior, allowed tools and runtime limits. Shipped Agents are `general_agent`, `repo_explorer` and opt-in `coder`. |
 | **Worker** | Configured inference target: model, Provider connection, capabilities and deployment label. It has no direct repository or unrestricted shell access. |
 | **Provider** | Inference protocol adapter. Shipped protocols are Ollama and OpenAI-compatible text/tool Chat Completions. |
 
@@ -36,8 +36,6 @@ UUID and recorded filesystem identity. Git is optional for exploration. A cached
 **Project Index** extracts Python symbols and relationships without executing
 source; source tools provide evidence when the cache is stale or incomplete.
 
-**Repo Explorer** reads source, searches working files or Git index contents, and
-inspects scoped status/diffs. It cannot write, execute tests or use a shell.
 A **Task** durably binds Project/Agent/Worker/request and runs under bounded
 steps, time, tool output and context. Terminal **telemetry** records observed
 usage/timings and coverage; missing measurements stay unknown. Comparisons do not
@@ -51,6 +49,51 @@ The opt-in **coding Agent** edits bounded UTF-8 files and runs named trusted
 validators in its own worktree, based on committed HEAD. Dirty primary changes
 are preserved. Workspaces remain for review and explicit cleanup. Runtime coding
 does not commit, push, merge or create PRs.
+
+## Choosing an Agent
+
+The Director explicitly selects the Agent and Worker; there is no automatic routing
+or fallback. `agentforge agent list` and MCP `list_agents` expose the same shipped
+definitions. Defaults are `general_agent`, then `repo_explorer`; enabling coding
+adds `coder`.
+
+| Agent | Purpose | Representative tasks |
+| --- | --- | --- |
+| **General Agent** (`general_agent`) | Broad read-only analysis, comparison and synthesis of supplied context and project-local evidence. | Summarize the deployment model from README and architecture docs; compare three configurations; turn setup docs into a checklist; identify contradictions in local notes; summarize documented Windows support. |
+| **Repo Explorer** (`repo_explorer`) | Code/repository investigation with precise implementation evidence and cached Python structure navigation. | Trace Task cancellation; follow a function's dependencies; find the implementation and tests for `git_diff`. |
+| **Coder** (`coder`, opt-in) | Isolated controlled modification and named validation. | Edit a configuration or implementation and run an operator-configured validator in a separate worktree. |
+
+General Agent uses only `list_files`, `read_file`, `search_code` (literal text search,
+including documentation), `git_status` and `git_diff`. Its Project is supporting
+context: it may answer entirely from the supplied Task text when sufficient. It
+does not need a populated Project Index. Repo Explorer also has Python symbol/map
+and relationship tools plus Git-index search for code investigation. Both read-only
+Agents cite inspected project evidence and distinguish facts from inference.
+
+General Agent has limits of 8 model turns, 90 seconds, 12 tool calls, 12,000 bytes
+per tool result, 48,000 total tool-result bytes and 24,000 approximate context tokens
+(also capped by the selected Worker's context window). All file access uses existing
+registered-root authorization, sensitive-path filtering and bounded UTF-8 text tools.
+It cannot write, execute code, use a shell, access the external network, select
+Workers, delegate or expand permissions. A Worker configured without tool support
+is rejected even for a request that needs no tools; there is no no-tool fallback.
+General Agent is valid for independent read-only Councils without answer sharing
+or local judging/synthesis.
+
+A registered Project ID remains required, even for supplied-context-only analysis.
+Project-less Tasks are a future design question. This feature adds no research/web
+tools, routing/planning, subagents, memory/RAG or schema changes.
+
+Use ordinary MCP delegation with explicit discovered IDs, for example:
+
+```json
+{
+  "project_id": "<registered UUID>",
+  "agent_id": "general_agent",
+  "worker_id": "local-4080",
+  "task": "Read README.md and the architecture docs and summarize the deployment model, citing the documents and noting gaps."
+}
+```
 
 Worker diagnostics separate declared capabilities, cheap health, synthetic inference
 observations and historical Task telemetry. Use `agentforge worker probe --help`

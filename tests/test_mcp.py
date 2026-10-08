@@ -11,7 +11,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from pydantic import ValidationError
 from sqlalchemy import update
 
-from agentforge.agents import REPO_EXPLORER
+from agentforge.agents import GENERAL_AGENT, REPO_EXPLORER
 from agentforge.application.service import Application
 from agentforge.core.inference import GenerationResult, ToolCall
 from agentforge.core.worker import Worker
@@ -197,10 +197,15 @@ def test_discovery_registration_schemas_and_privacy(setup):
                 for w in workers["workers"]
             )
             agents = await call(client, "list_agents")
-            assert agents["agents"][0]["allowed_tools"] == list(
-                REPO_EXPLORER.allowed_tools
-            )
-            assert agents["agents"][0]["limits"] == REPO_EXPLORER.limits.model_dump()
+            assert [a["agent_id"] for a in agents["agents"]] == [
+                "general_agent",
+                "repo_explorer",
+            ]
+            for discovered, definition in zip(
+                agents["agents"], (GENERAL_AGENT, REPO_EXPLORER), strict=True
+            ):
+                assert discovered["allowed_tools"] == list(definition.allowed_tools)
+                assert discovered["limits"] == definition.limits.model_dump()
             raw = json.dumps([projects, workers, agents])
             assert PRIVATE not in raw and "endpoint" not in raw
             assert "system_prompt" not in raw and "recommended" not in raw

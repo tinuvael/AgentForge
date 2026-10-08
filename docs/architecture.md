@@ -69,6 +69,21 @@ See [operator contracts and exit codes](operator-cli.md).
 
 ## Execution and permissions
 
+`application.definitions.shipped_agents` composes `general_agent`, `repo_explorer`
+and optional `coder` in that order for Application and CLI. Application discovery
+sorts by ID deterministically (with coding: `coder`, `general_agent`, `repo_explorer`);
+MCP and dashboard consume Application discovery/status without separate definitions.
+The Director always selects the Agent explicitly.
+
+General Agent analyzes supplied Task context and, only when useful, project-local
+documents/configuration using `list_files`, `read_file`, `search_code`, `git_status`
+and `git_diff`. Repo Explorer investigates implementation with the richer cached
+Python Index tools and Git-index search. No new tools or authorization path are
+introduced. General Agent needs no Index refresh, but still requires a registered
+Project ID and live root authorization, including supplied-context-only requests.
+Project-less Tasks are deferred. Both read-only Agents are eligible for Councils;
+the same Worker/tool capability validation applies without fallback.
+
 1. Submission checks the registered Project, actual Agent and explicit Worker,
    configured Provider binding, tool definitions and known tool capability. It
    commits a queued Task without probing inference or scanning source.
@@ -97,9 +112,14 @@ uses non-streaming generation; direct Provider callers can use scoped streams.
 Provider calls have deadlines. Synchronous tools cannot be interrupted mid-call;
 their own scan/process limits apply and runtime checks cancellation/time afterward.
 
+General Agent explicitly uses 8 model turns, 12 tool calls and 90 seconds: several-file
+analysis needs less exploration than code tracing. It retains the 12,000-byte
+per-result, 48,000-byte cumulative and 24,000-token context budgets for document
+excerpts and synthesis. Global bounds and Repo Explorer defaults are unchanged.
+
 Repository data and model output are untrusted. Neither can change the Project,
-Worker, endpoint, tool catalog, workspace root, Git ref or validator argv. Repo
-Explorer has read-only tools. `coder` uses a separate workspace catalog with
+Worker, endpoint, tool catalog, workspace root, Git ref or validator argv. General
+Agent and Repo Explorer have read-only tools. `coder` uses a separate workspace catalog with
 bounded text mutation and named operator validators. Councils reject any Agent
 with isolated-write capability, including custom Agent IDs.
 

@@ -479,10 +479,11 @@ def test_coding_configuration_and_host_checks(database, tmp_path, capsys):
         is False
     )
     enabled = invoke(capsys, "agent", "list", "--coding", config)["agents"]
-    assert {a["id"] for a in enabled} == {"repo_explorer", "coder"}
+    assert [a["id"] for a in enabled] == ["general_agent", "repo_explorer", "coder"]
     assert all("system_prompt" not in a for a in enabled)
     assert [a["id"] for a in invoke(capsys, "agent", "list")["agents"]] == [
-        "repo_explorer"
+        "general_agent",
+        "repo_explorer",
     ]
     parent.chmod(0o755)
     invoke(
