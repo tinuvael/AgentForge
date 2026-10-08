@@ -82,6 +82,15 @@ explicit cancellation request already won. No remote inference kill is claimed.
 
 ## Live observation
 
+Dashboard timelines and Director `watch_task` progress use the same safe
+`TaskObserver`/`TimelineEvent` projection. Coding Tasks include actual workspace
+provisioning and validation lifecycle metadata, without paths, commands or captures
+in that timeline. Existing Task/Council SSE still sends empty reload hints; its
+bounded queues, authoritative reconnect and HTML refresh behavior are unchanged.
+Directors watch individual Council participant Tasks. See
+[MCP Task progress](mcp.md#live-safe-task-progress) for the separate request-scoped
+adapter; this does not introduce a combined MCP/web launcher.
+
 A small optional `ExecutionObservations.on_trace` callback publishes the runtime's
 already-recorded trace metadata to TaskEngine's in-process observer. Observer failure
 cannot change the recorded trace or stop execution. Durable Task state and terminal

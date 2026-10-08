@@ -26,6 +26,17 @@ Worker performs inference; AgentForge tools access Project files centrally.
 (`steps`, `tool_call_count`, `tool_output_bytes`) and one optional `TokenUsage` per
 successful model turn remain inside `execution_result`. Unknown usage remains
 unknown. There is no second runtime outcome schema or fabricated aggregate.
+For live metadata, `Application.watch_task(task_id=...)` owns an async-context-managed
+iterator of bounded `TaskProgress` snapshots over the existing TaskObserver. MCP
+`watch_task` adapts it to standard request-scoped progress notifications, separately
+from prompt `delegate_task` submission. Polling `get_task` and durable final answers
+are unchanged. Dashboard and Director timelines share the allowlist projection,
+including safe workspace/validation lifecycle metadata. Reconnect reloads current
+state; overflow/truncation requests resync, with no durable replay guarantee. Watch
+cancellation releases observation without cancelling execution; Task cancellation
+and executor shutdown retain their existing policies. See
+[Director progress](mcp.md#live-safe-task-progress) for the contract and client rules.
+
 Project identity deliberately has no cascading foreign key: deregistration
 removes configuration/index, but retains Task history. A queued Task whose Project
 was removed fails runtime configuration validation; it never changes Project.

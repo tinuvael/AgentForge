@@ -69,6 +69,17 @@ def test_trace_callback_failure_does_not_change_recording():
     assert observations.trace == [item]
 
 
+@pytest.mark.parametrize("duration", [float("inf"), float("nan"), -1.0])
+def test_projection_sanitizes_invalid_metadata(duration):
+    event = TraceEvent(step=1, kind="model_response").model_copy(
+        update={"reason": PRIVATE, "success": PRIVATE, "duration_seconds": duration}
+    )
+    public = metadata(event)
+    assert public.reason is None and public.success is None
+    assert public.duration_seconds is None
+    assert PRIVATE not in str(public)
+
+
 def test_bounded_buffers_queues_resync_and_terminal_priority():
     hub = TaskObserver()
     identity = uuid4()

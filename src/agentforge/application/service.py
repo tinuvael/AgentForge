@@ -1,8 +1,10 @@
 """One composition root and shared application operations for external adapters."""
 
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from importlib.metadata import version
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import Engine
@@ -16,6 +18,7 @@ from agentforge.application.contracts import (
     ProjectInfo,
     ProjectsPage,
     Status,
+    TaskProgress,
     TaskSnapshot,
     WorkerInfo,
     WorkersPage,
@@ -41,6 +44,7 @@ from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.factory import create_providers
 from agentforge.tasks.engine import TaskEngine
 from agentforge.tasks.models import TERMINAL_STATES, Task
+from agentforge.tasks.observation import Notice, ObservationUnavailable, task_timeline
 from agentforge.telemetry.service import TelemetryService
 from agentforge.tools.service import RepositoryTools
 from agentforge.workers.config import WorkersConfig, load_workers
@@ -241,7 +245,7 @@ class Application:
                 "director evaluates results."
             ),
             worker_selection="explicit_project_agent_worker_required",
-            task_operations=("delegate_task", "get_task", "cancel_task"),
+            task_operations=("delegate_task", "get_task", "watch_task", "cancel_task"),
             council_operations=("delegate_council", "get_council", "cancel_council"),
             coding_operations=(
                 "get_coding_workspace",
@@ -257,13 +261,15 @@ class Application:
             limitations=(
                 "No routing, ranking, fallback, judging or answer sharing.",
                 "Worker capabilities are configuration, not observed availability.",
-                "Delegation submits asynchronously; the director polls or cancels.",
+                "Delegation submits asynchronously; the director watches, "
+                "polls or cancels.",
                 "Repository tools require POSIX descriptors or native Windows "
                 "local NTFS handles; unsupported filesystems fail closed.",
                 "Ollama and the text/tool Chat Completions protocol are shipped.",
                 "Local trusted stdio only; one process per database, no "
                 "distributed lease.",
-                "No trace, reasoning, raw responses or telemetry analytics over MCP.",
+                "No raw trace, reasoning, raw responses or telemetry analytics "
+                "over MCP.",
             ),
         )
 
@@ -321,6 +327,72 @@ class Application:
 
     def get_task(self, *, task_id: UUID) -> TaskSnapshot:
         return snapshot(self.tasks.get_task(task_id))
+
+    def task_progress(
+        self, *, task_id: UUID, observation: Notice | Literal["snapshot"] = "snapshot"
+    ) -> TaskProgress:
+        task = self.tasks.get_task(task_id)
+        timeline, truncated = task_timeline(task, self.tasks.observer)
+        terminal = task.state in TERMINAL_STATES
+        return TaskProgress(
+            task_id=task.task_id,
+            state=task.state,
+            reason=task.reason,
+            error_code=task.error_code,
+            cancellation_requested=task.cancellation_requested_at is not None,
+            terminal=terminal,
+            observation="terminal"
+            if terminal and observation != "shutdown"
+            else observation,
+            resync_required=terminal
+            or observation in {"snapshot", "resync", "terminal", "shutdown"}
+            or truncated,
+            truncated=truncated,
+            timeline=timeline,
+        )
+
+    @asynccontextmanager
+    async def watch_task(
+        self, *, task_id: UUID
+    ) -> AsyncIterator[AsyncIterator[TaskProgress]]:
+        """Own a bounded subscription; callers must use the async context manager.
+
+        All database reads finish before yielding/waiting. Disconnect/cancellation
+        only releases this observer and never cancels the underlying Task.
+        """
+        initial = self.task_progress(task_id=task_id)
+        if initial.terminal:
+
+            async def terminal():
+                yield initial
+
+            updates = terminal()
+            try:
+                yield updates
+            finally:
+                await updates.aclose()
+            return
+        try:
+            # No await between identity validation and subscription registration.
+            with self.tasks.observer.subscribe(initial.task_id) as queue:
+
+                async def progress():
+                    while True:
+                        notice = await queue.get()
+                        current = self.task_progress(
+                            task_id=initial.task_id, observation=notice
+                        )
+                        yield current
+                        if current.terminal or notice == "shutdown":
+                            return
+
+                updates = progress()
+                try:
+                    yield updates
+                finally:
+                    await updates.aclose()
+        except ObservationUnavailable:
+            raise ServiceError("service_unavailable") from None
 
     def cancel_task(self, *, task_id: UUID) -> TaskSnapshot:
         return snapshot(self.tasks.cancel_task(task_id))

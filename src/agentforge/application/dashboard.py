@@ -7,7 +7,7 @@ from agentforge.application.contracts import TaskSnapshot
 from agentforge.projects.errors import ProjectNotFound
 from agentforge.projects.service import ProjectRegistry
 from agentforge.tasks.engine import TaskEngine
-from agentforge.tasks.observation import TRACE_LIMIT, TimelineEvent, metadata
+from agentforge.tasks.observation import TimelineEvent, task_timeline
 from agentforge.telemetry.models import (
     TaskTelemetry,
     TelemetryNotFound,
@@ -54,12 +54,7 @@ class DashboardQueries:
             telemetry = self.telemetry.get_for_task(task_id)
         except (TelemetryNotFound, TelemetryUnavailable):
             telemetry = None
-        if task.execution_result is not None:
-            trace = task.execution_result.trace
-            timeline = tuple(metadata(event) for event in trace[-TRACE_LIMIT:])
-            truncated = len(trace) > TRACE_LIMIT
-        else:
-            timeline, truncated = self.tasks.observer.timeline(task_id)
+        timeline, truncated = task_timeline(task, self.tasks.observer)
         answer = task.final_answer
         return TaskDetail(
             snapshot(task),

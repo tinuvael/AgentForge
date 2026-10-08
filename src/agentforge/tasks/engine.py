@@ -12,6 +12,7 @@ from agentforge.agents.models import (
     CancellationToken,
     ExecutionObservations,
     ExecutionResult,
+    TraceEvent,
 )
 from agentforge.agents.runtime import AgentRuntime
 from agentforge.councils.models import MAX_PARTICIPANTS, Council, InvalidCouncil
@@ -330,6 +331,11 @@ class TaskEngine:
                         self._workspaces.create(task)
                         arguments["coding_session"] = self._workspaces.bind(task, token)
                         provisioned = True
+                        observations.record_trace(
+                            TraceEvent(
+                                step=0, kind="workspace_provisioned", success=True
+                            )
+                        )
                     result = await self._runtime.run(
                         **arguments,
                         project_id=task.project_id,

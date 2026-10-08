@@ -217,6 +217,11 @@ class AgentRuntime:
                     raise _Stop("invalid_configuration")
                 tool_catalog = coding_session.tools
                 roots = coding_session.registry
+                coding_session.on_validation = lambda success, duration: event(
+                    "validation_started" if success is None else "validation_completed",
+                    success=success,
+                    duration_seconds=duration,
+                )
             else:
                 if coding_session is not None:
                     raise _Stop("invalid_configuration")

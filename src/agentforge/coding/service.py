@@ -4,6 +4,7 @@ import difflib
 import hashlib
 import os
 import stat
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -803,11 +804,19 @@ class WorkspaceRegistry:
 class CodingSession:
     def __init__(self, manager, task, cancellation):
         self.manager, self.task, self.cancellation = manager, task, cancellation
+        self.on_validation: Callable[[bool | None, float | None], None] | None = None
         self.registry = WorkspaceRegistry(self)
         self.reads = RepositoryTools(self.registry)
         from agentforge.coding.tools import coding_toolset
 
         self.tools = coding_toolset(self)
+
+    def _observe_validation(self, success, duration):
+        if self.on_validation is not None:
+            try:
+                self.on_validation(success, duration)
+            except Exception:
+                pass  # Observation cannot affect validation or Task execution.
 
     def read(self, project_id, arguments, budget):
         self.registry.get_project(project_id)
@@ -993,6 +1002,10 @@ class CodingSession:
                 run.model_dump(mode="json"),
             ]
             self.manager.repository.update(self.task.task_id, observations=observations)
+            self._observe_validation(
+                run.exit_code == 0 and not run.timed_out and not run.cancelled,
+                run.duration_seconds,
+            )
             return run
 
         with self.manager.open_root(self.task.task_id) as (_, root):
@@ -1014,6 +1027,7 @@ class CodingSession:
                         if isinstance(root, WindowsDirectory)
                         else f"/proc/self/fd/{root.fd}"
                     )
+                    self._observe_validation(None, None)
                     run = await validation_process(
                         command.argv,
                         cwd=cwd,

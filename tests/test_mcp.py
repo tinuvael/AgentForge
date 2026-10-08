@@ -35,6 +35,7 @@ PUBLIC_TOOLS = {
     "list_agents",
     "delegate_task",
     "get_task",
+    "watch_task",
     "cancel_task",
     "delegate_council",
     "get_council",

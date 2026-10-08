@@ -9,11 +9,14 @@ from collections import deque
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Literal, get_args
+from math import isfinite
+from typing import Annotated, Literal, get_args
 from uuid import UUID
 
-from agentforge.agents.models import TraceEvent
-from agentforge.tasks.models import TaskReason
+from pydantic import Field
+
+from agentforge.agents.models import TerminationReason, TraceEvent, TraceKind
+from agentforge.tasks.models import Task, TaskReason
 
 TRACE_LIMIT = 100
 QUEUE_LIMIT = 16
@@ -40,13 +43,13 @@ _ERROR_CODES = frozenset(
 
 @dataclass(frozen=True)
 class TimelineEvent:
-    step: int
-    kind: str
-    tool_name: str | None
+    step: Annotated[int, Field(ge=0, le=2_147_483_647)]
+    kind: TraceKind
+    tool_name: Annotated[str, Field(max_length=100)] | None
     success: bool | None
-    error_code: str | None
-    duration_seconds: float | None
-    reason: str | None
+    error_code: Annotated[str, Field(max_length=100)] | None
+    duration_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None
+    reason: TerminationReason | None
 
 
 def metadata(event: TraceEvent) -> TimelineEvent:
@@ -55,19 +58,37 @@ def metadata(event: TraceEvent) -> TimelineEvent:
     Deliberately drop even redacted tool arguments and provider call IDs.
     No arguments, result, source, reasoning, backend body or exception fields.
     """
+    if event.kind not in get_args(TraceKind) or not 0 <= event.step <= 2_147_483_647:
+        raise ValueError("Invalid observation metadata")
     return TimelineEvent(
         event.step,
         event.kind,
         event.tool_name[:100] if event.tool_name is not None else None,
-        event.success,
+        event.success if type(event.success) is bool else None,
         event.error_code
         if event.error_code in _ERROR_CODES
         else "internal_error"
         if event.error_code
         else None,
-        event.duration_seconds,
-        event.reason,
+        event.duration_seconds
+        if event.duration_seconds is not None
+        and isfinite(event.duration_seconds)
+        and event.duration_seconds >= 0
+        else None,
+        event.reason if event.reason in get_args(TerminationReason) else None,
     )
+
+
+def task_timeline(
+    task: Task, observer: "TaskObserver"
+) -> tuple[tuple[TimelineEvent, ...], bool]:
+    """Shared bounded projection; a durable result supersedes ephemeral metadata."""
+    if task.execution_result is not None:
+        trace = task.execution_result.trace
+        return tuple(metadata(event) for event in trace[-TRACE_LIMIT:]), len(
+            trace
+        ) > TRACE_LIMIT
+    return observer.timeline(task.task_id)
 
 
 class ObservationUnavailable(Exception):
