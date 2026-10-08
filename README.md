@@ -54,7 +54,7 @@ does not commit, push, merge or create PRs.
 
 The Director explicitly selects the Agent and Worker; there is no automatic routing
 or fallback. `agentforge agent list` and MCP `list_agents` expose the same shipped
-definitions. Defaults are `general_agent`, then `repo_explorer`; enabling coding
+definitions. The shipped set is `general_agent` and `repo_explorer`; enabling coding
 adds `coder`.
 
 | Agent | Purpose | Representative tasks |

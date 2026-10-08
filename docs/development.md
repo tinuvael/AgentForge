@@ -107,7 +107,11 @@ agentforge-wheel-check/bin/python -m pip check
 On Windows use `agentforge-wheel-check\Scripts\python.exe` instead of `bin/python`.
 Installation requires available dependency distributions, or an operator-prepared
 wheelhouse with `pip install --no-index --find-links <wheelhouse> ...`. The smoke
-itself is offline and creates only temporary synthetic storage. It checks:
+itself is offline and creates only temporary synthetic storage. Git is not required
+for this installation smoke. Coding-enabled discovery checks installed definitions
+and CLI configuration listing only; they do not establish coding host readiness.
+Actual coding host/runtime validation still requires a real Git executable and
+the configured private workspace parent. The smoke checks:
 
 - All production module imports resolve under the clean venv.
 - Migration scripts/template and dashboard templates, CSS, JS, HTMX/license data.
