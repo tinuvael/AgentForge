@@ -26,7 +26,8 @@ to consult another worker. AgentForge does not intelligently route tasks in v1.
 - **Worker:** a concrete configured inference target with a provider, endpoint,
   model and machine context. Support multiple workers and providers.
 - **Agent:** behavior layered on a selected worker. Shipped definitions are
-  `repo_explorer` and opt-in `coder`; custom definitions are programmatic.
+  `general_agent`, `repo_explorer` and opt-in `coder`; custom definitions are
+  programmatic.
 - **Project:** a registered external repository/workspace on which tasks operate.
 - **Task:** a durable execution request binding a project, agent, worker and request.
 - **Council:** independent runs on explicitly selected workers, returning

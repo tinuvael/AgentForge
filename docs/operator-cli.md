@@ -119,7 +119,11 @@ agentforge agent list --coding coding.local.toml
 
 Agent listing uses the actual shipped definitions shared with Application
 composition, including allowed tools, limits and workspace mode. System prompts
-are omitted. `--coding` loads the explicit coding TOML to select the opt-in coder;
+are omitted. It lists `general_agent`, `repo_explorer`, then optional `coder`.
+Choose General Agent for broad read-only analysis of supplied context and local
+documents; Repo Explorer for precise implementation investigation. Selection remains
+explicit. See [Agent examples and limits](../README.md#choosing-an-agent).
+`--coding` loads the explicit coding TOML to select the opt-in coder;
 it does not imply that host checks passed. Custom programmatic Agents continue to
 be supplied by embedding applications, outside this CLI.
 

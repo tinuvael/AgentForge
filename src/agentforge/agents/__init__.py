@@ -1,5 +1,6 @@
 """Generic Agent behavior and bounded in-process execution on explicit Workers."""
 
+from agentforge.agents.general_agent import GENERAL_AGENT
 from agentforge.agents.models import (
     Agent,
     CancellationToken,
@@ -15,6 +16,7 @@ __all__ = [
     "AgentRuntime",
     "CancellationToken",
     "ExecutionResult",
+    "GENERAL_AGENT",
     "REPO_EXPLORER",
     "RuntimeLimits",
     "repository_toolset",

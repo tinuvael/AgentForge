@@ -369,6 +369,12 @@ def test_mcp_coding_delegation_inspection_cleanup(coding, database):
                 for tool in listed
             )
             agents = await call(client, "list_agents")
+            assert [a["agent_id"] for a in agents["agents"]] == [
+                "coder",
+                "general_agent",
+                "repo_explorer",
+            ]
+            assert app.status().agent_count == 3
             assert (
                 next(a for a in agents["agents"] if a["agent_id"] == "coder")[
                     "workspace_mode"
