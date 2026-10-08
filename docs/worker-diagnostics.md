@@ -118,13 +118,16 @@ completed check; the previous completed observation remains authoritative.
 
 ## Storage and service boundary
 
-The new linear migration `0002_worker_diagnostics` adds
-`worker_diagnostic_observations` without modifying `0001_initial`. It stores one
+The first supported `0001_initial` schema baseline creates
+`worker_diagnostic_observations` directly. It stores one
 latest factual observation plus last success/failure timestamps per Worker/probe
-kind: at most four rows per configured Worker. No prompts/responses or Task rows
-are stored. Writes prune IDs absent from the full supplied Worker configuration;
-use the same complete configuration for CLI and dashboard. No read prunes storage.
-There is no growing history or metrics warehouse. A private SHA-256 configuration
+kind: at most four rows per Worker identity. No prompts/responses or Task rows
+are stored. Each write updates only the selected Worker's selected probe kind;
+unrelated checkpoints survive commands using narrower configurations. Observations
+for Workers absent from the currently loaded configuration may remain stored but
+are not surfaced by `get`/`list`. Passive reads never mutate storage. There is no
+automatic retention/pruning policy or accumulating observation history; distinct
+Worker identities can retain dormant checkpoints. A private SHA-256 configuration
 fingerprint suppresses prior-target snapshots when model, endpoint, capabilities,
 options or connection settings change. Last timestamps reset on replacement.
 Credential rotation under the same environment name is not detectable; observations

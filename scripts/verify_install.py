@@ -58,7 +58,6 @@ def package_checks():
         "db/migrations/env.py",
         "db/migrations/script.py.mako",
         "db/migrations/versions/0001_initial.py",
-        "db/migrations/versions/0002_worker_diagnostics.py",
         "web/templates/base.html",
         "web/static/dashboard.css",
         "web/static/dashboard.js",
@@ -71,7 +70,7 @@ def package_checks():
         file.name
         for file in root.joinpath("db/migrations/versions").iterdir()
         if file.name.endswith(".py")
-    } == {"0001_initial.py", "0002_worker_diagnostics.py"}
+    } == {"0001_initial.py"}
     for module in ("db.migrate", "mcp.server", "web.server"):
         result = subprocess.run(
             [sys.executable, "-m", "agentforge." + module, "--help"],
@@ -185,7 +184,7 @@ async def smoke():
             with engine.connect() as connection:
                 assert (
                     MigrationContext.configure(connection).get_current_revision()
-                    == "0002_worker_diagnostics"
+                    == "0001_initial"
                 )
                 assert set(inspect(connection).get_table_names()) == {
                     *Base.metadata.tables,
@@ -203,20 +202,27 @@ async def smoke():
                     column["name"] == "root_identity" and not column["nullable"]
                     for column in columns
                 )
-            # Supported incremental downgrade removes only the diagnostics table.
+            # Destructive roundtrip uses only this empty temporary smoke database.
             with engine.begin() as connection:
                 migration = _configuration()
                 migration.attributes["connection"] = connection
-                command.downgrade(migration, "0001_initial")
+                command.downgrade(migration, "base")
+                assert inspect(connection).get_table_names() == ["alembic_version"]
                 assert (
-                    "worker_diagnostic_observations"
-                    not in inspect(connection).get_table_names()
+                    MigrationContext.configure(connection).get_current_revision()
+                    is None
                 )
                 command.upgrade(migration, "head")
                 command.check(migration)
+                assert (
+                    "worker_diagnostic_observations"
+                    in inspect(connection).get_table_names()
+                )
         finally:
             engine.dispose()
-        print("Installed migration CLI, fresh head and baseline roundtrip: OK")
+        print(
+            "Installed migration CLI, fresh initial schema and head/base roundtrip: OK"
+        )
         config = root / "workers.toml"
         config.write_text(
             '[[workers]]\nid = "offline"\nprovider = "ollama"\n'

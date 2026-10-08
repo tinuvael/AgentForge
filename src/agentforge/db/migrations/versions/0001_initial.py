@@ -227,12 +227,29 @@ def upgrade() -> None:
             name="ck_coding_workspace_state",
         ),
     )
+    # Operator checkpoints have no Project/Task dependency. Configuration controls
+    # visibility, not retention; each Worker/probe kind owns one factual record.
+    op.create_table(
+        "worker_diagnostic_observations",
+        sa.Column("worker_id", sa.Text(), primary_key=True),
+        sa.Column("probe_kind", sa.String(20), primary_key=True),
+        sa.Column("configuration_fingerprint", sa.String(64), nullable=False),
+        sa.Column("checked_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("latest", sa.JSON(none_as_null=True), nullable=False),
+        sa.Column("last_success_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_failure_at", sa.DateTime(timezone=True), nullable=True),
+        sa.CheckConstraint(
+            "probe_kind IN ('health', 'generation', 'tools', 'streaming')",
+            name="ck_worker_diagnostics_probe_kind",
+        ),
+    )
 
 
 def downgrade() -> None:
     # Drop dependent cache/membership tables before their parents. This is a
     # destructive return to an empty database, not a history-preserving rollback.
     for table in (
+        "worker_diagnostic_observations",
         "coding_workspaces",
         "council_participants",
         "councils",

@@ -245,9 +245,7 @@ class WorkerDiagnosticsService:
                 **values,
             )
             if self._repository:
-                self._repository.save(
-                    observation, self._fingerprints[worker_id], tuple(self._workers)
-                )
+                self._repository.save(observation, self._fingerprints[worker_id])
             return observation
         finally:
             self._active.pop(worker_id, None)

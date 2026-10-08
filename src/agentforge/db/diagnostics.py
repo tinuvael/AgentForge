@@ -3,7 +3,7 @@
 from datetime import UTC
 
 from pydantic import ValidationError
-from sqlalchemy import case, delete, select
+from sqlalchemy import case, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -44,7 +44,7 @@ class DiagnosticsRepository:
         except (SQLAlchemyError, ValidationError):
             raise DiagnosticsUnavailable("Diagnostic storage unavailable") from None
 
-    def save(self, observation, fingerprint, configured_ids):
+    def save(self, observation, fingerprint):
         row = WorkerDiagnosticRecord
         success = observation.status in {"available", "successful"}
         failure = observation.status == "failed"
@@ -75,8 +75,6 @@ class DiagnosticsRepository:
         )
         try:
             with self._sessions.begin() as session:
-                # Bound retained identities to this operator's full configuration.
-                session.execute(delete(row).where(row.worker_id.not_in(configured_ids)))
                 session.execute(statement)
         except SQLAlchemyError:
             raise DiagnosticsUnavailable("Diagnostic storage unavailable") from None

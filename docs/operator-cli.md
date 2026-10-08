@@ -30,9 +30,9 @@ spaces. Create the parent directory yourself and protect private runtime storage
 Status opens existing files read-only and never creates a missing database. It
 reports `current`, `uninitialized`, `unsupported`, `out_of_date` or `inaccessible`.
 `current` means the recorded revision matches the packaged head; this is not a
-full schema/data integrity audit. The supported `0001_initial` baseline can upgrade
-to the current head; old
-development revisions remain `unsupported`. Empty storage is `uninitialized`;
+full schema/data integrity audit. The first supported baseline and current head are
+`0001_initial`, including Worker diagnostic checkpoints. Old development revisions
+remain `unsupported`. Empty storage is `uninitialized`;
 unstamped storage with existing tables/views is `unsupported` and cannot be
 adopted. Upgrade uses packaged Alembic migrations, does not wipe/stamp storage,
 and rejects unknown revisions and nonempty unstamped databases. The original

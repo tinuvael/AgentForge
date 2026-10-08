@@ -118,7 +118,8 @@ be removed without deleting historical Tasks/Councils/telemetry. Retention and
 history deletion are not implemented.
 
 Database initialization/upgrades are explicit. The packaged `0001_initial`
-migration creates the first supported complete schema; `0002_worker_diagnostics` adds bounded operator checkpoints. Executor startup verifies
+migration creates the first supported complete schema, including bounded operator
+diagnostic checkpoints. Executor startup verifies
 the revision before recovery/execution and never creates or migrates schemas.
 Registrations require a recorded platform-tagged
 identity, which is never replaced by observing today's path during an upgrade.
@@ -193,8 +194,12 @@ or request-latency throughput estimates enter observations.
 
 A small separate SQLite checkpoint store survives CLI/dashboard process changes:
 one record per Worker/probe kind, latest observation and last success/failure
-timestamps, configuration invalidation, atomic completion ordering and pruning of
-removed configured IDs on explicit writes. No transaction spans inference.
+timestamps, configuration invalidation and atomic completion ordering. Writes
+update only the selected Worker/probe-kind checkpoint. Current configuration
+controls visibility; observations for absent Workers remain dormant without an
+automatic retention/pruning policy. A changed configuration fingerprint suppresses
+old evidence for the same Worker. Passive reads never mutate storage, and no
+transaction spans inference.
 There is no accumulating probe history, metrics warehouse, routing, ranking,
 background probing or active MCP control. See [Worker diagnostics](worker-diagnostics.md)
 for lifecycle, security, remote egress and future Companion service contracts.

@@ -20,7 +20,12 @@ from agentforge.db.coding import WorkspaceRepository
 from agentforge.db.database import Base, create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
 from agentforge.db.migrate import upgrade_database
-from agentforge.db.models import CodingWorkspaceRecord, ProjectRecord, TaskRecord
+from agentforge.db.models import (
+    CodingWorkspaceRecord,
+    ProjectRecord,
+    TaskRecord,
+    WorkerDiagnosticRecord,
+)
 from agentforge.db.projects import ProjectRepository
 from agentforge.db.tasks import TaskRepository
 from agentforge.index.service import ProjectIndex
@@ -38,8 +43,7 @@ def configuration():
 
 def assert_schema(connection):
     assert (
-        MigrationContext.configure(connection).get_current_revision()
-        == "0002_worker_diagnostics"
+        MigrationContext.configure(connection).get_current_revision() == "0001_initial"
     )
     config = configuration()
     config.attributes["connection"] = connection
@@ -129,17 +133,56 @@ def populate(engine, tmp_path):
             model_available=True,
         ),
         service._fingerprints["local"],
-        ("local",),
     )
     return project
 
 
-def test_linear_diagnostics_revision_preserves_baseline():
+def test_single_initial_revision():
     scripts = ScriptDirectory.from_config(configuration())
     revisions = list(scripts.walk_revisions())
-    assert scripts.get_heads() == ["0002_worker_diagnostics"]
+    assert scripts.get_heads() == ["0001_initial"]
     assert scripts.get_bases() == ["0001_initial"]
-    assert len(revisions) == 2 and revisions[0].down_revision == "0001_initial"
+    assert len(revisions) == 1 and revisions[0].down_revision is None
+    assert {
+        path.name
+        for path in Path(migrate.__file__)
+        .with_name("migrations")
+        .joinpath("versions")
+        .glob("*.py")
+    } == {"0001_initial.py"}
+
+
+def test_fresh_initial_upgrade_includes_diagnostic_contract(tmp_path):
+    engine = create_database_engine("sqlite:///" + (tmp_path / "initial.db").as_posix())
+    try:
+        with engine.begin() as connection:
+            config = configuration()
+            config.attributes["connection"] = connection
+            assert inspect(connection).get_table_names() == []
+            command.upgrade(config, "0001_initial")
+            assert_schema(connection)
+            inspector = inspect(connection)
+            table = "worker_diagnostic_observations"
+            columns = inspector.get_columns(table)
+            assert {column["name"]: column["nullable"] for column in columns} == {
+                "worker_id": False,
+                "probe_kind": False,
+                "configuration_fingerprint": False,
+                "checked_at": False,
+                "latest": False,
+                "last_success_at": True,
+                "last_failure_at": True,
+            }
+            assert all(column["default"] is None for column in columns)
+            assert inspector.get_pk_constraint(table)["constrained_columns"] == [
+                "worker_id",
+                "probe_kind",
+            ]
+            # The leading composite PK already supports per-Worker reads.
+            assert inspector.get_indexes(table) == []
+            assert inspector.get_foreign_keys(table) == []
+    finally:
+        engine.dispose()
 
 
 def test_source_alembic_online_and_offline_entrypoints(tmp_path):
@@ -228,6 +271,7 @@ def test_populated_head_downgrades_to_empty_and_reupgrades(database, tmp_path):
         (TaskRecord, "state", "invented"),
         (TaskRecord, "telemetry_status", "invented"),
         (CodingWorkspaceRecord, "state", "invented"),
+        (WorkerDiagnosticRecord, "probe_kind", "invented"),
     ],
 )
 def test_required_identity_and_lifecycle_checks_reject_invalid_writes(
@@ -239,34 +283,3 @@ def test_required_identity_and_lifecycle_checks_reject_invalid_writes(
         connection.execute(update(table).values({field: value}))
     with engine.begin() as connection:
         assert_schema(connection)
-
-
-def test_incremental_baseline_upgrade_and_downgrade_preserves_existing_data(
-    database, tmp_path
-):
-    engine, _ = database
-    populate(engine, tmp_path)
-    config = configuration()
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        before = counts(connection)
-        command.downgrade(config, "0001_initial")
-        assert (
-            MigrationContext.configure(connection).get_current_revision()
-            == "0001_initial"
-        )
-        assert (
-            "worker_diagnostic_observations"
-            not in inspect(connection).get_table_names()
-        )
-        for name, count in before.items():
-            if name != "worker_diagnostic_observations":
-                assert (
-                    connection.scalar(
-                        select(func.count()).select_from(Base.metadata.tables[name])
-                    )
-                    == count
-                )
-        command.upgrade(config, "head")
-        assert_schema(connection)
-        assert counts(connection) == before | {"worker_diagnostic_observations": 0}

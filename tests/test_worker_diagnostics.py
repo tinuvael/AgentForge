@@ -338,10 +338,9 @@ def test_generation_metrics_use_only_normalized_observations(usage, timing, thro
     assert observed.request_duration_seconds >= 0
     assert "ttft_seconds" in observed.unavailable_metrics
     assert ("tokens_per_second" in observed.unavailable_metrics) == (throughput is None)
-    assert (
-        PRIVATE not in observed.model_dump_json()
-        and "999999" not in observed.model_dump_json()
-    )
+    assert PRIVATE not in observed.model_dump_json()
+    projected = observed.model_dump(mode="json")
+    assert "usage" not in projected and "timing" not in projected
     target, request = provider.requests[0]
     assert target.options == {} and request.max_output_tokens == 32
     assert observed.configuration.model == "configured"  # Never backend alias.
@@ -590,7 +589,9 @@ def test_timeout_cancellation_and_duplicate_actions(kind, database):
     asyncio.run(run())
 
 
-def test_checkpoint_restart_latest_success_failure_invalidation_and_retention(database):
+def test_checkpoint_restart_latest_success_failure_invalidation_and_bounded_upsert(
+    database,
+):
     provider = ScriptedProvider()
     diagnostics = service(provider=provider, database=database)
 
@@ -611,7 +612,7 @@ def test_checkpoint_restart_latest_success_failure_invalidation_and_retention(da
     assert history.last_success_at.tzinfo == UTC
     # Late writers cannot replace a newer completion.
     repository = DiagnosticsRepository(create_session_factory(database[0]))
-    repository.save(success, restarted._fingerprints["worker"], ("worker",))
+    repository.save(success, restarted._fingerprints["worker"])
     assert restarted.get("worker").generation == history
     config = configuration()
     config.workers[0] = config.workers[0].model_copy(
@@ -620,17 +621,85 @@ def test_checkpoint_restart_latest_success_failure_invalidation_and_retention(da
     changed = service(config, ScriptedProvider(), database)
     assert changed.get("worker").generation.previous_configuration
     assert changed.get("worker").generation.latest is None
+    with database[0].connect() as connection:
+        stored = connection.execute(select(WorkerDiagnosticRecord)).one()
+        assert stored.configuration_fingerprint == restarted._fingerprints["worker"]
+        assert (
+            stored.latest["checked_at"]
+            == history.latest.model_dump(mode="json")["checked_at"]
+        )
     fresh = asyncio.run(changed.probe("worker"))
     assert changed.get("worker").generation.last_failure_at is None
     assert changed.get("worker").generation.last_success_at == fresh.checked_at
+    # A late completion for the old configuration cannot displace its replacement.
+    replacement = changed.get("worker").generation
+    repository.save(failure, restarted._fingerprints["worker"])
+    assert changed.get("worker").generation == replacement
+    assert restarted.get("worker").generation.previous_configuration
+    assert restarted.get("worker").generation.latest is None
     config.workers[0] = config.workers[0].model_copy(update={"id": "new-id"})
     asyncio.run(service(config, ScriptedProvider(), database).probe("new-id"))
     with database[0].connect() as connection:
         assert (
             connection.scalar(select(func.count()).select_from(WorkerDiagnosticRecord))
-            == 1
+            == 2
         )
-        assert connection.scalar(select(WorkerDiagnosticRecord.worker_id)) == "new-id"
+        assert set(connection.scalars(select(WorkerDiagnosticRecord.worker_id))) == {
+            "worker",
+            "new-id",
+        }
+
+
+def test_narrow_configuration_preserves_unrelated_checkpoints_and_probe_kinds(database):
+    config = configuration()
+    worker = config.workers[0]
+    config.workers = [
+        worker.model_copy(update={"id": identity})
+        for identity in ("worker-a", "worker-b")
+    ]
+    full = service(config, ScriptedProvider(), database)
+    asyncio.run(full.probe("worker-a"))
+    asyncio.run(full.check("worker-a"))
+    asyncio.run(full.probe("worker-b"))
+    asyncio.run(full.check("worker-b"))
+    saved_b = full.get("worker-b")
+    saved_a_health = full.get("worker-a").health
+
+    def snapshot():
+        with database[0].connect() as connection:
+            return {
+                (row.worker_id, row.probe_kind): dict(row._mapping)
+                for row in connection.execute(select(WorkerDiagnosticRecord))
+            }
+
+    before = snapshot()
+    narrow = service(
+        config.model_copy(update={"workers": [config.workers[0]]}),
+        ScriptedProvider(),
+        database,
+    )
+    assert [item.configuration.worker_id for item in narrow.list().workers] == [
+        "worker-a"
+    ]
+    with pytest.raises(DiagnosticWorkerNotFound):
+        narrow.get("worker-b")
+    assert narrow.get("worker-a").health == saved_a_health
+    assert snapshot() == before  # Passive reads never mutate even dormant rows.
+
+    for _ in range(3):
+        asyncio.run(narrow.probe("worker-a"))
+    after = snapshot()
+    assert set(after) == set(before)  # One checkpoint per Worker/probe kind.
+    for key in before:
+        if key != ("worker-a", "generation"):
+            assert after[key] == before[key]
+    assert (
+        after["worker-a", "generation"]["checked_at"]
+        > before["worker-a", "generation"]["checked_at"]
+    )
+    assert len(narrow.list().workers) == 1
+    assert service(config, ScriptedProvider(), database).get("worker-b") == saved_b
+    assert snapshot() == after
 
 
 def test_cli_json_health_probe_passive_read_and_exit_codes(
