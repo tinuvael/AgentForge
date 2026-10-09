@@ -95,7 +95,9 @@ of order. Use `async with TaskEngine(...)` to own startup/shutdown;
 Cancelling that waiter does not cancel the Task. A process-local ownership guard
 rejects a second active engine for the same SQLite database before recovery;
 deployments must run only one control-plane process per database. There are no
-cross-process leases or exactly-once distributed guarantees.
+cross-process leases or enforcement. Another OS process can start against this
+database; its startup recovery can interrupt the first owner's live Task and
+affect coding workspace state. Use exactly one executor process per database.
 
 Queued cancellation commits `cancelled` before execution and prevents claiming.
 Running cancellation commits `cancellation_requested_at` and signals the active
@@ -122,6 +124,13 @@ caller; ownership remains held until cleanup finishes. Storage/executor failures
 surface through safe service errors, rather than silently presenting success.
 If storage itself is unavailable, a terminal checkpoint may not be writable;
 the next successful startup applies recovery.
+
+All TaskRepository commits invalidate their Session/connection on commit failure,
+so rejected work cannot become durable on a later pooled checkout. Task/lifecycle,
+telemetry and Council membership writes keep short atomic transactions, without
+silent retries. A normal terminal observation requires durable terminal state.
+Executor loss before persistence closes active and queued watches with safe
+`unavailable`/resync metadata and leaves running/queued rows truthful for recovery.
 
 Startup first requires the current packaged schema revision, without migration or
 history changes on rejection. It then marks every pre-existing running Task failed with
@@ -248,10 +257,10 @@ map respectively by dividing nanoseconds by `1_000_000_000`. Missing fields rema
 Generic runtime/telemetry layers never inspect Ollama JSON or raw compatibility
 usage/timing dictionaries. They never infer counts from content or hardware.
 
-Failures retain stable existing runtime/Task codes, not backend messages:
+Failures use fixed safe runtime/Task codes, not backend messages:
 `provider_error`, `provider_timeout`, `timeout`, `invalid_configuration`,
 `invalid_response`, `security_error`, `tool_not_allowed`, `tool_error`, `max_steps`,
-`max_tool_calls`, `tool_result_limit`, `tool_output_limit`, `context_limit`,
+`max_tool_calls`, `tool_result_limit`, `tool_output_limit`, `context_limit`, `output_limit`,
 `execution_interrupted`, `executor_cancelled`, `runtime_error`,
 `invalid_runtime_result`. Completed/cancelled Tasks use their same-named reason
 and no error category. Executor shutdown remains failed `executor_cancelled`

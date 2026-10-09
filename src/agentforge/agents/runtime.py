@@ -323,7 +323,10 @@ class AgentRuntime:
                 check_context()
                 event(
                     "model_response",
-                    success=True,
+                    success=response.finish_reason != "length",
+                    error_code="output_limit"
+                    if response.finish_reason == "length"
+                    else None,
                     size_bytes=len(
                         json_text(messages[-1].model_dump()).encode("utf-8")
                     ),
@@ -331,6 +334,11 @@ class AgentRuntime:
                         -1
                     ].request_duration_seconds,
                 )
+                # Ollama done_reason and Chat Completions finish_reason both
+                # report "length" for an output cap. Never execute partial calls
+                # or publish an incomplete answer; the Director decides next steps.
+                if response.finish_reason == "length":
+                    raise _Stop("output_limit")
                 if not response.tool_calls:
                     if not response.content.strip():
                         raise _Stop("invalid_response")

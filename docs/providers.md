@@ -167,6 +167,24 @@ seconds. Missing fields remain unknown. Native private `thinking` is carried onl
 in ephemeral assistant history for protocol continuity. Direct streams must stay
 inside `async with`; completion, early break, timeout and cancellation close them.
 
+## Runtime completion and output limits
+
+Both adapters preserve backend finish reasons in `GenerationResult`. Ollama's
+native `done_reason="length"` and Chat Completions `finish_reason="length"` mean
+the generation reached its output cap, not a complete answer. AgentRuntime fails
+that turn/Task with safe reason `output_limit`, discards its answer and executes
+none of its tool calls. It does not retry, continue or invent missing content.
+The Director chooses any next request. This applies through TaskEngine to durable
+Task state, independently of Provider type.
+
+Ordinary `stop` answers still complete and valid tool-call turns still proceed.
+Ollama responses with an absent `done_reason` remain supported, as do normalized
+responses with an absent finish reason from programmatic Providers. The shipped
+compatible adapter already requires a nonempty finish reason; omission is still
+an invalid Provider response. This correction does not expand that wire subset.
+See [Ollama completion reasons](https://github.com/ollama/ollama/blob/main/llm/server.go)
+and [Chat Completions finish reasons](https://platform.openai.com/docs/api-reference/chat/object).
+
 ## OpenAI-compatible protocol subset and limits
 
 Direct httpx implements text-only `POST <base_url>/chat/completions`. Include `/v1`

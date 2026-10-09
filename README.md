@@ -149,13 +149,26 @@ Explicit remote Worker selection sends gathered repository evidence to that endp
 
 Initialize a fresh database explicitly using the
 [0.1.0 schema baseline](docs/development.md#migrations), then register exactly the
-existing directory you intend to authorize. This example registers this checkout:
+existing directory you intend to authorize. On POSIX, this registers the current
+checkout:
 
 ```sh
 agentforge db upgrade --database-url sqlite:///agentforge.db
 agentforge project add . --name AgentForge --database-url sqlite:///agentforge.db
 agentforge project list --database-url sqlite:///agentforge.db
 ```
+
+On Windows PowerShell, use an explicit absolute path to that checkout:
+
+```powershell
+agentforge db upgrade --database-url sqlite:///agentforge.db
+agentforge project add 'C:\Projects\AgentForge' --name AgentForge --database-url sqlite:///agentforge.db
+agentforge project list --database-url sqlite:///agentforge.db
+```
+
+Replace that Windows path with your actual ordinary local NTFS root. Windows
+rejects dot components (`.` and `..`), reparse points and ambiguous aliases;
+do not use `project add .` or `./...` there.
 
 `project add` returns a Project UUID. Copy it from `registration.project_id` for
 subsequent commands. Registration does not index source; optionally refresh the
@@ -214,7 +227,13 @@ for client requirements and reconnect behavior. Explicitly call `cancel_task` to
 cancel execution. For independent opinions, use `delegate_council` with explicit
 `worker_ids`. The Director decides whether the evidence is sufficient.
 
-To view the dashboard, stop the MCP executor first and run:
+To view HTTP alongside MCP, add `--companion` to the MCP command and open
+`http://127.0.0.1:8765/companion`. Combined mode serves the full HTTP surface:
+`/`, `/workers`, `/projects`, `/tasks`, `/councils` and `/companion`, their detail
+and observation routes, and trusted cancellation/workspace cleanup controls.
+It uses one Application and one TaskEngine and accepts loopback IP binds only.
+
+For a standalone dashboard, stop the MCP executor first and run:
 
 ```sh
 agentforge web --database-url sqlite:///agentforge.db --workers workers.local.toml
@@ -224,7 +243,9 @@ Open `http://127.0.0.1:8765` for Projects, Workers, Task/Council history, teleme
 live metadata and confirmed cancellation. It uses Jinja2, vendored HTMX and SSE,
 with no frontend build or CDN. The dashboard observes work; it has no task
 submission UI. **Use one executor process per database**, including smoke scripts.
-The shipped CLI does not host MCP and dashboard together.
+The guard rejects duplicate owners only within one process. AgentForge does not
+enforce ownership across OS processes; a second executor's startup recovery can
+interrupt the first owner's live Tasks and affect coding workspaces.
 
 For coding, create a private workspace parent **outside registered repositories**
 and edit [coding.example.toml](config/coding.example.toml) with absolute real Git
@@ -271,9 +292,10 @@ Coding rewrites on Windows are not crash-atomic. See
 
 Current limits include one process per SQLite database, conservative Python-only
 structural indexing, bounded small-repository coding/Git snapshots, no history
-retention policy, no remote authentication platform, no general REST API and no
-combined MCP/dashboard CLI. Context sizing is approximate. Remote generation may
-continue after local cancellation; forced process loss leaves interrupted work
+retention policy, no authentication layer and no general REST API. Context sizing
+is approximate. Known backend output-cap responses (`length`) fail as `output_limit`
+instead of completing an incomplete answer, with no automatic continuation.
+Remote generation may continue after local cancellation; forced process loss leaves interrupted work
 for explicit review/recovery.
 
 ## Documentation and development
@@ -297,6 +319,7 @@ Use `python -m pip install -e '.[dev]'`, then `python -m pytest -ra`,
 Follow [AGENTS.md](AGENTS.md) for contribution/Git rules. AgentForge is licensed
 under [GPL-3.0-only](LICENSE).
 
-The [AgentForge Companion](docs/companion.md) is a compact local loopback panel
+The [AgentForge Companion](docs/companion.md) is a compact operator panel
 for active work beside Codex. `agentforge mcp ... --companion` serves it from the
-same Application as MCP; it is not an embedded Codex sidebar.
+same Application as MCP on loopback; standalone `agentforge web` also serves it
+and may be intentionally LAN-bound by the operator. It is not an embedded Codex sidebar.

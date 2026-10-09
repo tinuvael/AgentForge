@@ -13,13 +13,18 @@ The example Worker configuration explicitly defines `local-4080`, `gpt-oss:20b`,
 `http://localhost:11434` and native tool support. Copy/edit this file when your
 administrator-approved endpoint or deployment differs. No Worker is auto-selected.
 
-Prepare the schema and register this checkout once:
+Prepare the schema and register this checkout once. POSIX:
 
 ```sh
 agentforge db upgrade --database-url sqlite:///agentforge.db
 agentforge project add . --name AgentForge --database-url sqlite:///agentforge.db
 agentforge project index <PROJECT_UUID> --database-url sqlite:///agentforge.db
 ```
+
+On Windows replace `.` with your explicit absolute checkout path, for example
+`'C:\Projects\AgentForge'`. Windows rejects dot components and `./...`; follow
+the [native acceptance procedure](native-windows-smoke.md). Use only one executor
+process per database, including while running this smoke.
 
 Copy `registration.project_id` from registration output. For an existing
 registration, use `agentforge project list --database-url sqlite:///agentforge.db`

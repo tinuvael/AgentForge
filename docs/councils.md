@@ -129,7 +129,7 @@ Live detail uses the existing TaskObserver through `subscribe_many`, sharing **o
 **128-subscriber** cap includes both Task and Council pages; registration state is
 bounded by 128 × 16 Task references. There is no separate Council event registry,
 trace store or durable event system. Nonblocking publication drops pending hints on
-overflow and requests resync. SSE contains only `refresh/resync/terminal/shutdown`
+overflow and requests resync. SSE contains only `refresh/resync/terminal/shutdown/unavailable`
 and `{}`, with 15-second idle comments. A single participant's terminal notice
 becomes refresh until all participants are terminal. Connection/reconnection reloads
 the authoritative fragment; disconnect, pre-iteration cancellation and shutdown

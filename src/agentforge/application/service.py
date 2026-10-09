@@ -336,6 +336,8 @@ class Application:
         task = self.tasks.get_task(task_id)
         timeline, truncated = task_timeline(task, self.tasks.observer)
         terminal = task.state in TERMINAL_STATES
+        if observation == "terminal" and not terminal:
+            observation = "resync"
         return TaskProgress(
             task_id=task.task_id,
             state=task.state,
@@ -344,10 +346,11 @@ class Application:
             cancellation_requested=task.cancellation_requested_at is not None,
             terminal=terminal,
             observation="terminal"
-            if terminal and observation != "shutdown"
+            if terminal and observation not in {"shutdown", "unavailable"}
             else observation,
             resync_required=terminal
-            or observation in {"snapshot", "resync", "terminal", "shutdown"}
+            or observation
+            in {"snapshot", "resync", "terminal", "shutdown", "unavailable"}
             or truncated,
             truncated=truncated,
             timeline=timeline,
@@ -385,7 +388,7 @@ class Application:
                             task_id=initial.task_id, observation=notice
                         )
                         yield current
-                        if current.terminal or notice == "shutdown":
+                        if current.terminal or notice in {"shutdown", "unavailable"}:
                             return
 
                 updates = progress()

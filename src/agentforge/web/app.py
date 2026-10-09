@@ -388,9 +388,15 @@ def create_app(
                 except TimeoutError:
                     yield ": keepalive\n\n"
                     continue
-                if notice not in {"refresh", "resync", "terminal", "shutdown"}:
+                if notice not in {
+                    "refresh",
+                    "resync",
+                    "terminal",
+                    "shutdown",
+                    "unavailable",
+                }:
                     notice = "resync"
-                if notice != "shutdown":
+                if notice not in {"shutdown", "unavailable"}:
                     try:
                         if is_terminal():
                             notice = "terminal"
@@ -398,9 +404,9 @@ def create_app(
                             notice = "refresh"
                     except Exception:
                         notice = "shutdown"
-                # Fixed safe contract: refresh/resync/terminal/shutdown, no payload.
+                # Fixed safe contract: reload/terminal/service notices, no payload.
                 yield f"event: {notice}\ndata: {{}}\n\n"
-                if notice in {"terminal", "shutdown"}:
+                if notice in {"terminal", "shutdown", "unavailable"}:
                     break
 
         return EventResponse(

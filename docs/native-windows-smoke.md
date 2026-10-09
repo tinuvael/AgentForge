@@ -4,7 +4,10 @@ Run in Windows PowerShell with Python 3.12+, modern Windows 10/11, a fixed local
 NTFS Project outside junction/OneDrive/reparse paths, a normal Git for Windows
 installation with an absolute PATH entry (no installation junctions), and a
 reachable Ollama with a native tool-capable model. No WSL is required.
-Use one executor per database. TEMP and the installation must be trusted local NTFS.
+Use exactly one executor process per database for Issue #31 acceptance. The owner
+guard is only in-process; it does not enforce this across OS processes. A second
+owner's startup recovery can interrupt live Tasks and affect coding workspaces.
+TEMP and the installation must be trusted local NTFS.
 These steps perform real inference and are never executed by pytest.
 
 1. Install and migrate from the AgentForge checkout:
@@ -20,6 +23,12 @@ These steps perform real inference and are never executed by pytest.
    symlink privilege skips. Run the full pytest suite too. Do not count mocked tests
    executed on Linux as native validation. Use a fresh database from the
    [first-release baseline](development.md#migrations).
+
+   Record exact installed versions with `.venv\Scripts\python.exe -m pip freeze`,
+   the Python/SQLite versions, and the actual AgentForge commit SHA in Issue #31.
+   Runtime MCP is `mcp>=1.30,<2`; progress has been exercised with MCP 1.30.0.
+   There is no repository constraints/lockfile mechanism; do not treat another
+   validation environment's resolved versions as universal dependency pins.
 
 2. Copy `config/workers.example.toml` to ignored `workers.local.toml`. Configure
    `local-4080`, provider `ollama`, your installed model (for example `gpt-oss:20b`),
@@ -37,6 +46,9 @@ These steps perform real inference and are never executed by pytest.
    agentforge worker config-check --workers workers.local.toml
    agentforge worker check local-4080 --workers workers.local.toml
    ```
+
+   Do not register `.` or `./...` on Windows. Dot components, traversal and alias
+   restrictions remain enforced; use the actual absolute ordinary local NTFS path.
 
 4. Configure your external Codex/MCP director as shown in [MCP setup](mcp.md),
    with the native `.venv\Scripts\python.exe`, `-m agentforge.mcp.server`, the same

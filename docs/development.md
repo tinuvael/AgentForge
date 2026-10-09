@@ -154,3 +154,10 @@ plus loopback HTTP operation and EOF shutdown. `scripts/verify_companion.py` is
 called by the installed smoke, and can also be run explicitly with `--database-url`
 and `--workers`. It uses no inference, internet or GPU. The normal suite invokes
 that smoke in an isolated subprocess; its network use is limited to loopback.
+
+Release-hardening validation records the actual dependency versions in
+[the Issue #42 validation report](release-hardening-validation.md). Runtime ranges,
+including `mcp>=1.30,<2`, remain unchanged. There is no existing constraints or
+lockfile mechanism. Record `python -m pip freeze`, Python/SQLite versions and the
+tested AgentForge SHA for every acceptance environment, including physical Issue
+#31 acceptance; a successful offline environment is not hardware evidence.

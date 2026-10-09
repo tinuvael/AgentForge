@@ -68,6 +68,10 @@
       source.close(); source = null; stopped = true;
       status('Server stopped; reload to reconnect.');
     });
+    source.addEventListener('unavailable', () => {
+      source.close(); source = null; stopped = true;
+      status('Task executor unavailable; reload to resync.');
+    });
   };
   document.addEventListener('DOMContentLoaded', connect);
   document.addEventListener('htmx:afterSwap', connect);

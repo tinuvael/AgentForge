@@ -70,6 +70,7 @@ TerminationReason = Literal[
     "tool_result_limit",
     "tool_output_limit",
     "context_limit",
+    "output_limit",
 ]
 
 
