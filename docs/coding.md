@@ -39,7 +39,7 @@ The implementation, trust boundaries and tested limits follow below.
 Coding is opt-in. Supply `coding_config=CodingConfig(...)` when composing the
 Application, or `--coding /absolute/path/coding.local.toml` to either
 `agentforge mcp` or `agentforge web` (the original module entrypoints also work).
-Without that configuration, only Repo Explorer is shipped by default. With it,
+Without that configuration, General Agent and Repo Explorer ship by default. With it,
 `coder` is additionally discoverable. Custom Agents must explicitly declare
 `workspace_mode="isolated_write"` and an explicit tool allowlist. Council rejects
 that capability generically, including Agents with other IDs, before participant

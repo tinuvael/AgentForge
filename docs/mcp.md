@@ -12,7 +12,8 @@ fallback or judging. Councils require 2–16 explicit participants.
 Requires Python 3.12+ and the official Python MCP SDK (`mcp>=1.30,<2`). AnyIO
 (`>=4.7,<5`) supports lifespan cancellation shielding and the server entry point.
 The low-level SDK Server provides protocol handling, tool registration, stdio and
-lifespan. No custom JSON-RPC or HTTP/SSE service is added.
+lifespan. MCP uses SDK JSON-RPC over stdio; optional `--companion` additionally
+serves the existing FastAPI dashboard/Companion HTTP and SSE surface on loopback.
 
 From the checkout, install in a venv. Windows PowerShell:
 
@@ -42,8 +43,9 @@ creates/migrates tables during startup:
 Optional `--concurrency` is 1–32 (default 1). It limits executor work, not selection
 of Workers. Resolve relative database/Worker file paths against the server's
 working directory; absolute paths are preferable in a director configuration.
-Projects come only from the existing durable ProjectRegistry. The shipped read-only Agent
-is the actual `REPO_EXPLORER` definition; Ollama and OpenAI-compatible Chat
+Projects come only from the existing durable ProjectRegistry. The shipped read-only
+Agents are General Agent (`general_agent`) and Repo Explorer (`repo_explorer`);
+explicit coding configuration adds `coder`. Ollama and OpenAI-compatible Chat
 Completions Providers are shipped. No dynamic Provider or Agent loading framework
 is introduced. Unsupported Provider bindings
 are rejected before creating Tasks.
@@ -56,7 +58,8 @@ agentforge project add /absolute/path/to/authorized/project --name Example --dat
 agentforge project index <PROJECT_UUID> --database-url sqlite:///agentforge.db
 ```
 
-Use a Windows absolute path when registering on Windows. These are operator
+On Windows use an ordinary drive-absolute path such as `'C:\Projects\AgentForge'`;
+dot components (`.`/`..`) and `./...` are rejected. These are operator
 commands; no MCP caller can supply or register a host root. Registration and Index
 refresh are explicit. Startup/discovery never scans project files. Repo Explorer's
 cached map can be empty or stale; its allowlisted source tools provide evidence.
@@ -92,9 +95,11 @@ UTF-8, including on Windows. No POSIX signal handling is introduced in MCP.
 
 Use **one server process per database**, including while running smoke scripts.
 The existing TaskEngine rejects duplicate ownership in one process. There is no
-cross-process lease; do not connect two directors by launching two processes
-against the same database. Local stdio inherits the trust of the launching user;
-there is no remote listener, authentication platform, or remote exposure contract.
+cross-process enforcement; a second process can start and recovery can interrupt
+the first owner's live Tasks and affect coding workspace state. Do not connect two
+directors by launching two processes against the same database. Local stdio inherits
+the trust of the launching user. There is no HTTP MCP listener. Optional combined
+HTTP exposes trusted operator routes on loopback only, with no authentication layer.
 
 ## Public typed tool contracts
 
@@ -114,7 +119,7 @@ nonblank strings of at most 32,768 characters.
 | list_agents | `{limit?: integer=100, offset?: integer=0}` | `AgentsPage`: `agents` and nullable `next_offset` |
 | delegate_task | `{project_id: UUID, agent_id: string, worker_id: string, task: string}`; **all required** | `TaskSnapshot`: durable queued identity/snapshot; does not wait for inference |
 | get_task | `{task_id: UUID}` | `TaskSnapshot`: persisted current state and completed answer |
-| watch_task | `{task_id: UUID}` | `TaskProgress`: bounded safe metadata; with request `_meta.progressToken`, progress until terminal/shutdown; without a token, latest snapshot promptly |
+| watch_task | `{task_id: UUID}` | `TaskProgress`: bounded safe metadata; with request `_meta.progressToken`, progress until terminal/shutdown/unavailable; without a token, latest snapshot promptly |
 | cancel_task | `{task_id: UUID}` | `TaskSnapshot`: resulting persisted state/cancellation request |
 | delegate_council | `{project_id: UUID, agent_id: string, task: string, worker_ids: string[]}`; **all required**, 2–16 distinct Workers | `CouncilSnapshot`: durable identity and ordered queued participants; returns promptly |
 | get_council | `{council_id: UUID}` | `CouncilSnapshot`: current participant outcomes/answers, state counts and terminal flag |
@@ -281,7 +286,7 @@ AgentForge exposes supported MCP progress semantics usable by compatible Directo
 
 - `task_id`, current `state`, fixed `reason`/`error_code`,
   `cancellation_requested` and `terminal`;
-- `observation`: `snapshot`, `refresh`, `resync`, `terminal` or `shutdown`;
+- `observation`: `snapshot`, `refresh`, `resync`, `terminal`, `shutdown` or `unavailable`;
 - `resync_required`, `truncated`, and a replacement `timeline` of at most 100
   safe events. Each event contains `step`, `kind`, bounded `tool_name`, optional
   `success`, allowlisted `error_code`, observed `duration_seconds` and fixed `reason`.
@@ -317,6 +322,14 @@ watch with `observation="shutdown"`, resync required, and the latest readable
 state; it need not be terminal. Queued Tasks survive executor shutdown and local
 active execution is cancelled under the existing TaskEngine policy. Reconnect or
 poll after restart for authoritative state.
+
+An executor becoming unavailable before terminal persistence closes all active
+and queued watches with `observation="unavailable"`, `resync_required=true` and
+the latest readable durable state. A running or queued row is not fabricated as
+terminal. New nonterminal watches return `service_unavailable` after observer
+closure. If even the snapshot cannot be read, the adapter returns the existing
+safe storage error. A normal `terminal` observation always means durable terminal
+state; local executor exit alone cannot produce it.
 
 Use standard `notifications/cancelled` with the **watch request ID** to stop a
 watch; this releases its subscription and does not call `cancel_task`. Client
@@ -472,5 +485,9 @@ Git ref, commit, push, merge or lifecycle tool is available to Workers. See
 ## Companion alongside Codex
 
 Add `--companion` to the existing MCP launch to host the loopback web panel in
-the same process/Application. Do not start a separate dashboard executor on that
-database. See [Companion discovery, launch and limitations](companion.md).
+the same process/Application and TaskEngine. This exposes the full `/`, `/workers`,
+`/projects`, `/tasks`, `/councils` and `/companion` HTTP surface and trusted
+cancellation/workspace cleanup controls, on loopback IP binds only. There is no
+authentication layer. Do not start a separate dashboard executor on that database.
+Standalone `agentforge web` can be intentionally LAN-bound by the operator and
+also serves Companion. See [Companion discovery, launch and limitations](companion.md).

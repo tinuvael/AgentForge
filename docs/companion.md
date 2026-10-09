@@ -1,6 +1,8 @@
 # AgentForge Companion alongside Codex
 
-AgentForge Companion is a local loopback panel designed to run alongside Codex.
+AgentForge Companion is an operator panel designed to run alongside Codex.
+Combined MCP mode serves it on loopback only. Standalone `agentforge web` also
+serves it and may be intentionally LAN-bound by the operator.
 Open it in a narrow browser window (roughly 380–600 px) beside your Codex client.
 It observes Tasks and provides cancellation and bounded review; the external
 Director still submits work and judges Council results.
@@ -83,7 +85,10 @@ distributed/process lock. The one-executor rule remains an operator requirement.
 MCP-only works without `--companion`. Dashboard-only remains
 `agentforge web ...`; `/companion` is also available within that dashboard's
 existing Application when MCP is not running. No second HTTP-only launch mode is
-introduced. The existing dashboard routes share the same local operator boundary.
+introduced. Combined mode intentionally serves the full `/`, `/workers`, `/projects`,
+`/tasks`, `/councils` and `/companion` routes, including detail/SSE endpoints,
+Task/Council cancellation and explicit coding workspace cleanup. These share one
+trusted loopback operator boundary and the existing Host/CSRF protections.
 
 Closing a browser tab releases its subscriptions without cancelling Tasks.
 On MCP EOF or process interruption the Application closes its observer, stops
@@ -105,6 +110,11 @@ and timeline truncation request resync. The latest 100 execution events are show
 with explicit truncation. Event labels use safe step/tool-name/outcome metadata.
 No raw model messages, reasoning, arguments, results, searched text, source bodies,
 exception messages or private workspace paths are displayed in progress.
+
+If an executor stops before terminal persistence, `unavailable` closes active and
+queued streams without claiming Task completion. The panel reports executor
+unavailability; reload to resync. Task rows keep their actual durable state, and
+subscriptions are released on this service notice as on browser disconnect.
 
 Each Task shows Project, Agent, Worker/model, state, elapsed waiting/execution time,
 current status, observed tool attempts and step, where available. Elapsed time
@@ -169,6 +179,9 @@ answers and requested diffs are bounded, escaped **untrusted content** and may
 contain content intentionally produced by a Task or repository; the safe progress
 projection is not a general content/secret classifier. Do not expose the HTTP port
 publicly. Standalone dashboard bind behavior remains unchanged.
+Standalone `agentforge web` may be intentionally LAN-bound; `/companion` inherits
+that exposure. The neutral **OPERATOR** badge makes no claim about network binding
+and does not expose interface configuration.
 
 Limitations: no native Codex embedding, automatic browser opening, task composer,
 live token measurements before persistence, replay, ETA, routing or Council judge.

@@ -108,7 +108,10 @@ def add_companion_routes(web, core, render, check_cancellation, event_response):
                         return
                     pending = None
                     yield f"event: {progress.observation}\ndata: {{}}\n\n"
-                    if progress.terminal or progress.observation == "shutdown":
+                    if progress.terminal or progress.observation in {
+                        "shutdown",
+                        "unavailable",
+                    }:
                         return
             finally:
                 if pending is not None:

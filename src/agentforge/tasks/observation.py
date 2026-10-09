@@ -21,7 +21,7 @@ from agentforge.tasks.models import Task, TaskReason
 TRACE_LIMIT = 100
 QUEUE_LIMIT = 16
 SUBSCRIBER_LIMIT = 128
-Notice = Literal["refresh", "resync", "terminal", "shutdown"]
+Notice = Literal["refresh", "resync", "terminal", "shutdown", "unavailable"]
 _ERROR_CODES = frozenset(
     code for group in get_args(TaskReason) for code in get_args(group)
 ) | {
@@ -109,6 +109,8 @@ class TaskObserver:
         return self._subscriber_count
 
     def begin(self, task_id: UUID):
+        if self._closed:
+            return
         self._buffers[task_id] = deque(maxlen=TRACE_LIMIT)
         self.notify(task_id)
 
@@ -129,16 +131,23 @@ class TaskObserver:
             if queue.full():
                 while not queue.empty():
                     queue.get_nowait()
-                # Terminal/shutdown must survive overflow so streams can close.
-                value = notice if notice in {"terminal", "shutdown"} else "resync"
+                # Closing notices must survive overflow so streams can close.
+                value = (
+                    notice
+                    if notice in {"terminal", "shutdown", "unavailable"}
+                    else "resync"
+                )
             else:
                 value = notice
             queue.put_nowait(value)
 
-    def finish(self, task_id: UUID):
-        # The terminal trace now lives in the existing durable Task result.
+    def discard(self, task_id: UUID):
         self._buffers.pop(task_id, None)
         self._truncated.discard(task_id)
+
+    def finish(self, task_id: UUID):
+        # Call only after authoritative terminal persistence succeeds.
+        self.discard(task_id)
         self.notify(task_id, "terminal")
 
     @contextmanager
@@ -175,10 +184,10 @@ class TaskObserver:
                         self._subscribers.pop(task_id, None)
             self._subscriber_count -= 1
 
-    def close(self):
+    def close(self, notice: Literal["shutdown", "unavailable"] = "shutdown"):
         self._closed = True
         for task_id in tuple(self._subscribers):
-            self.notify(task_id, "shutdown")
+            self.notify(task_id, notice)
         self._subscribers.clear()
         self._buffers.clear()
         self._truncated.clear()

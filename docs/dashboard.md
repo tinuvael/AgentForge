@@ -34,7 +34,7 @@ No new dashboard configuration forms or destructive actions are introduced.
 | `/tasks` | Bounded history with state, Project UUID, Agent ID and Worker ID filters; deterministic descending creation time then Task ID |
 | `/tasks/{task_id}` | Identity, state, historical Provider/model, lifecycle timestamps, request, final answer, safe termination category, telemetry and metadata timeline |
 | `/tasks/{task_id}/fragment` | Same diagnostic snapshot as HTML, refreshed using HTMX |
-| `/tasks/{task_id}/events` | SSE refresh/resync/terminal/shutdown hints with empty JSON payloads |
+| `/tasks/{task_id}/events` | SSE refresh/resync/terminal/shutdown/unavailable hints with empty JSON payloads |
 | `POST /tasks/{task_id}/cancel` | Confirmed, CSRF-protected cancellation through shared Application/TaskEngine |
 
 Lists default to 25 rows, maximum 100, with offset 0..1,000,000. Parameters and
@@ -69,7 +69,7 @@ TaskEngine owner within a process; it is not a cross-process lease. Separate exe
 processes, including separate MCP and standalone web processes, must not execute
 against the same SQLite database simultaneously.
 
-`agentforge mcp ... --companion` now supports combined MCP stdio and Companion HTTP
+`agentforge mcp ... --companion` supports combined MCP stdio and full dashboard/Companion HTTP
 in one process. MCP owns and starts/closes one Application and one TaskEngine;
 `create_app(shared_application=...)` borrows that already-started Application on the
 same event loop without creating or owning another executor. Standalone
@@ -112,13 +112,21 @@ at most **16** notifications, with at most **128** subscribers in the process. A
 capacity rejection returns a safe 503 without registering a subscriber.
 
 Publishing uses non-blocking queue operations. On queue overflow, pending hints are
-discarded and a `resync` hint replaces them; terminal/shutdown hints take priority.
+discarded and a `resync` hint replaces them; terminal/shutdown/unavailable hints take priority.
 A dropped buffer prefix also triggers resync. A new/reconnecting browser always
 reloads a snapshot; there is no Last-Event-ID replay guarantee. SSE sends only named
 hints plus `{}`, never accumulated trace/tool payloads. A 15-second comment keepalive
 supports idle queued/model requests without polling. Multiple tabs are independent;
 disconnect, terminal delivery, pre-iteration disconnect and shutdown clean up queues.
 There is no polling task per UI element and no browser dependency for execution.
+
+A terminal hint requires an authoritative durable terminal Task (or all Council
+participants terminal). Local executor exit alone is not completion. If an
+executor stops before terminal persistence, active and queued streams receive
+`unavailable` and close; Task rows retain their actual running/queued state.
+The browser reports executor unavailability and requires reload to resync.
+New nonterminal subscriptions then return safe 503; storage failures stay safe
+errors. Subscriber cleanup is guaranteed on service notices as on disconnect.
 
 A small plain JavaScript EventSource listener coalesces hints over 200 ms and uses
 HTMX to reload the whole diagnostic fragment. Task history filtering/pagination and
@@ -242,6 +250,10 @@ local exposure, Host/CSRF protections and escaping apply unchanged.
 `/companion` provides a narrow active-work view with Task/Council deep links and
 on-demand coding diff inspection. For concurrent Codex MCP and HTTP use
 `agentforge mcp ... --companion`, which owns one Application and one TaskEngine.
+Combined mode intentionally serves the full `/`, `/workers`, `/projects`, `/tasks`,
+`/councils` and `/companion` route surface, including details, SSE, cancellation
+and explicit coding workspace cleanup. It uses the same trusted operator boundary
+and has no authentication layer or separate Companion-only router.
 This combined mode is loopback-only. When `/companion` is instead served by
 standalone `agentforge web`, it inherits that dashboard's explicitly configured
 bind and security boundary, including an intentional LAN bind. The route itself

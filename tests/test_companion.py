@@ -22,6 +22,20 @@ from tests.test_web import LiveConnection, client_for, csrf, stored
 setup = setup_fixture
 
 
+def test_standalone_lan_companion_has_neutral_hosting_label(setup):
+    async def execute():
+        async with client_for(setup.app, allowed_hosts=("192.168.50.2",)) as (
+            client,
+            _,
+        ):
+            response = await client.get("/companion", headers={"Host": "192.168.50.2"})
+            assert response.status_code == 200
+            assert "LOOPBACK" not in response.text
+            assert '<span class="local">OPERATOR</span>' in response.text
+
+    run(execute())
+
+
 def test_active_identity_elapsed_and_terminal_detail(setup):
     async def execute():
         setup.provider.release.clear()

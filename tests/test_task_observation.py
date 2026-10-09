@@ -104,7 +104,8 @@ def test_bounded_buffers_queues_resync_and_terminal_priority():
     assert hub.subscriber_count == 0 and not hub._subscribers
 
 
-def test_subscription_capacity_disconnect_and_shutdown():
+@pytest.mark.parametrize("notice", ["shutdown", "unavailable"])
+def test_subscription_capacity_disconnect_and_shutdown(notice):
     hub = TaskObserver()
     identities = [uuid4() for _ in range(SUBSCRIBER_LIMIT)]
     with ExitStack() as stack:
@@ -119,11 +120,11 @@ def test_subscription_capacity_disconnect_and_shutdown():
             for _ in range(QUEUE_LIMIT):
                 hub.notify(identity)
         hub.begin(identities[0])
-        hub.close()
+        hub.close(notice)
         for queue in queues:
             # Overflow semantics guarantee shutdown survives slow consumers.
             notices = [queue.get_nowait() for _ in range(queue.qsize())]
-            assert "shutdown" in notices
+            assert notice in notices
         assert not hub._subscribers and not hub._buffers
         with pytest.raises(ObservationUnavailable):
             with hub.subscribe(uuid4()):
@@ -150,3 +151,27 @@ def test_slow_subscriber_does_not_block_execution(setup):
             await setup.app.close()
 
     run(execute())
+
+
+@pytest.mark.parametrize("operation", ["notify", "begin", "record", "finish", "close"])
+def test_observer_failure_never_fails_task_execution(setup, monkeypatch, operation):
+    attempts = []
+
+    def broken(*_arguments):
+        attempts.append(operation)
+        raise RuntimeError(PRIVATE)
+
+    monkeypatch.setattr(setup.app.tasks.observer, operation, broken)
+
+    async def execute():
+        await setup.app.start()
+        try:
+            task = setup.app.delegate_task(**setup.binding)
+            final = await setup.app.tasks.wait_task(task.task_id)
+            assert final.state == "completed"
+            assert final.final_answer == "Evidence found."
+        finally:
+            await setup.app.close()
+
+    run(execute())
+    assert attempts

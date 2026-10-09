@@ -1,6 +1,6 @@
 /* Safe hints reload authoritative HTML. No raw execution payload enters the DOM. */
 (() => {
-  let source = null, identity = null, timer = null, loading = false, dirty = false;
+  let source = null, identity = null, timer = null, loading = false, dirty = false, stopped = false;
   const openDetails = new Map();
   document.addEventListener('htmx:beforeSwap', () => {
     document.querySelectorAll('details[data-detail-key]').forEach(node => {
@@ -36,16 +36,20 @@
       status('Terminal snapshot'); return;
     }
     const path = `/companion/${node.dataset.resource}/${node.dataset.id}`;
-    if (identity === path && source) return;
+    if (identity === path && (source || stopped)) return;
     if (source) source.close();
     identity = path;
+    stopped = false;
     source = new EventSource(`${path}/events`);
     source.onopen = () => status('Live progress connected');
     source.onerror = () => status('Live progress interrupted; reconnecting…');
     ['resync','refresh'].forEach(kind => source.addEventListener(kind, refresh));
-    source.addEventListener('terminal', () => { source.close(); source=null; refresh(); });
+    source.addEventListener('terminal', () => { source.close(); source=null; stopped=true; refresh(); });
     source.addEventListener('shutdown', () => {
-      source.close(); source=null; status('AgentForge stopped; reload to reconnect.');
+      source.close(); source=null; stopped=true; status('AgentForge stopped; reload to reconnect.');
+    });
+    source.addEventListener('unavailable', () => {
+      source.close(); source=null; stopped=true; status('Task executor unavailable; reload to resync.');
     });
   };
   setInterval(() => document.querySelectorAll('[data-elapsed]').forEach(node => {
@@ -61,7 +65,7 @@
     if (node) node.textContent = 'Connection interrupted';
   }));
   window.addEventListener('pagehide', () => {
-    if (source) source.close(); source=null;
+    if (source) source.close(); source=null; stopped=false;
     if (timer) clearTimeout(timer); timer=null;
   });
   window.addEventListener('pageshow', event => { if (event.persisted) connect(); });

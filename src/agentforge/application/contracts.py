@@ -17,7 +17,7 @@ from agentforge.agents.models import RuntimeLimits
 from agentforge.coding.models import CodingResult
 from agentforge.councils.models import MAX_PARTICIPANTS, CouncilHistoryItem
 from agentforge.tasks.models import TaskReason, TaskState
-from agentforge.tasks.observation import TRACE_LIMIT, TimelineEvent
+from agentforge.tasks.observation import TRACE_LIMIT, Notice, TimelineEvent
 
 Identifier = Annotated[
     str, StringConstraints(strict=True, min_length=1, max_length=100)
@@ -209,7 +209,7 @@ class TaskProgress(Contract):
     error_code: TaskReason | None
     cancellation_requested: bool
     terminal: bool
-    observation: Literal["snapshot", "refresh", "resync", "terminal", "shutdown"]
+    observation: Notice | Literal["snapshot"]
     resync_required: bool
     truncated: bool
     timeline: tuple[TimelineEvent, ...] = Field(max_length=TRACE_LIMIT)

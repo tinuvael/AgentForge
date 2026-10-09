@@ -55,9 +55,11 @@ Replace `<PROJECT_UUID>` with an actual UUID; angle brackets are placeholders.
 Registration authorizes exactly the supplied existing root through ProjectRegistry's
 canonicalization and platform identity checks. No repository discovery, recursive
 registration or implicit indexing occurs. Add returns `registration.project_id`.
-Duplicate roots fail; display names need not be unique. Ordinary relative paths
-and paths with spaces work through the existing platform backend. Windows retains
-its fixed local NTFS, reparse/alias and root identity restrictions.
+Duplicate roots fail; display names need not be unique. POSIX accepts `.` and
+ordinary relative paths. On Windows use an explicit absolute path, for example
+`agentforge project add 'C:\Projects\AgentForge' --name AgentForge --database-url sqlite:///agentforge.db`.
+Windows rejects dot components (`.` and `..`), including `./...`, and retains its
+fixed local NTFS, reparse/alias and root identity restrictions. Quote paths with spaces.
 
 List reads registration and cached Index checkpoint metadata, without accessing
 Project source or Git. Its default is 25 rows, maximum 100; `next_offset` indicates
@@ -146,10 +148,14 @@ agentforge mcp --database-url sqlite:///agentforge.db --workers workers.local.to
 agentforge web --database-url sqlite:///agentforge.db --workers workers.local.toml
 ```
 
-Choose one service. Stop MCP before starting the dashboard against the same
-database. Each owns the existing TaskEngine; there is no combined launcher,
-daemon or cross-process lease. `--coding` and `--concurrency` retain their existing
-meaning. Web additionally accepts the existing host/port/allowed-host options.
+Choose one executor process per database. Stop MCP before starting standalone web
+against that database, or use `agentforge mcp ... --companion` for both transports
+in one Application/TaskEngine. Ownership is checked only within one process;
+another OS process can start and its recovery can interrupt live Tasks and affect
+coding workspaces. There is no cross-process enforcement. `--coding` and
+`--concurrency` retain their existing meaning. Web additionally accepts the
+existing host/port/allowed-host options and may be intentionally LAN-bound.
+Combined MCP HTTP accepts loopback IP binds only. Neither HTTP mode has authentication.
 The original `python -m agentforge.mcp.server` and
 `python -m agentforge.web.server` commands remain supported. Use absolute
 interpreter/config/database paths for MCP client settings; see [MCP setup](mcp.md).
@@ -175,13 +181,14 @@ stays isolated-write. External orchestration and explicit Worker selection remai
 
 MCP/web preserve their original service exit behavior (startup failure 1).
 No live Provider, cloud, GPU or native Windows acceptance is implied by offline
-CLI tests. Director-facing progress events (#35), Companion (#32) and a general
-Agent (#36) remain separate work. Shared service ownership
-and a combined daemon also remain outside this feature.
+CLI tests. Director-facing `watch_task` progress, Companion and General Agent are
+shipped; physical acceptance remains Issue #31.
 
 ## MCP with local Companion
 
 `agentforge mcp ... --companion [--companion-host 127.0.0.1]
 [--companion-port 8765]` hosts the local panel at `/companion` while Codex uses
-stdio. The host must be a loopback IP. Use this single executor instead of running
-MCP and web separately on one database. See [Companion](companion.md).
+stdio. The host must be a loopback IP. The same HTTP server also exposes the full
+dashboard (`/`, `/workers`, `/projects`, `/tasks`, `/councils`) and its trusted
+cancellation/workspace cleanup controls. Use this single executor instead of
+running MCP and web separately on one database. See [Companion](companion.md).

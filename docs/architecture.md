@@ -51,11 +51,12 @@ have no separate execution policy. Shutdown first cancels/awaits executors and
 validation cleanup, then closes owned Providers and disposes the database. Cleanup
 is shielded from caller cancellation. Injected Providers remain caller-owned.
 
-Use one process per database. The ownership guard detects duplicate TaskEngines
-inside a process; there is no distributed/cross-process lease. The shipped CLI
-entrypoints host MCP and dashboard separately. They must not run simultaneously
-against the same database. An embedding can share one Application, but no combined
-server entrypoint is provided.
+Use exactly one executor process per database. The ownership guard detects
+duplicate TaskEngines only inside a process; there is no cross-process enforcement.
+A second OS process can start and its recovery can mark another owner's live Tasks
+interrupted and affect coding workspace state. Separate MCP and standalone web
+executors must not share a database. `agentforge mcp ... --companion` provides one
+Application/TaskEngine with MCP stdio and the full HTTP dashboard on loopback.
 
 The installed `agentforge` CLI is separate from model tools. Administrative
 commands compose only the required Registry/Index/storage/configuration services;
@@ -101,7 +102,9 @@ the same Worker/tool capability validation applies without fallback.
    return fixed codes; unsafe root/ancestry failures terminate execution.
 6. The Director receives the final answer and factual evidence. Terminal outcomes
    and telemetry are persisted; coding workspaces remain for review and explicit
-   cleanup. Runtime never commits, pushes, merges or creates PRs.
+   cleanup. Backend output caps (`length` from either shipped Provider) terminate
+   as `output_limit`, without an answer, tool execution or automatic continuation
+   from that truncated turn. Runtime never commits, pushes, merges or creates PRs.
 
 Default Agent limits are 12 model turns, 24 tool calls, 120 seconds total runtime,
 12,000 bytes per serialized tool result, 48,000 cumulative tool-result bytes and
@@ -161,8 +164,15 @@ MCP formatting belongs solely to its adapter: standard progress `message` contai
 the serialized safe snapshot for the client's outstanding `watch_task` request.
 No token means a prompt metadata read. Queue overflow and timeline truncation
 request resync; reconnect loads current state without replay. Transport failure
-only terminates observation. Future Companion consumers can use the Application
-contract without depending on MCP. See [progress contract and SDK discovery](mcp.md#live-safe-task-progress).
+only terminates observation. Companion consumes the Application contract without
+depending on MCP. See [progress contract and SDK discovery](mcp.md#live-safe-task-progress).
+
+Normal terminal hints follow a successful durable terminal checkpoint, never local
+executor exit. An executor slot stopping unexpectedly closes all active and queued
+subscriptions with `unavailable`; watches reload the latest readable state, request
+resync and end even if the row is still running/queued. No Task state is fabricated.
+New nonterminal watches are rejected after observer closure. Observer publication
+is synchronous and non-blocking, and its failures cannot fail execution.
 
 ## Persistence, privacy and security
 
@@ -170,7 +180,11 @@ SQLite is the supported initial persistence backend. Repositories own short
 transactions; no transaction spans inference. Index refresh is transactional and
 retains prior valid structure for individual parse failures. Projects/Index may
 be removed without deleting historical Tasks/Councils/telemetry. Retention and
-history deletion are not implemented.
+history deletion are not implemented. Every explicit TaskRepository commit uses
+one small helper which invalidates the Session/connection on SQLAlchemy commit
+failure before mapping to TaskStorageError. Pending DBAPI work must never return
+to the pool and be committed by a later write. Council parents, memberships and
+Tasks retain one atomic transaction; no retry or journal-mode change is introduced.
 
 Database initialization/upgrades are explicit. The packaged `0001_initial`
 migration creates the first supported complete schema, including bounded operator
@@ -202,9 +216,11 @@ limit accidental effects and leaks. Validation programs can execute model-edited
 repository code and access the host/network, including the primary checkout.
 Enable them only where that execution is trusted.
 
-MCP is trusted local stdio. The dashboard binds loopback by default and has CSRF,
-Host and output-escaping protections, but no authentication layer. Do not expose
-it to untrusted users. See [SECURITY.md](../SECURITY.md).
+MCP is trusted local stdio. Combined MCP HTTP accepts loopback IP binds only.
+Standalone web binds loopback by default and can be intentionally LAN-bound by
+the operator. Both serve the full dashboard/Companion routes and trusted local
+operator controls with CSRF, Host and output-escaping protections, but no
+authentication layer. See [SECURITY.md](../SECURITY.md).
 
 ## Package boundaries and extension
 
@@ -257,7 +273,7 @@ old evidence for the same Worker. Passive reads never mutate storage, and no
 transaction spans inference.
 There is no accumulating probe history, metrics warehouse, routing, ranking,
 background probing or active MCP control. See [Worker diagnostics](worker-diagnostics.md)
-for lifecycle, security, remote egress and future Companion service contracts.
+for lifecycle, security, remote egress and shared Companion service contracts.
 
 ## Shared MCP and Companion lifecycle
 
@@ -267,7 +283,11 @@ a started Application without starting, closing or disposing it. Standalone
 `create_app(factory)` retains dashboard ownership. MCP lifespan closes execution
 and observers before draining HTTP. HTTP does not install process signal handlers
 or configure logs; stdout remains MCP protocol only. The per-database executor
-guard and operator one-process requirement are unchanged.
+guard and operator one-process requirement are unchanged. The borrowed FastAPI
+app intentionally exposes `/`, `/workers`, `/projects`, `/tasks`, `/councils` and
+`/companion`, including their existing detail, SSE, cancellation and explicit
+coding cleanup routes. This is one trusted loopback operator surface, with no
+authentication or separate Companion-only router.
 
 `CompanionQueries` builds bounded typed views from Dashboard/Application contracts,
 `task_progress` and coding inspection. SSE Task hints consume `watch_task`; Council

@@ -66,6 +66,11 @@ def verify_companion(database_url, workers_path):
                 process.stdin.flush()
                 opener = build_opener(ProxyHandler({}))  # Local HTTP, never a Provider.
                 for path in (
+                    "/",
+                    "/workers",
+                    "/projects",
+                    "/tasks",
+                    "/councils",
                     "/companion",
                     "/companion/fragment",
                     "/static/companion.css",

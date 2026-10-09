@@ -94,6 +94,17 @@ class TaskRepository:
             raise TaskStorageError("Could not access Task storage") from None
 
     @staticmethod
+    def _commit(session: Session) -> None:
+        try:
+            session.commit()
+        except SQLAlchemyError:
+            # A failed commit can deactivate SQLAlchemy's transaction before
+            # the DBAPI transaction has rolled back. Discard that connection
+            # rather than letting a later pooled checkout commit pending work.
+            session.invalidate()
+            raise
+
+    @staticmethod
     def _checkpoint(session, task_id, source, target, **values) -> Task | None:
         validate_transition(source, target)
         now = datetime.now(UTC)
@@ -153,7 +164,7 @@ class TaskRepository:
             session.add(record)
             session.flush()
             task = _task(record)
-            session.commit()
+            self._commit(session)
             return task
 
     def add_council(
@@ -207,14 +218,7 @@ class TaskRepository:
             )
             session.flush()
             tasks = tuple(_task(record) for record in records)
-            try:
-                session.commit()
-            except SQLAlchemyError:
-                # A failed commit can deactivate SQLAlchemy's transaction before
-                # the DBAPI transaction has rolled back. Discard that connection
-                # rather than letting a later pooled checkout commit pending rows.
-                session.invalidate()
-                raise
+            self._commit(session)
             return council, tasks
 
     def get(self, task_id: UUID) -> Task:
@@ -371,7 +375,7 @@ class TaskRepository:
                     else {}
                 ),
             )
-            session.commit()
+            self._commit(session)
             return task
 
     def cancel(
@@ -417,7 +421,7 @@ class TaskRepository:
                 if record is None:
                     raise TaskNotFound("Task ID is not registered")
                 task = _task(record)
-            session.commit()
+            self._commit(session)
             return task
 
     def finish(
@@ -475,7 +479,7 @@ class TaskRepository:
                         execution_duration_seconds=execution_duration_seconds,
                     )
                     task = _task(record)
-                    session.commit()
+                    self._commit(session)
                     return task
             record = session.get(TaskRecord, task_id)
             if record is None:
@@ -491,7 +495,7 @@ class TaskRepository:
                 row.execution_result = result.model_copy(
                     update={"coding_result": coding_result}
                 ).model_dump(mode="json")
-                session.commit()
+                self._commit(session)
 
     def recover_running(self) -> int:
         """Exclusive startup only: started work is never replayed after process loss."""
@@ -515,7 +519,7 @@ class TaskRepository:
             for record in records.all():
                 record.telemetry_status = record_checkpoint(session, _task(record))
                 changed += 1
-            session.commit()
+            self._commit(session)
             return changed
 
     def check_schema(self) -> None:

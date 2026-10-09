@@ -16,11 +16,17 @@ run any explicitly configured validation commands.
   Keep actual tokens in operator secret provisioning, use HTTPS for remote
   authentication and restart after rotation. Credentials are not stored on Workers
   or projected to MCP/dashboard. HTTP has no transport encryption.
-- Use one executor per database. The process guard is not a cross-process lease.
-  Concurrent independent owners can interfere with recovery and worktree lifecycle.
+- Use exactly one executor process per database. Ownership is checked only within
+  a process; AgentForge does not enforce this across OS processes. A second owner
+  can start and recovery can interrupt live Tasks and affect coding workspaces.
 - Treat MCP stdio clients as trusted local Directors. Dashboard CSRF, Host checks,
   escaped output and loopback defaults do not provide authentication. Protect
   intentional LAN exposure with a trusted network/VPN or authenticated proxy.
+  `agentforge mcp ... --companion` accepts loopback IP binds only and serves the
+  full dashboard (`/`, `/workers`, `/projects`, `/tasks`, `/councils`) plus
+  `/companion`, including trusted cancellation and workspace cleanup controls.
+  Standalone `agentforge web` may be intentionally LAN-bound and also exposes
+  Companion. The neutral OPERATOR label is not an assertion about network binding.
 
 ## Repository and coding boundary
 

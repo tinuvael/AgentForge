@@ -75,6 +75,19 @@ class TaskEngine:
         ):
             raise RuntimeError("Task Engine operations require the owning event loop")
 
+    def _observe(self, operation, *arguments):
+        try:
+            getattr(self.observer, operation)(*arguments)
+        except Exception:
+            pass  # Ephemeral observation must never change execution/persistence.
+
+    def _executor_stopped(self, _loop):
+        self._changed.set()
+        if not self._closed:
+            # Any lost executor slot makes the service unavailable. Wake every
+            # subscriber, including Tasks which have not yet been claimed.
+            self._observe("close", "unavailable")
+
     @staticmethod
     def _id(task_id: UUID | str) -> UUID:
         try:
@@ -107,7 +120,7 @@ class TaskEngine:
         self._queued_at[submitted.task_id] = queued_at
         self._wake.set()
         self._changed.set()
-        self.observer.notify(submitted.task_id)
+        self._observe("notify", submitted.task_id)
         return submitted
 
     @property
@@ -153,7 +166,7 @@ class TaskEngine:
         )
         for participant in tasks:
             self._queued_at[participant.task_id] = queued_at
-            self.observer.notify(participant.task_id)
+            self._observe("notify", participant.task_id)
         self._wake.set()
         self._changed.set()
         return council, tasks
@@ -211,8 +224,10 @@ class TaskEngine:
             token.cancel()
         self._wake.set()
         self._changed.set()
-        self.observer.notify(
-            identity, "terminal" if task.state in TERMINAL_STATES else "refresh"
+        self._observe(
+            "notify",
+            identity,
+            "terminal" if task.state in TERMINAL_STATES else "refresh",
         )
         return task
 
@@ -245,7 +260,7 @@ class TaskEngine:
             for index in range(self._concurrency)
         ]
         for loop in self._loops:
-            loop.add_done_callback(lambda _: self._changed.set())
+            loop.add_done_callback(self._executor_stopped)
         self._changed.set()
 
     def _validated_result(self, task: Task, result: ExecutionResult) -> ExecutionResult:
@@ -294,13 +309,14 @@ class TaskEngine:
             # No await between claim and registration: cancellation cannot miss start.
             self._tokens[identity] = token
             self._changed.set()
-            self.observer.begin(identity)
+            self._observe("begin", identity)
             observations = ExecutionObservations(
                 on_trace=lambda event, identity=identity: self.observer.record(
                     identity, event
                 )
             )
             execution_started = self._clock()
+            terminal_persisted = False
 
             def finish(
                 identity=identity,
@@ -308,7 +324,8 @@ class TaskEngine:
                 execution_started=execution_started,
                 **outcome,
             ):
-                return self._repository.finish(
+                nonlocal terminal_persisted
+                finished = self._repository.finish(
                     identity,
                     observations=observations,
                     execution_duration_seconds=max(
@@ -316,6 +333,8 @@ class TaskEngine:
                     ),
                     **outcome,
                 )
+                terminal_persisted = finished.state in TERMINAL_STATES
+                return finished
 
             coding = False
             provisioned = False
@@ -375,7 +394,7 @@ class TaskEngine:
                         pass  # Partial workspace remains; no destructive recovery.
                 self._tokens.pop(identity, None)
                 self._changed.set()
-                self.observer.finish(identity)
+                self._observe("finish" if terminal_persisted else "discard", identity)
             # Even a fully synchronous scripted Provider must yield to callers.
             await asyncio.sleep(0)
 
@@ -417,7 +436,7 @@ class TaskEngine:
         self._check_thread()
         self._closed = True
         self._queued_at.clear()
-        self.observer.close()
+        self._observe("close")
         if not self._started:
             return
         if self._shutdown_task is None:
