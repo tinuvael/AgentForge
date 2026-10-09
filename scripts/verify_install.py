@@ -61,6 +61,17 @@ def package_checks():
         "db/migrations/script.py.mako",
         "db/migrations/versions/0001_initial.py",
         "web/templates/base.html",
+        "web/templates/companion_base.html",
+        "web/templates/companion_home.html",
+        "web/templates/companion_home_fragment.html",
+        "web/templates/companion_task.html",
+        "web/templates/companion_task_fragment.html",
+        "web/templates/companion_macros.html",
+        "web/templates/companion_council.html",
+        "web/templates/companion_council_fragment.html",
+        "web/templates/companion_diff.html",
+        "web/static/companion.css",
+        "web/static/companion.js",
         "web/static/dashboard.css",
         "web/static/dashboard.js",
         "web/static/htmx.min.js",
@@ -68,6 +79,28 @@ def package_checks():
         "web/static/THIRD_PARTY.md",
     ):
         assert root.joinpath(name).is_file(), name
+    from fastapi.templating import Jinja2Templates
+
+    templates = Jinja2Templates(directory=str(root.joinpath("web/templates")))
+    # Compilation only; formatting is exercised by actual installed HTTP routes.
+    templates.env.filters.update(dict.fromkeys(("known", "seconds", "capability"), str))
+    for name in templates.env.list_templates():
+        templates.env.get_template(name)
+    companion_routes = {
+        getattr(route, "path", "") for route in create_app(lambda: None).routes
+    }
+    assert {
+        "/companion",
+        "/companion/fragment",
+        "/companion/tasks/{task_id}",
+        "/companion/tasks/{task_id}/fragment",
+        "/companion/tasks/{task_id}/events",
+        "/companion/tasks/{task_id}/cancel",
+        "/companion/tasks/{task_id}/diff",
+        "/companion/councils/{council_id}",
+        "/companion/councils/{council_id}/fragment",
+        "/companion/councils/{council_id}/events",
+    } <= companion_routes
     assert {
         file.name
         for file in root.joinpath("db/migrations/versions").iterdir()
@@ -325,6 +358,9 @@ async def smoke():
             "Installed MCP console script/module: stdio startup, discovery, "
             "status and shutdown: OK"
         )
+        from verify_companion import verify_companion
+
+        await asyncio.to_thread(verify_companion, url, config)
         workers = WorkersConfig(
             workers=[
                 Worker(
@@ -491,7 +527,17 @@ async def smoke():
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=web), base_url="http://localhost"
             ) as client:
-                for path in ("/", "/workers", "/projects", "/tasks", "/councils"):
+                for path in (
+                    "/",
+                    "/workers",
+                    "/projects",
+                    "/tasks",
+                    "/councils",
+                    "/companion",
+                    f"/companion/tasks/{task.task_id}",
+                    f"/companion/tasks/{task.task_id}/fragment",
+                    f"/companion/tasks/{task.task_id}/events",
+                ):
                     response = await client.get(path)
                     assert response.status_code == 200, path
                     if path == "/":

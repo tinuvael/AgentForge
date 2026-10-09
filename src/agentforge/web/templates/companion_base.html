@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"allowScriptTags":false}'>
+<title>AgentForge Companion</title>
+<link rel="stylesheet" href="/static/dashboard.css"><link rel="stylesheet" href="/static/companion.css">
+<script src="/static/htmx.min.js" defer></script><script src="/static/companion.js" defer></script>
+</head><body class="companion" hx-history="false">
+<a class="skip" href="#main">Skip to content</a>
+<header><a class="brand" href="/companion">AgentForge <span>companion</span></a><span class="local">LOOPBACK</span></header>
+<main id="main"><div id="notice" role="alert"></div>{% block content %}{% endblock %}</main>
+<footer>Local operator panel alongside Codex · AgentForge owns execution</footer>
+</body></html>

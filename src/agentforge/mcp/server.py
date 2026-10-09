@@ -3,7 +3,7 @@
 import argparse
 import logging
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
 from importlib.metadata import version
@@ -37,6 +37,7 @@ from agentforge.coding.models import CodingDiff, CodingError, CodingResult
 from agentforge.councils.models import CouncilNotFound, CouncilSnapshot, InvalidCouncil
 from agentforge.projects.errors import ProjectNotFound, ProjectStorageError
 from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidationError
+from agentforge.web.combined import CompanionConfig, companion_http
 
 _MESSAGES = {
     "invalid_arguments": "Supply arguments matching the tool schema.",
@@ -227,7 +228,11 @@ TOOL_CONTRACTS = (
 )
 
 
-def create_server(application_factory: Callable[[], Application]) -> Server:
+def create_server(
+    application_factory: Callable[[], Application],
+    *,
+    companion: CompanionConfig | None = None,
+) -> Server:
     """Own one shared Application during the SDK server lifespan.
 
     Use lowlevel SDK primitives so all tool validation/operation errors cross our
@@ -244,14 +249,20 @@ def create_server(application_factory: Callable[[], Application]) -> Server:
         app = application_factory()
         application = app
         try:
-            await app.start()
-            yield app
+            async with AsyncExitStack() as transports:
+                try:
+                    await app.start()
+                    if companion is not None:
+                        await transports.enter_async_context(
+                            companion_http(app, companion)
+                        )
+                    yield app
+                finally:
+                    with anyio.CancelScope(shield=True):
+                        # Wake observers before draining HTTP; only this owner closes.
+                        await app.close()
         finally:
-            try:
-                with anyio.CancelScope(shield=True):
-                    await app.close()
-            finally:
-                application = None
+            application = None
 
     server = Server(
         "AgentForge",
@@ -346,6 +357,7 @@ async def run_stdio(
     workers_path: str,
     concurrency: int,
     coding_path: str | None = None,
+    companion: CompanionConfig | None = None,
 ):
     server = create_server(
         lambda: Application.from_config(
@@ -353,7 +365,8 @@ async def run_stdio(
             workers_path=workers_path,
             concurrency=concurrency,
             coding_path=coding_path,
-        )
+        ),
+        companion=companion,
     )
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
@@ -378,6 +391,15 @@ def add_arguments(parser) -> None:
     parser.add_argument("--workers", required=True)
     parser.add_argument("--coding", help="Explicit trusted coding TOML configuration")
     parser.add_argument("--concurrency", type=int, choices=range(1, 33), default=1)
+    parser.add_argument(
+        "--companion",
+        action="store_true",
+        help="Serve local Companion in this MCP process",
+    )
+    parser.add_argument(
+        "--companion-host", default="127.0.0.1", help="Loopback IP only"
+    )
+    parser.add_argument("--companion-port", type=int, default=8765)
 
 
 def run(arguments) -> int:
@@ -385,6 +407,11 @@ def run(arguments) -> int:
     diagnostics.addFilter(_SafeDiagnostics())
     logging.basicConfig(level=logging.WARNING, handlers=[diagnostics], force=True)
     try:
+        companion = (
+            CompanionConfig(arguments.companion_host, arguments.companion_port)
+            if arguments.companion
+            else None
+        )
         anyio.run(
             partial(
                 run_stdio,
@@ -392,6 +419,7 @@ def run(arguments) -> int:
                 workers_path=arguments.workers,
                 concurrency=arguments.concurrency,
                 coding_path=arguments.coding,
+                companion=companion,
             )
         )
     except KeyboardInterrupt:

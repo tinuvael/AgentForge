@@ -148,3 +148,9 @@ Real inference/hardware acceptance is opt-in and follows
 [Repo Explorer smoke](manual-repo-explorer.md) and
 [native Windows acceptance](native-windows-smoke.md). Do not run those live scripts
 as part of the default suite or describe Linux mocks as physical Windows evidence.
+
+Companion coverage includes packaged templates/CSS/JS and real combined MCP stdio
+plus loopback HTTP operation and EOF shutdown. `scripts/verify_companion.py` is
+called by the installed smoke, and can also be run explicitly with `--database-url`
+and `--workers`. It uses no inference, internet or GPU. The normal suite invokes
+that smoke in an isolated subprocess; its network use is limited to loopback.

@@ -1,0 +1,1 @@
+{% extends "companion_base.html" %}{% block content %}<a href="/companion/tasks/{{ diff.task_id }}">← Task</a><h1>Current diff</h1><p>Explicit bounded inspection · untrusted repository content</p><pre>{{ diff.diff_stat }}</pre><pre>{{ diff.content }}</pre>{% if diff.truncated %}<p role="status">Diff truncated at the configured inspection limit.</p>{% endif %}{% endblock %}

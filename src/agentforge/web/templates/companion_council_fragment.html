@@ -1,0 +1,7 @@
+<section id="companion-detail" data-resource="councils" data-id="{{ council.council_id }}" data-terminal="{{ 'yes' if council.terminal else 'no' }}">
+<a href="/companion">← Active work</a><h1>Council <code>{{ council.council_id|string|truncate(8,true,'') }}</code></h1>
+<p>{{ project_name|known }} · {{ council.agent_id }} · {{ 'terminal' if council.terminal else 'active' }}</p><p class="meta">{{ council.council_id }}</p>
+<p>{{ council.participant_counts.get('completed',0) }} completed · {{ council.participant_counts.get('failed',0) }} failed · {{ council.participant_counts.get('cancelled',0) }} cancelled</p>
+{% for p in council.participants %}<article class="task-row"><div class="row-heading"><a href="/companion/tasks/{{ p.task_id }}">{{ p.worker_id }}</a><span class="badge {{ p.state }}">{{ p.state }}</span></div><p>{{ p.model|known }}</p>{% if p.cancellation_requested_at %}<p>Cancellation requested</p>{% endif %}</article>{% endfor %}
+<p id="live-status" role="status">{{ 'Terminal snapshot' if council.terminal else 'Connecting live progress…' }}</p><p class="meta">Independent participants. The external Director evaluates results.</p>
+</section>

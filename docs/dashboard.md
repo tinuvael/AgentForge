@@ -228,3 +228,10 @@ refresh. Remote/cloud probes send fixed synthetic data and can incur cost/retent
 Task telemetry remains separately available on overview/detail. See
 [Worker diagnostics](worker-diagnostics.md) for metrics and limits. Existing trusted
 local exposure, Host/CSRF protections and escaping apply unchanged.
+
+## Compact Companion
+
+`/companion` provides a narrow active-work view with Task/Council deep links and
+on-demand coding diff inspection. For concurrent Codex MCP and HTTP use
+`agentforge mcp ... --companion`, which owns one shared Application. See
+[Companion](companion.md); do not start a separate dashboard against its database.

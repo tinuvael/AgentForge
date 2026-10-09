@@ -1,0 +1,20 @@
+{% from "companion_macros.html" import card %}{% set t=item.task %}
+<section id="companion-detail" data-resource="tasks" data-id="{{ t.task_id }}" data-terminal="{{ 'yes' if item.progress.terminal else 'no' }}">
+<a href="/companion">← Active work</a><h1>Task <code>{{ t.task_id|string|truncate(8,true,'') }}</code></h1>
+{{ card(item,csrf,true) }}
+<p id="live-status" role="status" aria-live="polite">{{ 'Terminal snapshot' if item.progress.terminal else 'Connecting live progress…' }}</p>
+<p class="meta">Cancellation is cooperative. Remote inference may continue briefly.</p>
+{% if item.council_id %}<a href="/companion/councils/{{ item.council_id }}">Council participants →</a>{% endif %}
+<details data-detail-key="identity"><summary>Identity and timestamps</summary><dl class="compact-facts">
+{% for label,value in [('Task',t.task_id),('Project',t.project_id),('Created UTC',t.created_at),('Updated UTC',t.updated_at),('Started UTC',t.started_at),('Finished UTC',t.finished_at),('Cancel requested UTC',t.cancellation_requested_at),('Reason',t.reason),('Error category',t.error_code)] %}<dt>{{ label }}</dt><dd>{{ value|known }}</dd>{% endfor %}
+</dl></details>
+<h2>Safe progress</h2>{% if item.progress.truncated %}<p>Latest 100 events; earlier metadata omitted. Tool count unknown unless persisted.</p>{% endif %}
+<ol class="timeline">{% for e in item.progress.timeline %}<li><span class="meta">{{ e.step }}</span> {{ progress_label(e) }}{% if e.duration_seconds is not none %}<span class="meta"> · {{ e.duration_seconds|seconds }}</span>{% endif %}</li>{% else %}<li>No execution metadata observed.</li>{% endfor %}</ol>
+<h2>Telemetry</h2><p class="meta">{{ t.telemetry_status }} · unknown values are — · recorded at terminal persistence</p>
+{% if item.telemetry %}{% set m=item.telemetry %}<dl class="compact-facts">
+{% for label,value in [('Model calls',m.model_call_count),('Tool calls',m.tool_call_count),('Prompt tokens',m.prompt_tokens),('Completion tokens',m.completion_tokens),('Total tokens',m.total_tokens),('Observed prompt tokens',m.observed_prompt_tokens),('Observed completion tokens',m.observed_completion_tokens),('Tokens/s',m.tokens_per_second)] %}<dt>{{ label }}</dt><dd>{{ value|known }}</dd>{% endfor %}
+{% for label,value in [('TTFT',m.ttft_seconds),('Generation',m.generation_duration_seconds),('Total Task duration',m.total_duration_seconds)] %}<dt>{{ label }}</dt><dd>{{ value|seconds }}</dd>{% endfor %}
+<dt>Token coverage</dt><dd>{{ 'complete' if m.token_usage_complete else 'partial / incomplete' }} · prompt {{ m.prompt_observed_turns }} / completion {{ m.completion_observed_turns }} turns</dd></dl>{% else %}<p>No persisted metrics available.</p>{% endif %}
+{% if t.execution_summary %}<p>Execution: {{ t.execution_summary.steps }} steps · {{ t.execution_summary.tool_call_count }} tool calls · {{ t.execution_summary.tool_output_bytes }} tool output bytes</p>{% endif %}
+{% if item.progress.terminal %}<h2>Final answer</h2><pre>{{ t.final_answer or 'No final answer.' }}</pre>{% if item.answer_truncated %}<p>Final answer truncated for display.</p>{% endif %}{% endif %}
+</section>

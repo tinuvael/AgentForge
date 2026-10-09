@@ -549,7 +549,12 @@ class CodingWorkspaceManager:
             truncated=truncated or stat_partial,
         )
 
-    def get(self, task_id):
+    def get(self, task_id, *, inspect_current=True):
+        """Project workspace facts; cached mode never reads the worktree/diff.
+
+        In cached mode inspection availability describes eligibility and the last
+        retained observation. Explicit diff inspection still verifies ownership.
+        """
         row = self._record(task_id)
         observations = row["observations"]
         values = {
@@ -568,7 +573,8 @@ class CodingWorkspaceManager:
         try:
             diff = (
                 self.diff(task_id)
-                if row["state"]
+                if inspect_current
+                and row["state"]
                 not in {"removed", "cleanup_pending", "provisioning", "suspicious"}
                 else None
             )
@@ -591,7 +597,13 @@ class CodingWorkspaceManager:
             truncated=diff.truncated
             if diff
             else bool(observations.get("truncated", False)),
-            inspection_available=diff is not None,
+            inspection_available=(
+                diff is not None
+                if inspect_current
+                else row["state"]
+                not in {"removed", "cleanup_pending", "provisioning", "suspicious"}
+                and observations.get("inspection_available", True)
+            ),
             termination_reason=observations.get("termination_reason"),
             validation_runs=runs,
             write_calls=observations.get("write_calls", 0),

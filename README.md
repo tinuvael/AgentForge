@@ -296,3 +296,7 @@ Use `python -m pip install -e '.[dev]'`, then `python -m pytest -ra`,
 `ruff check .`, `ruff format --check .`, `git diff --check` and `python -m build`.
 Follow [AGENTS.md](AGENTS.md) for contribution/Git rules. AgentForge is licensed
 under [GPL-3.0-only](LICENSE).
+
+The [AgentForge Companion](docs/companion.md) is a compact local loopback panel
+for active work beside Codex. `agentforge mcp ... --companion` serves it from the
+same Application as MCP; it is not an embedded Codex sidebar.
