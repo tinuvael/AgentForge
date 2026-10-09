@@ -178,3 +178,10 @@ No live Provider, cloud, GPU or native Windows acceptance is implied by offline
 CLI tests. Director-facing progress events (#35), Companion (#32) and a general
 Agent (#36) remain separate work. Shared service ownership
 and a combined daemon also remain outside this feature.
+
+## MCP with local Companion
+
+`agentforge mcp ... --companion [--companion-host 127.0.0.1]
+[--companion-port 8765]` hosts the local panel at `/companion` while Codex uses
+stdio. The host must be a loopback IP. Use this single executor instead of running
+MCP and web separately on one database. See [Companion](companion.md).

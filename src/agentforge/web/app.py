@@ -99,10 +99,13 @@ def pagination(request: Request, values: PageQuery, has_next: bool):
 
 
 def create_app(
-    application_factory: Callable[[], Application],
+    application_factory: Callable[[], Application] | None = None,
     *,
+    shared_application: Application | None = None,
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "[::1]"),
 ) -> FastAPI:
+    if (application_factory is None) == (shared_application is None):
+        raise ValueError("Supply exactly one owned factory or borrowed Application")
     templates = Jinja2Templates(directory=_ASSETS / "templates")
     templates.env.filters["known"] = lambda value: "—" if value is None else value
     templates.env.filters["seconds"] = lambda value: (
@@ -112,13 +115,19 @@ def create_app(
         "unknown" if value is None else "yes" if value else "no"
     )
     csrf_key = secrets.token_bytes(32)
-    application: Application | None = None
+    application: Application | None = shared_application
 
     @asynccontextmanager
     async def lifespan(_):
         nonlocal application
+        if shared_application is not None:
+            if not shared_application.status().available:
+                raise ServiceError("service_unavailable")
+            yield
+            return
         if application is not None:
             raise ServiceError("service_unavailable")
+        assert application_factory is not None
         application = application_factory()  # Construct on executor's owning thread.
         try:
             await application.start()
@@ -455,4 +464,7 @@ def create_app(
             lambda: app.get_council(council_id=council_id).terminal,
         )
 
+    from agentforge.web.companion import add_companion_routes
+
+    add_companion_routes(web, core, render, check_cancellation, event_response)
     return web

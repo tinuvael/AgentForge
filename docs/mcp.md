@@ -468,3 +468,9 @@ the branch. It is marked destructive and requires both Task/workspace IDs.
 Disabled/missing/suspicious workspaces return safe errors. No shell, argv, root,
 Git ref, commit, push, merge or lifecycle tool is available to Workers. See
 [coding trust model and recovery](coding.md) before enabling trusted validators.
+
+## Companion alongside Codex
+
+Add `--companion` to the existing MCP launch to host the loopback web panel in
+the same process/Application. Do not start a separate dashboard executor on that
+database. See [Companion discovery, launch and limitations](companion.md).

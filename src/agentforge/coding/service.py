@@ -549,7 +549,12 @@ class CodingWorkspaceManager:
             truncated=truncated or stat_partial,
         )
 
-    def get(self, task_id):
+    def get(self, task_id, *, inspect_current=True):
+        """Project workspace facts; cached mode never reads the worktree/diff.
+
+        In cached mode inspection availability describes eligibility and the last
+        retained observation. Explicit diff inspection still verifies ownership.
+        """
         row = self._record(task_id)
         observations = row["observations"]
         values = {
@@ -568,7 +573,8 @@ class CodingWorkspaceManager:
         try:
             diff = (
                 self.diff(task_id)
-                if row["state"]
+                if inspect_current
+                and row["state"]
                 not in {"removed", "cleanup_pending", "provisioning", "suspicious"}
                 else None
             )
@@ -582,16 +588,27 @@ class CodingWorkspaceManager:
             ValidationRun.model_validate(run)
             for run in observations.get("validation_runs", [])
         )
+        # A retained diff snapshot (including an empty one) supersedes edited
+        # paths. Edits already enforce max_changed_files before persisting paths;
+        # cached reads reuse those bounded facts without computing a live diff.
+        retained_paths = observations.get(
+            "changed_files",
+            observations.get("edited_files", []) if not inspect_current else [],
+        )
         return CodingResult(
             **values,
-            changed_files=diff.changed_files
-            if diff
-            else tuple(observations.get("changed_files", [])),
+            changed_files=diff.changed_files if diff else tuple(retained_paths),
             diff_stat=diff.diff_stat if diff else observations.get("diff_stat", ""),
             truncated=diff.truncated
             if diff
             else bool(observations.get("truncated", False)),
-            inspection_available=diff is not None,
+            inspection_available=(
+                diff is not None
+                if inspect_current
+                else row["state"]
+                not in {"removed", "cleanup_pending", "provisioning", "suspicious"}
+                and observations.get("inspection_available", True)
+            ),
             termination_reason=observations.get("termination_reason"),
             validation_runs=runs,
             write_calls=observations.get("write_calls", 0),

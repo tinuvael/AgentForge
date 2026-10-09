@@ -258,3 +258,20 @@ transaction spans inference.
 There is no accumulating probe history, metrics warehouse, routing, ranking,
 background probing or active MCP control. See [Worker diagnostics](worker-diagnostics.md)
 for lifecycle, security, remote egress and future Companion service contracts.
+
+## Shared MCP and Companion lifecycle
+
+The explicit MCP `--companion` mode adds loopback HTTP to the MCP-owned
+Application, on the same event loop. `create_app(shared_application=...)` borrows
+a started Application without starting, closing or disposing it. Standalone
+`create_app(factory)` retains dashboard ownership. MCP lifespan closes execution
+and observers before draining HTTP. HTTP does not install process signal handlers
+or configure logs; stdout remains MCP protocol only. The per-database executor
+guard and operator one-process requirement are unchanged.
+
+`CompanionQueries` builds bounded typed views from Dashboard/Application contracts,
+`task_progress` and coding inspection. SSE Task hints consume `watch_task`; Council
+hints reuse TaskObserver multi-subscriptions. Templates have no repository/Git/SQL/
+Provider access. Coding captures are stripped from the companion summary; the
+bounded diff is fetched only by an explicit detail route. See [Companion](companion.md)
+for the Codex capability discovery and security boundary.

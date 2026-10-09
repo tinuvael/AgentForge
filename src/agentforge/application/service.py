@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import Engine
 
 from agentforge.agents import Agent, AgentRuntime, repository_toolset
+from agentforge.application.companion import CompanionQueries
 from agentforge.application.contracts import (
     AgentInfo,
     AgentsPage,
@@ -159,6 +160,7 @@ class Application:
             self.telemetry,
         )
         self.dashboard = DashboardQueries(self.projects, self.tasks, self.telemetry)
+        self.companion = CompanionQueries(self)
         self._started = False
         self._closed = False
         self._shutdown_task: asyncio.Task | None = None
@@ -411,6 +413,13 @@ class Application:
         if self.coding is None:
             raise ServiceError("coding_unavailable")
         return self.coding.get(task_id)
+
+    def get_coding_summary(self, *, task_id: UUID):
+        """Retained bounded facts, with no worktree reads or diff generation."""
+        self.tasks.get_task(task_id)
+        if self.coding is None:
+            raise ServiceError("coding_unavailable")
+        return self.coding.get(task_id, inspect_current=False)
 
     def get_coding_diff(self, *, task_id: UUID):
         self.tasks.get_task(task_id)

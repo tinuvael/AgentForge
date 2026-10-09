@@ -1,0 +1,23 @@
+{% from "macros.html" import badge %}
+{% macro card(item, csrf, detail=false) %}{% set t=item.task %}
+<article class="task-row" data-task-id="{{ t.task_id }}">
+<div class="row-heading"><a href="/companion/tasks/{{ t.task_id }}">{{ item.project_name or 'Unregistered project' }}</a>{{ badge(t.state) }}</div>
+<p class="binding">{{ t.agent_id }} · {{ t.worker_id }}<br><span>{{ item.model|known }}</span></p>
+<p class="progress">{{ item.label }}</p>
+<div class="meta"><span data-elapsed="{{ item.elapsed_seconds }}" data-running="{{ 'yes' if not item.progress.terminal else 'no' }}">{{ item.elapsed_seconds|seconds }}</span><span>{{ 'Waiting' if t.state == 'queued' else 'Duration' }}</span><span>Tools {{ item.tool_calls|known }}</span>{% if item.progress.timeline %}<span>Step {{ item.progress.timeline[-1].step }}</span>{% endif %}</div>
+{% if t.cancellation_requested_at %}<p class="caution">Cancellation requested</p>{% endif %}
+{% if not item.progress.terminal and not t.cancellation_requested_at %}<form method="post" action="/companion/tasks/{{ t.task_id }}/cancel" hx-post="/companion/tasks/{{ t.task_id }}/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="confirm" value="yes"><button type="submit">Cancel Task</button></form>{% endif %}
+{% if item.coding %}{{ coding(item.coding,t.task_id,detail) }}{% endif %}
+{% if item.telemetry %}<p class="meta">Total tokens {{ item.telemetry.total_tokens|known }} · {{ item.telemetry.tokens_per_second|known }} tokens/s</p>{% endif %}
+</article>
+{% endmacro %}
+{% macro coding(c, task_id,expanded=false) %}
+<details class="coding" data-detail-key="coding-{{ task_id }}"{% if expanded %} open{% endif %}><summary>Coding · {{ c.state }}</summary>
+<p class="meta">Retained observations · file paths can include recorded edit attempts; current diff inspection verifies changes</p>
+<dl class="compact-facts"><dt>Branch</dt><dd><code>{{ c.branch_name }}</code></dd><dt>Base</dt><dd><code>{{ c.base_commit }}</code></dd><dt>Writes / bytes</dt><dd>{{ c.write_calls }} / {{ c.bytes_written }}</dd><dt>Observed file paths</dt><dd>{{ c.changed_files|join(', ') or 'No retained file observation' }}</dd><dt>Validation duration</dt><dd>{{ c.validation_duration_seconds|seconds }}</dd></dl>
+<pre>{{ c.diff_stat or 'No diff stat observed' }}</pre>
+{% if c.truncated %}<p>Workspace summary truncated.</p>{% endif %}
+{% for v in c.validation_runs %}<p>{{ v.name }} · {{ 'cancelled' if v.cancelled else 'timed out' if v.timed_out else 'passed' if v.exit_code == 0 else 'failed' if v.exit_code is not none else 'unknown' }} · {{ v.duration_seconds|seconds }}</p>{% else %}<p>No validation recorded.</p>{% endfor %}
+{% if c.inspection_available %}<a href="/companion/tasks/{{ task_id }}/diff">Inspect bounded current diff →</a>{% else %}<p>Inspection unavailable · retained observations</p>{% endif %}
+</details>
+{% endmacro %}

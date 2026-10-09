@@ -1,0 +1,33 @@
+.companion { font-size:14px; }
+.companion header { padding:12px 16px; flex-direction:row; gap:12px; align-items:center; }
+.companion .brand { font-size:18px; }
+.companion main { max-width:960px; padding:16px; overflow-wrap:anywhere; }
+.companion footer { padding:12px 16px; font-size:11px; }
+.companion h1 { font-size:20px; margin:12px 0; }
+.companion h2 { font-size:15px; margin:20px 0 8px; }
+.companion p { margin:7px 0; }
+.companion .row-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.companion .task-row { border:1px solid var(--line); border-left:3px solid #69829e; border-radius:5px; padding:12px; margin:10px 0; min-width:0; background:var(--panel); }
+.companion .task-row:has(.running) { border-left-color:var(--link); }
+.companion .task-row:has(.queued) { border-left-color:#ffdb85; }
+.companion .task-row:has(.completed) { border-left-color:#8ce0b5; }
+.companion .row-heading>a { font-weight:650; }
+.companion .progress { color:var(--text); font-weight:600; }
+.companion .meta, .companion .local { font-size:12px; color:var(--muted); }
+.companion .meta { display:flex; flex-wrap:wrap; gap:6px 12px; }
+.companion .connection { color:#8ce0b5; font-size:12px; }
+.companion .binding { overflow-wrap:anywhere; }
+.companion button { font-size:12px; padding:5px 10px; margin-top:8px; }
+.companion .caution { color:#ffdb85; }
+.companion details { margin-top:12px; }
+.companion summary { cursor:pointer; color:var(--text); }
+.companion pre { padding:10px; font-size:12px; max-height:440px; }
+.companion .compact-facts { display:grid; grid-template-columns:minmax(100px,35%) 1fr; gap:5px 12px; font-size:12px; }
+.companion dt { color:var(--muted); }
+.companion dd { margin:0; overflow-wrap:anywhere; }
+.companion .timeline { padding-left:12px; font-size:13px; list-style:none; border-left:1px solid var(--line); }
+.companion .timeline li { margin:6px 0; }
+.companion .timeline .meta { display:inline; }
+.companion .recent { display:flex; flex-wrap:wrap; gap:6px; justify-content:space-between; }
+.companion .empty { padding:16px 0; }
+@media(min-width:720px) { .companion .task-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } }

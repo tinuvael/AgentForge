@@ -1,0 +1,11 @@
+{% from "companion_macros.html" import card %}
+<section id="companion-home" hx-get="{{ fragment_url }}" hx-trigger="every 3s" hx-swap="outerHTML" aria-label="Active work">
+<div class="row-heading"><h1>Active work</h1><span class="connection">{{ 'AgentForge running' if status.available else 'Unavailable' }}</span></div>
+<p>{{ status.queued_tasks + status.running_tasks }} active · {{ status.running_tasks }} running · {{ status.queued_tasks }} waiting</p>
+<div class="task-grid">{% for item in active %}{{ card(item,csrf) }}{% else %}<p class="empty">No active Tasks. Delegate work from Codex to see it here.</p>{% endfor %}</div>
+{% if previous or next %}<nav class="pager">{% if previous %}<a href="{{ previous }}">Previous</a>{% endif %}{% if next %}<a href="{{ next }}">More active work</a>{% endif %}</nav>{% endif %}
+<details data-detail-key="workers"><summary>Configured Workers · {{ status.worker_count }}</summary>{% for w in workers %}<p>{{ w.worker_id }} · {{ w.model }}</p>{% else %}<p>No Workers configured.</p>{% endfor %}<p>Configuration only · no automatic health probes</p>{% if status.worker_count > workers|length %}<p>Showing first {{ workers|length }} Workers.</p>{% endif %}</details>
+<h2>Recent Tasks</h2>{% for t in recent %}<p class="recent"><a href="/companion/tasks/{{ t.task_id }}">{{ t.project_name|known }} · {{ t.worker_id }}</a><span class="badge {{ t.state }}">{{ t.state }}</span></p>{% else %}<p>No Task history.</p>{% endfor %}
+<h2>Councils</h2>{% for c in councils %}<p class="recent"><a href="/companion/councils/{{ c.council_id }}">{{ c.project_name|known }} · {{ c.council_id|string|truncate(8,true,'') }}</a><span>{{ 'terminal' if c.terminal else 'active' }} · {{ c.participant_count }} participants</span></p>{% else %}<p>No Councils.</p>{% endfor %}
+<p class="meta" id="live-status" role="status">Snapshots refresh every 3 seconds. Open a Task for live progress.</p>
+</section>
