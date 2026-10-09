@@ -125,6 +125,8 @@ the configured private workspace parent. The smoke checks:
   document comparison using actual read-only tools, bounded execution and telemetry.
 - Installed MCP console script and module startup/discovery/status over real
   stdio, without inference.
+- Installed `watch_task` input/output discovery and live standard MCP progress
+  through the official in-memory SDK session with scripted offline inference.
 - Real ASGI dashboard lifespan, pages/static resources and clean shutdown.
 
 The wheel declares `agentforge = agentforge.cli:main`; `python -m agentforge`

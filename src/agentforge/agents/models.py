@@ -73,15 +73,25 @@ TerminationReason = Literal[
 ]
 
 
+TraceKind = Literal[
+    "model_request",
+    "model_response",
+    "tool_request",
+    "tool_result",
+    "termination",
+    "workspace_provisioned",
+    "validation_started",
+    "validation_completed",
+]
+
+
 class TraceEvent(BaseModel):
     """Bounded metadata only: no source bodies, raw model arguments or diagnostics."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     step: int
-    kind: Literal[
-        "model_request", "model_response", "tool_request", "tool_result", "termination"
-    ]
+    kind: TraceKind
     tool_call_id: str | None = None
     tool_name: str | None = None
     arguments: dict[str, JsonValue] | None = None

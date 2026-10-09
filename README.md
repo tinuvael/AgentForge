@@ -207,8 +207,11 @@ Discover with `list_projects`, `list_workers` and `list_agents`. Then call
 }
 ```
 
-Submission returns a queued Task ID. Poll `get_task` until terminal or explicitly
-call `cancel_task`. For independent opinions, use `delegate_council` with explicit
+Submission returns a queued Task ID promptly. Use `watch_task` with a standard MCP
+progress token for bounded safe live metadata, or poll `get_task` until terminal;
+`get_task` provides the final answer. See [Director progress](docs/mcp.md#live-safe-task-progress)
+for client requirements and reconnect behavior. Explicitly call `cancel_task` to
+cancel execution. For independent opinions, use `delegate_council` with explicit
 `worker_ids`. The Director decides whether the evidence is sufficient.
 
 To view the dashboard, stop the MCP executor first and run:

@@ -9,7 +9,7 @@ has no automatic routing, replacement, ranking or local answer synthesis.
 
 | Component | Responsibility |
 | --- | --- |
-| Director | Chooses the binding and request, polls/cancels, evaluates results and accepts changes. |
+| Director | Chooses the binding and request, watches/polls/cancels, evaluates results and accepts changes. |
 | Application | Composes and owns one database, TaskEngine, registry, Index, tools, Councils and telemetry. |
 | Operator CLI | Explicit trusted host setup/admin adapter to Registry, Index, packaged migrations, configuration parsers and Provider health. |
 | Agent | Defines behavior, allowed tools, runtime limits and read-only or isolated-write workspace mode. |
@@ -128,6 +128,41 @@ and cooperative; an in-flight inference call can finish or time out before it is
 observed. Application shutdown cancels local async operations promptly. Closing
 HTTP does not prove remote generation stopped. A committed cancellation request
 wins over a late completion; a completion committed first remains terminal.
+
+## Shared live observation
+
+Runtime `TraceEvent` metadata flows through `ExecutionObservations` into the
+executor-owned `TaskObserver`. Coding workspace provisioning and actual validation
+boundaries record safe lifecycle metadata through that same path. Observation
+callbacks cannot affect execution. There is no second MCP runtime/event system.
+
+```mermaid
+flowchart LR
+    R[AgentRuntime / coding lifecycle] --> E[ExecutionObservations]
+    E --> O[TaskObserver: bounded metadata and hints]
+    O --> H[Dashboard / Council SSE reload]
+    O --> A[Application.watch_task: typed safe snapshots]
+    A --> M[MCP request-scoped progress adapter]
+    B[(Durable Task result / trace)] --> H
+    B --> A
+```
+
+`Application.watch_task` is an async context manager yielding an async iterator of
+typed `TaskProgress` snapshots. It validates identity, obtains authoritative Task
+state, subscribes without an intervening await, and releases the shared bounded
+subscriber on exit/cancellation. Its public contract exposes no queues or observer
+internals. Reads use existing short repository transactions; none spans waiting
+or notification delivery. Already-terminal Tasks need no subscriber. The dashboard
+and watch use the shared `task_timeline` allowlist projection; terminal durable
+result metadata supersedes ephemeral buffers. Polling and prompt submission are
+unchanged.
+
+MCP formatting belongs solely to its adapter: standard progress `message` contains
+the serialized safe snapshot for the client's outstanding `watch_task` request.
+No token means a prompt metadata read. Queue overflow and timeline truncation
+request resync; reconnect loads current state without replay. Transport failure
+only terminates observation. Future Companion consumers can use the Application
+contract without depending on MCP. See [progress contract and SDK discovery](mcp.md#live-safe-task-progress).
 
 ## Persistence, privacy and security
 

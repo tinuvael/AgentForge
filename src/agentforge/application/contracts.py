@@ -17,6 +17,7 @@ from agentforge.agents.models import RuntimeLimits
 from agentforge.coding.models import CodingResult
 from agentforge.councils.models import MAX_PARTICIPANTS, CouncilHistoryItem
 from agentforge.tasks.models import TaskReason, TaskState
+from agentforge.tasks.observation import TRACE_LIMIT, TimelineEvent
 
 Identifier = Annotated[
     str, StringConstraints(strict=True, min_length=1, max_length=100)
@@ -116,6 +117,9 @@ class Capabilities(Contract):
     agent_discovery_tool: Literal["list_agents"] = "list_agents"
     worker_discovery_tool: Literal["list_workers"] = "list_workers"
     task_operations: tuple[str, ...]
+    task_progress: Literal["request_scoped_mcp_progress; bounded_safe_snapshots"] = (
+        "request_scoped_mcp_progress; bounded_safe_snapshots"
+    )
     council_operations: tuple[str, ...]
     coding_operations: tuple[str, ...] = ()
     council_max_participants: Literal[16] = MAX_PARTICIPANTS
@@ -194,3 +198,18 @@ class TaskSnapshot(Contract):
     execution_summary: ExecutionSummary | None
     final_answer: str | None
     telemetry_status: Literal["pending", "recorded", "unavailable"]
+
+
+class TaskProgress(Contract):
+    """Replacement metadata snapshot, never a result/content or replay contract."""
+
+    task_id: UUID
+    state: TaskState
+    reason: TaskReason | None
+    error_code: TaskReason | None
+    cancellation_requested: bool
+    terminal: bool
+    observation: Literal["snapshot", "refresh", "resync", "terminal", "shutdown"]
+    resync_required: bool
+    truncated: bool
+    timeline: tuple[TimelineEvent, ...] = Field(max_length=TRACE_LIMIT)

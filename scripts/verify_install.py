@@ -356,18 +356,20 @@ async def smoke():
         ] == ["general_agent", "repo_explorer", "coder"]
         print("Coding-enabled installed definitions/CLI discovery (syntax only): OK")
         requests = []
+        release_progress = asyncio.Event()
         final = (
             "README.md:1 specifies one process per database; operations.txt:1 "
             "places two services on separate databases. The notes are consistent."
         )
 
-        def scripted(request):
+        async def scripted(request):
             payload = json.loads(request.content)
             requests.append(payload)
             assert {t["function"]["name"] for t in payload["tools"]} == set(
                 GENERAL_AGENT.allowed_tools
             )
             if len(requests) == 1:
+                await release_progress.wait()
                 assert payload["messages"][0]["content"] == GENERAL_AGENT.system_prompt
                 message = {
                     "content": "",
@@ -410,6 +412,10 @@ async def smoke():
             assert {t.name for t in discovered.tools} == {
                 t.name for t in TOOL_CONTRACTS
             }
+            assert len(discovered.tools) == 15
+            watch_contract = next(t for t in discovered.tools if t.name == "watch_task")
+            assert watch_contract.inputSchema["required"] == ["task_id"]
+            assert "timeline" in watch_contract.outputSchema["properties"]
             app = apps[-1]
             assert [a.agent_id for a in app.list_agents().agents] == [
                 "general_agent",
@@ -447,7 +453,24 @@ async def smoke():
                 },
             )
             assert not result.isError
-            task = await app.tasks.wait_task(result.structuredContent["task_id"])
+            progress = []
+
+            async def observe(_count, total, message):
+                assert total is None
+                progress.append(json.loads(message))
+                release_progress.set()
+
+            watched = await client.call_tool(
+                "watch_task",
+                {"task_id": result.structuredContent["task_id"]},
+                progress_callback=observe,
+            )
+            assert not watched.isError
+            assert watched.structuredContent["terminal"]
+            assert progress and any(not update["terminal"] for update in progress)
+            assert all("arguments" not in json.dumps(update) for update in progress)
+            assert app.tasks.observer.subscriber_count == 0
+            task = app.tasks.get_task(result.structuredContent["task_id"])
             assert task.state == "completed" and task.final_answer == final
             execution = task.execution_result
             assert execution.steps == 2 and execution.tool_call_count == 2
@@ -459,7 +482,10 @@ async def smoke():
             assert {
                 path.name: path.read_bytes() for path in project_root.iterdir()
             } == before
-        print("Application/MCP discovery, General Agent document Task, telemetry: OK")
+        print(
+            "Application/MCP discovery, live Task progress, "
+            "General Agent, telemetry: OK"
+        )
         web = create_app(factory)
         async with web.router.lifespan_context(web):
             async with httpx.AsyncClient(

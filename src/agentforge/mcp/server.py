@@ -28,6 +28,7 @@ from agentforge.application.contracts import (
     SafeError,
     Status,
     TaskArguments,
+    TaskProgress,
     TaskSnapshot,
     WorkersPage,
 )
@@ -206,6 +207,15 @@ TOOL_CONTRACTS = (
         TaskSnapshot,
     ),
     ToolContract(
+        "watch_task",
+        "watch_task",
+        "Observe one Task using request-scoped MCP progress when a progressToken "
+        "is supplied; otherwise return latest safe metadata promptly. No replay "
+        "or answer content. Cancelling this watch does not cancel the Task.",
+        TaskArguments,
+        TaskProgress,
+    ),
+    ToolContract(
         "cancel_task",
         "cancel_task",
         "Cancel queued work or request cooperative running cancellation; "
@@ -249,7 +259,8 @@ def create_server(application_factory: Callable[[], Application]) -> Server:
         lifespan=lifespan,
         instructions=(
             "The director explicitly selects Project, Agent and "
-            "Worker(s). Delegate submits; poll get_task/get_council or cancel. "
+            "Worker(s). Delegate submits; watch_task with MCP progress, "
+            "poll get_task/get_council or cancel. "
             "Council participants are independent; the external director judges."
         ),
     )
@@ -286,12 +297,28 @@ def create_server(application_factory: Callable[[], Application]) -> Server:
             if application is None:
                 raise ServiceError("service_unavailable")
             # Synchronous application calls stay on TaskEngine's owning thread.
-            response = getattr(application, contract.operation)(
-                **{
-                    field: getattr(validated, field)
-                    for field in contract.arguments.model_fields
-                }
-            )
+            fields = {
+                field: getattr(validated, field)
+                for field in contract.arguments.model_fields
+            }
+            if name == "watch_task":
+                # Public request-local context; no global token/session state.
+                context = server.request_context
+                token = context.meta.progressToken if context.meta else None
+                if token is None:
+                    response = application.task_progress(**fields)
+                else:
+                    async with application.watch_task(**fields) as updates:
+                        count = 0
+                        async for response in updates:
+                            count += 1
+                            await context.session.send_progress_notification(
+                                progress_token=token,
+                                progress=count,
+                                message=response.model_dump_json(),
+                            )
+            else:
+                response = getattr(application, contract.operation)(**fields)
             response = contract.response.model_validate(response)
             return types.CallToolResult(
                 content=[

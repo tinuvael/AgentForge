@@ -3,7 +3,7 @@
 AgentForge is the execution/control plane. A trusted local MCP director (Codex,
 ChatGPT/Astra, Claude, or another MCP client) chooses **Project, Agent, Worker and
 request explicitly**. AgentForge validates that binding and submits a durable
-Task. The director evaluates results and decides when to poll, cancel, or explicitly
+Task. The director evaluates results and decides when to watch, poll, cancel, or explicitly
 submit another Task or an independent Council. There is no routing, Worker ranking,
 fallback or judging. Councils require 2–16 explicit participants.
 
@@ -114,6 +114,7 @@ nonblank strings of at most 32,768 characters.
 | list_agents | `{limit?: integer=100, offset?: integer=0}` | `AgentsPage`: `agents` and nullable `next_offset` |
 | delegate_task | `{project_id: UUID, agent_id: string, worker_id: string, task: string}`; **all required** | `TaskSnapshot`: durable queued identity/snapshot; does not wait for inference |
 | get_task | `{task_id: UUID}` | `TaskSnapshot`: persisted current state and completed answer |
+| watch_task | `{task_id: UUID}` | `TaskProgress`: bounded safe metadata; with request `_meta.progressToken`, progress until terminal/shutdown; without a token, latest snapshot promptly |
 | cancel_task | `{task_id: UUID}` | `TaskSnapshot`: resulting persisted state/cancellation request |
 | delegate_council | `{project_id: UUID, agent_id: string, task: string, worker_ids: string[]}`; **all required**, 2–16 distinct Workers | `CouncilSnapshot`: durable identity and ordered queued participants; returns promptly |
 | get_council | `{council_id: UUID}` | `CouncilSnapshot`: current participant outcomes/answers, state counts and terminal flag |
@@ -213,6 +214,131 @@ inference force-kill. Terminal cancellation leaves the Task unchanged; committed
 cancellation wins a late completion race and discards that answer. Closing local
 HTTP resources does not guarantee remote generation stopped.
 
+## Live safe Task progress
+
+`delegate_task` still commits and returns the queued identity promptly. Start a
+separate `watch_task` request to observe that Task; `get_task` polling remains fully
+supported and provides the final answer. A watch is a read operation and does not
+start, select, retry or cancel execution. Council participants are ordinary Tasks:
+use participant `task_id` values from `get_council` to watch them individually.
+There is no additional Council progress protocol or local judging.
+
+### Official SDK capability discovery
+
+The installed official MCP Python SDK **1.30.0**, within the declared
+`mcp>=1.30,<2` range, supports `Server.request_context` in low-level `call_tool`
+handlers and `context.session.send_progress_notification`. The context is
+request-local and supplies `meta`, `session` and `request_id`. Standard progress
+is associated with the client's **outstanding request** by
+`params._meta.progressToken` (string or integer, including zero), not a Task ID
+argument. Progress has no separate client capability flag. The public
+`send_notification` API uses standard typed MCP notifications; AgentForge does
+not introduce arbitrary notification methods or a custom JSON-RPC extension.
+No experimental SDK Task API is used.
+
+`ClientSession.call_tool(progress_callback=...)` supplies a token and dispatches
+notifications to that callback while the request is outstanding. It removes the
+callback when the request ends. Standard progress has no durable replay, resume
+cursor or reconnect guarantee. These semantics require a separate watch request
+rather than sending progress after `delegate_task` has returned. In-memory official
+SDK integration tests prove context/token isolation, delivery, terminal response
+and protocol cancellation against 1.30.0.
+
+### Watching and the safe contract
+
+Python SDK client example (inside an initialized `ClientSession`):
+
+```python
+import json
+
+
+async def observe(progress, total, message):
+    update = json.loads(message)
+    # Replace your previous metadata view with this bounded snapshot.
+    print(update["task_id"], update["state"], update["timeline"])
+
+
+submitted = await client.call_tool("delegate_task", binding)
+task_id = submitted.structuredContent["task_id"]
+watched = await client.call_tool(
+    "watch_task", {"task_id": task_id}, progress_callback=observe
+)
+answer = await client.call_tool("get_task", {"task_id": task_id})
+```
+
+`notifications/progress.params.message` is a JSON-encoded `TaskProgress` object,
+also used as the watch's normal typed tool result. `progress` increases once per
+delivered metadata update within this watch; it is **not** a step count, completion
+percentage or replay cursor. `total` is omitted because completion work is unknown.
+Other clients supply `_meta.progressToken` on the `tools/call` request, outside
+`arguments`, and handle the standard notification. Clients without a token receive
+the current safe metadata promptly, with no subscription or notifications. Clients
+that send a token but ignore notifications still wait for the watch to return.
+AgentForge exposes supported MCP progress semantics usable by compatible Directors;
+**Codex progress display has not been verified**. The Codex Companion UI is #32.
+
+`TaskProgress` contains only:
+
+- `task_id`, current `state`, fixed `reason`/`error_code`,
+  `cancellation_requested` and `terminal`;
+- `observation`: `snapshot`, `refresh`, `resync`, `terminal` or `shutdown`;
+- `resync_required`, `truncated`, and a replacement `timeline` of at most 100
+  safe events. Each event contains `step`, `kind`, bounded `tool_name`, optional
+  `success`, allowlisted `error_code`, observed `duration_seconds` and fixed `reason`.
+
+The timeline is the existing TaskObserver projection, also used by the dashboard.
+Running events include model/tool request and response/result metadata. Tool names
+are permitted; arguments and bodies are absent. Coding Tasks add
+`workspace_provisioned` after creation/binding (step 0), `validation_started` just
+before an authorized validator invocation, and `validation_completed` when a run
+is captured. Validator success means exit zero without timeout or cancellation;
+it is separate from `tool_result.success`, which indicates that the tool returned
+normally. Missing durations stay null. A spawn/provisioning failure does not
+fabricate successful lifecycle events. No new database schema is needed.
+
+### Bounds, reconnect and lifetime
+
+Every connection begins with an authoritative reload and `resync_required=true`.
+The shared observer limits all dashboard/Director subscribers to 128, with 16
+queued hints per subscriber; subscriber exhaustion returns safe
+`service_unavailable`. Slow readers never block execution. Queue overflow discards
+hints and requests `resync`; dropping a timeline prefix sets `truncated=true` and
+also requests resync. Replace the local view on resync; `get_task` can obtain the
+normal authoritative result. Notifications can coalesce factual transitions, so
+they are not a complete event history. Reconnect by starting a new watch for the
+same Task ID. There is no unbounded event log or durable replay.
+
+A terminal Task returns immediately without allocating a subscriber (with a token,
+one terminal progress notification is also sent). When an active watch observes a
+terminal checkpoint it sends the safe terminal snapshot and returns it, projecting
+the durable bounded result trace. If execution failed without a durable result,
+the prior ephemeral timeline may be unavailable. Observer shutdown closes the
+watch with `observation="shutdown"`, resync required, and the latest readable
+state; it need not be terminal. Queued Tasks survive executor shutdown and local
+active execution is cancelled under the existing TaskEngine policy. Reconnect or
+poll after restart for authoritative state.
+
+Use standard `notifications/cancelled` with the **watch request ID** to stop a
+watch; this releases its subscription and does not call `cancel_task`. Client
+transport disconnect also cancels outstanding handlers and releases subscribers.
+The Python SDK's local call timeout/coroutine cancellation alone does not send a
+protocol cancellation notification in 1.30.0: send one explicitly, or close the
+session/transport. Choose the client's request timeout to cover the desired watch
+lifetime. Cancelling the actual Task remains the separate `cancel_task` operation:
+queued Tasks become terminal immediately; running Tasks can report a cancellation
+request before reaching their eventual cancelled checkpoint.
+
+### Privacy and limitations
+
+Progress omits requests, final/generated assistant text, chain-of-thought,
+reasoning, raw messages, tool arguments/call IDs/results, search/path arguments,
+source/file/diff contents, validation argv/stdout/stderr, workspace paths, Provider
+URLs/options, credentials/environment, exception strings/repr/tracebacks and SQL.
+Unknown trace error strings map to `internal_error`. Final answers and intentional
+coding inspection data continue through their existing normal contracts. No
+token streaming, remote MCP server, generic subscription API or persistent event
+store is added. Observation failure cannot fail or delay Task execution.
+
 ## Safe error boundary
 
 Tool failures return MCP `isError=true` with a JSON text content object:
@@ -267,7 +393,7 @@ LAN/VPN, or cloud destinations. Neither MCP nor generic application logic assume
 localhost or reads Ollama-specific response fields. Protocol handling stays in
 concrete Providers. See [Provider guidance](providers.md).
 
-The public surface consists of the fourteen tools in the contract table. Coding
+The public surface consists of the fifteen tools in the contract table. Coding
 operations are advertised even when coding is disabled, and then return safe errors. There are no generic file-read,
 shell, arbitrary Git, SQL, environment, direct Provider HTTP, or registration tools.
 The director delegates to an Agent whose allowlisted tools are enforced by
