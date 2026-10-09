@@ -280,7 +280,8 @@ Other clients supply `_meta.progressToken` on the `tools/call` request, outside
 the current safe metadata promptly, with no subscription or notifications. Clients
 that send a token but ignore notifications still wait for the watch to return.
 AgentForge exposes supported MCP progress semantics usable by compatible Directors;
-**Codex progress display has not been verified**. The Codex Companion UI is #32.
+**Codex progress display has not been verified**. Companion, implemented through
+Issue #32, is shipped as the local operator panel.
 
 `TaskProgress` contains only:
 

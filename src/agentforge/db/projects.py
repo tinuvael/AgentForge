@@ -32,6 +32,17 @@ class ProjectRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
 
+    @staticmethod
+    def _commit(session: Session) -> None:
+        try:
+            session.commit()
+        except SQLAlchemyError:
+            # A failed COMMIT can leave DBAPI work pending after SQLAlchemy
+            # deactivates its transaction. Never return that connection to
+            # the pool where a later write could make rejected work durable.
+            session.invalidate()
+            raise
+
     def add(self, project: Project) -> Project:
         try:
             with self._sessions() as session:
@@ -44,7 +55,7 @@ class ProjectRepository:
                         root_identity=project.root_identity.as_json(),
                     )
                 )
-                session.commit()
+                self._commit(session)
             return project
         except IntegrityError:
             # Check after rollback in a new session: only a root collision is a
@@ -126,7 +137,7 @@ class ProjectRepository:
                 result = session.execute(
                     delete(ProjectRecord).where(ProjectRecord.id == project_id)
                 )
-                session.commit()
+                self._commit(session)
                 return result.rowcount > 0
         except SQLAlchemyError:
             raise ProjectStorageError("Could not remove project") from None

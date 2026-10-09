@@ -21,6 +21,13 @@ and must record its own exact installed versions and tested commit.
   helper. The eight persistence regressions cover submission/Provider exclusion,
   lifecycle, telemetry atomicity, coding attachment, recovery, Council parents and
   memberships, later successful writes and returned connection ownership.
+- Final PR review reproduced the same real COMMIT failure in ProjectRepository
+  add/remove: a later successful write committed the rejected insert or cascaded
+  deletion. Both commits now invalidate on failure without changing duplicate-root
+  or IntegrityError classification. Two regressions independently inspect projects
+  and all four index tables after the next successful write, with no checked-out
+  connection leaks. Other database repositories use transaction contexts; no
+  additional unprotected explicit commit sites were found or changed.
 - A real terminal commit failure reproduced the active/queued watch hang. Three
   regressions cover Application, official MCP progress sessions and actual
   ASGI Task/Council SSE for both dashboard and Companion; a fourth covers executor
@@ -39,8 +46,8 @@ and must record its own exact installed versions and tested commit.
 
 | Check | Result |
 | --- | --- |
-| `python -m pytest -ra` | 1,324 passed, 20 skipped (native Windows) |
-| Focused SQLite, executor/watch, finish-reason, observer and Companion run | 63 passed |
+| `python -m pytest -ra` | 1,326 passed, 20 skipped (native Windows) |
+| Focused Task/Project SQLite, executor/watch, finish-reason, observer and Companion run | 65 passed |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `git diff --check` | Passed |
@@ -49,6 +56,11 @@ and must record its own exact installed versions and tested commit.
 | Clean installed `python -m pip check` | Passed |
 | Real combined MCP stdio + Companion HTTP process smoke | Passed, including all six top-level HTTP routes, Host checks, clean stdout and EOF shutdown |
 | Chromium/Playwright browser smoke against installed combined process | Passed at 420 and 1,280 px |
+
+After the final ProjectRepository correction, the full installed verifier passed
+again in a fresh wheel environment outside the checkout, including the real
+combined MCP/Companion process smoke. Both new Project SQLITE_BUSY regressions
+also passed against that installed wheel with independent durable-state reads.
 
 The browser smoke checked the packaged routes/assets, neutral badge, completed
 Task/Council views, escaped synthetic answer, absence of horizontal overflow,
