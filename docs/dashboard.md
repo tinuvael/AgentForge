@@ -65,18 +65,25 @@ and TelemetryService composition. Read projections live in `application.dashboar
 HTTP handlers perform validation, rendering and existing application calls.
 
 **Run only one process per database.** The existing guard rejects a duplicate
-TaskEngine owner within a process; it is not a distributed lease. Separate MCP and
-web CLI processes must not execute against the same database simultaneously. A
-combined transport deployment would need to inject one already-owned Application
-and coordinate its lifecycle; no combined-process entry point ships.
-Use one Uvicorn process, without reload/multiple workers. The dashboard has no task
-submission/orchestration endpoint; directors can use the existing Python service
+TaskEngine owner within a process; it is not a cross-process lease. Separate executor
+processes, including separate MCP and standalone web processes, must not execute
+against the same SQLite database simultaneously.
+
+`agentforge mcp ... --companion` now supports combined MCP stdio and Companion HTTP
+in one process. MCP owns and starts/closes one Application and one TaskEngine;
+`create_app(shared_application=...)` borrows that already-started Application on the
+same event loop without creating or owning another executor. Standalone
+`agentforge web` remains available and owns its Application through the ASGI
+lifespan as described above. Use one Uvicorn process, without reload/multiple
+workers. The dashboard has no task submission/orchestration endpoint; directors
+can use the existing Python service
 in-process, and historical/queued work is observed through the same database.
 
 Startup applies interrupted-running recovery and queued work resumption.
 Shutdown shields executor cleanup and database disposal. Open SSE streams have a
-five-second Uvicorn graceful shutdown budget; disconnected/cancelled responses
-release their subscriptions before lifespan cleanup. Queued Tasks survive shutdown;
+five-second Uvicorn graceful shutdown budget in standalone web mode;
+disconnected/cancelled responses release their subscriptions before lifespan
+cleanup. Queued Tasks survive shutdown;
 active executor work fails as `executor_cancelled`, or cancels if a committed
 explicit cancellation request already won. No remote inference kill is claimed.
 
@@ -89,7 +96,8 @@ in that timeline. Existing Task/Council SSE still sends empty reload hints; its
 bounded queues, authoritative reconnect and HTML refresh behavior are unchanged.
 Directors watch individual Council participant Tasks. See
 [MCP Task progress](mcp.md#live-safe-task-progress) for the separate request-scoped
-adapter; this does not introduce a combined MCP/web launcher.
+adapter. Combined MCP + Companion mode consumes this same observation contract;
+it does not introduce another progress system.
 
 A small optional `ExecutionObservations.on_trace` callback publishes the runtime's
 already-recorded trace metadata to TaskEngine's in-process observer. Observer failure
@@ -190,8 +198,8 @@ network, browser automation or external database is required. Native Windows tes
 retain their existing platform skips; Linux mocks/regressions do not establish
 native Windows integration evidence.
 
-The dashboard does not provide authentication, cross-process subscriptions, a combined
-MCP/web launcher, task submission UI, active Worker probes, live Git inspection,
+The dashboard does not provide authentication, cross-process subscriptions,
+task submission UI, active Worker probes, live Git inspection,
 time-range filters, retention, distributed leases, event replay, Worker rankings,
 routing or a frontend build. Overview recent activity is recent submissions with
 current lifecycle; it is not a separately invented audit-event log. Live telemetry
@@ -233,5 +241,9 @@ local exposure, Host/CSRF protections and escaping apply unchanged.
 
 `/companion` provides a narrow active-work view with Task/Council deep links and
 on-demand coding diff inspection. For concurrent Codex MCP and HTTP use
-`agentforge mcp ... --companion`, which owns one shared Application. See
-[Companion](companion.md); do not start a separate dashboard against its database.
+`agentforge mcp ... --companion`, which owns one Application and one TaskEngine.
+This combined mode is loopback-only. When `/companion` is instead served by
+standalone `agentforge web`, it inherits that dashboard's explicitly configured
+bind and security boundary, including an intentional LAN bind. The route itself
+is not restricted to loopback independently of its hosting mode. See
+[Companion](companion.md); do not start a separate executor against its database.

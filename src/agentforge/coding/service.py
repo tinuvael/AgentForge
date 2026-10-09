@@ -588,11 +588,16 @@ class CodingWorkspaceManager:
             ValidationRun.model_validate(run)
             for run in observations.get("validation_runs", [])
         )
+        # A retained diff snapshot (including an empty one) supersedes edited
+        # paths. Edits already enforce max_changed_files before persisting paths;
+        # cached reads reuse those bounded facts without computing a live diff.
+        retained_paths = observations.get(
+            "changed_files",
+            observations.get("edited_files", []) if not inspect_current else [],
+        )
         return CodingResult(
             **values,
-            changed_files=diff.changed_files
-            if diff
-            else tuple(observations.get("changed_files", [])),
+            changed_files=diff.changed_files if diff else tuple(retained_paths),
             diff_stat=diff.diff_stat if diff else observations.get("diff_stat", ""),
             truncated=diff.truncated
             if diff
