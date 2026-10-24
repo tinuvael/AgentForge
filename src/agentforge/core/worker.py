@@ -12,6 +12,8 @@ from pydantic import (
     model_validator,
 )
 
+from agentforge.core.rate_limits import RateLimitObservation
+
 NonBlank = Annotated[str, Field(min_length=1, pattern=r"\S")]
 
 
@@ -62,6 +64,7 @@ class WorkerHealth(BaseModel):
     backend_reachable: bool | None = None
     model_available: bool | None = None
     error_code: str | None = None
+    rate_limits: RateLimitObservation | None = None
 
     @property
     def available(self) -> bool:

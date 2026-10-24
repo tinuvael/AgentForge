@@ -39,6 +39,10 @@ _SAFE_FAILURES = {
     "timeout",
     "invalid_response",
     "rejected",
+    "invalid_request",
+    "authentication_failed",
+    "not_found",
+    "rate_limited",
 }
 
 
@@ -205,6 +209,7 @@ class WorkerDiagnosticsService:
                                     if health.backend_reachable is not None
                                     else health.backend_available or None,
                                     model_available=health.model_available,
+                                    rate_limits=health.rate_limits,
                                     error_code=None
                                     if health.available
                                     else "model_unavailable"
@@ -226,7 +231,10 @@ class WorkerDiagnosticsService:
                         error_code=error.code
                         if error.code in _SAFE_FAILURES
                         else "diagnostic_failed",
+                        rate_limits=error.rate_limits,
                     )
+                    if error.status_code is not None:
+                        values["backend_reachable"] = True
                 except Exception:
                     values.update(status="failed", error_code="diagnostic_failed")
                 # A portable health operation may deliberately make no request.
@@ -327,6 +335,7 @@ class WorkerDiagnosticsService:
             generation_success=True,
             token_usage=result.token_usage,
             generation_timing=result.generation_timing,
+            rate_limits=result.rate_limits,
         )
         if kind == "tools":
             valid = (

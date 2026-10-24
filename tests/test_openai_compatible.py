@@ -106,8 +106,8 @@ async def generate(p, worker, generation_request):
     [
         ("https://gateway.invalid/v1", "/v1/chat/completions"),
         ("https://gateway.invalid/v1/", "/v1/chat/completions"),
-        ("http://ai395.local:8000/api", "/api/chat/completions"),
-        ("http://lan.invalid:8000", "/chat/completions"),
+        ("https://lan.invalid:8000/api", "/api/chat/completions"),
+        ("http://127.0.0.1:8000", "/chat/completions"),
     ],
 )
 def test_text_url_model_and_optional_auth(

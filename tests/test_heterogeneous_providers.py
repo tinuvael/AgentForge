@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from uuid import UUID
 
 import httpx
@@ -208,6 +209,10 @@ def assert_private_absent(value):
             "gateway.invalid",
             "ollama.invalid",
             "AGENTFORGE_TEST_TOKEN",
+            "SYNTHETIC_A",
+            "SYNTHETIC_B",
+            "inference-a.invalid",
+            "inference-b.invalid",
         )
     )
 
@@ -556,6 +561,140 @@ model="different-model"
             )
         finally:
             await second.close()
+
+    run(execute())
+
+
+@pytest.mark.parametrize("failure_status", [None, 400, 401, 404, 429, 503])
+def test_universal_onboarding_mcp_council_identity_and_credential_isolation(
+    database, registry, tmp_path, monkeypatch, failure_status
+):
+    """Use the actual operator example and factory, substituting only HTTP I/O."""
+    from agentforge.agents.models import Agent
+    from agentforge.db.database import create_database_engine
+
+    root = tmp_path / "evidence"
+    root.mkdir()
+    project = registry.register_project("Evidence", root)
+    monkeypatch.setenv("AGENTFORGE_SERVICE_A_KEY", "SYNTHETIC_A")
+    monkeypatch.setenv("AGENTFORGE_SERVICE_B_KEY", "SYNTHETIC_B")
+    path = Path(__file__).parents[1] / "config/workers.universal.example.toml"
+    config = load_workers(path)
+    requests = []
+    active = set()
+    all_entered = asyncio.Event()
+
+    def build(connection):
+        async def respond(request):
+            payload = json.loads(request.content)
+            expected_key = {
+                "service-a": "Bearer SYNTHETIC_A",
+                "service-b": "Bearer SYNTHETIC_B",
+            }.get(connection.id)
+            assert request.headers.get("authorization") == expected_key
+            assert request.url.host == connection.base_url.host
+            requests.append((connection.id, payload["model"]))
+            # Prove requests on independent connections and the shared connection
+            # overlap; hold first turns until every explicit participant enters.
+            active.add(payload["model"])
+            if len(active) == 4:
+                all_entered.set()
+            await all_entered.wait()
+            if connection.id == "service-b" and failure_status:
+                return httpx.Response(
+                    failure_status,
+                    json={"error": {"message": SECRET}},
+                    headers={"Retry-After": "1"},
+                )
+            if connection.type == "ollama":
+                return httpx.Response(
+                    200,
+                    json={
+                        "model": "untrusted-response-model",
+                        "done": True,
+                        "message": {"content": "Answer"},
+                    },
+                )
+            return httpx.Response(200, json=completion(content="Answer"))
+
+        cls = (
+            OllamaProvider if connection.type == "ollama" else OpenAICompatibleProvider
+        )
+        return cls(connection, transport=httpx.MockTransport(respond))
+
+    for kind in ("ollama", "openai_compatible"):
+        monkeypatch.setitem(PROVIDER_TYPES, kind, build)
+    app = Application(
+        create_database_engine(database[1]),
+        config,
+        concurrency=4,
+        agents=[
+            Agent(
+                id="text",
+                name="Text",
+                description="Text only",
+                system_prompt="Reply briefly",
+            )
+        ],
+    )
+
+    async def execute():
+        async with create_connected_server_and_client_session(
+            create_server(lambda: app)
+        ) as client:
+            discovered = await call(client, "list_workers")
+            assert {w["worker_id"] for w in discovered["workers"]} == {
+                w.id for w in config.workers
+            }
+            assert requests == []  # Discovery never runs inference.
+            order = ["b-tools", "a-tools", "local-model", "a-text"]
+            council = await call(
+                client,
+                "delegate_council",
+                {
+                    "project_id": str(project.id),
+                    "agent_id": "text",
+                    "worker_ids": order,
+                    "task": "Reply briefly",
+                },
+            )
+            for participant in council["participants"]:
+                final = await app.tasks.wait_task(UUID(participant["task_id"]))
+                worker = next(w for w in config.workers if w.id == final.worker_id)
+                assert final.provider == worker.provider and final.model == worker.model
+                assert final.state == (
+                    "failed"
+                    if failure_status and worker.id == "b-tools"
+                    else "completed"
+                )
+                metric = app.telemetry.get_for_task(final.task_id)
+                assert metric.worker_id == worker.id and metric.model == worker.model
+            result = await call(
+                client, "get_council", {"council_id": council["council_id"]}
+            )
+            assert [p["worker_id"] for p in result["participants"]] == order
+            assert len(requests) == 4  # No retries or fallback after any failure.
+            assert set(requests) == {
+                (w.provider_connection, w.model) for w in config.workers
+            }
+            assert (
+                app._owned_providers["service-a"]._http
+                is not app._owned_providers["service-b"]._http
+            )
+            public = json.dumps([discovered, council, result])
+            assert all(
+                secret not in public
+                for secret in (
+                    "SYNTHETIC_A",
+                    "SYNTHETIC_B",
+                    SECRET,
+                    "inference-a.invalid",
+                    "inference-b.invalid",
+                )
+            )
+            assert_database_private_absent(app)
+        assert app._owned_providers["service-a"]._http.is_closed
+        assert app._owned_providers["service-b"]._http.is_closed
 
     run(execute())
 

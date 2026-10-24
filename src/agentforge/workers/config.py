@@ -1,5 +1,6 @@
 """Explicit connection and Worker configuration; no discovery or routing."""
 
+import ipaddress
 import os
 import tomllib
 from pathlib import Path
@@ -29,6 +30,14 @@ class ProviderConnection(BaseModel):
     @model_validator(mode="after")
     def safe_connection(self) -> Self:
         Worker.endpoint_without_secrets(self.base_url)
+        if self.api_key_env is not None and self.base_url.scheme != "https":
+            host = self.base_url.host
+            try:
+                loopback = ipaddress.ip_address(host.strip("[]")).is_loopback
+            except ValueError:
+                loopback = host == "localhost"
+            if not loopback:
+                raise ValueError("Authenticated remote Providers require HTTPS")
         if self.type == "ollama" and (self.api_key_env or self.stream_usage):
             raise ValueError("Unsupported connection settings for this Provider type")
         return self
@@ -114,7 +123,10 @@ def load_workers(path: str | Path) -> WorkersConfig:
         for connection in connections:
             connection.bearer_token()  # Validate required environment, never retain it.
         return config
+    except ConfigurationError:
+        raise
     except (ValueError, TypeError, KeyError, AttributeError):
         raise ConfigurationError(
-            "Invalid Worker/Provider configuration or authentication"
+            "Invalid Worker/Provider configuration; check TOML fields, unique IDs, "
+            "connection references and HTTPS for authenticated remote endpoints"
         ) from None

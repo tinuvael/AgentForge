@@ -13,9 +13,13 @@ run any explicitly configured validation commands.
   inference receive Task context and selected tool evidence. Coding diffs and
   validation captures may leave the host. Endpoint retention is outside AgentForge.
 - Put credential environment-variable names in named Provider connections.
-  Keep actual tokens in operator secret provisioning, use HTTPS for remote
-  authentication and restart after rotation. Credentials are not stored on Workers
-  or projected to MCP/dashboard. HTTP has no transport encryption.
+  Keep actual tokens in operator secret provisioning and restart after rotation.
+  HTTPS is required for authenticated remote/LAN connections. Only literal
+  loopback IPs or exact `localhost` allow HTTP authentication for trusted local
+  development; HTTP has no transport encryption. Credentials are not stored on
+  Workers or projected to MCP/dashboard. Adapters reject redirects and ignore
+  ambient netrc credentials and environment proxy/CA configuration. Error bodies
+  remain unread; only bounded standard Retry-After is normalized, never raw headers.
 - Use exactly one executor process per database. Ownership is checked only within
   a process; AgentForge does not enforce this across OS processes. A second owner
   can start and recovery can interrupt live Tasks and affect coding workspaces.
