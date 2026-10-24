@@ -91,6 +91,10 @@ Use the existing [inline Ollama example](../config/workers.example.toml) or
 [named Provider/mixed example](../config/workers.providers.example.toml). The same
 TOML loader and Provider factory binding validation used in Application composition
 check references, supported adapters and required authentication environment.
+The [universal example](../config/workers.universal.example.toml) adds two
+independent remote credentials and shared model Workers. Authenticated remote/LAN
+connections require HTTPS; HTTP authentication is limited to explicit loopback
+development. Provision the environment variables before offline validation.
 Config-check/list make no network requests and do not establish availability.
 Endpoints, authentication variables/values and generation options are omitted.
 Listing capabilities repeats operator configuration, not measured compatibility.

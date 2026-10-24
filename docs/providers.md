@@ -14,6 +14,13 @@ A small static factory creates one adapter per named connection; multiple Worker
 can reference it. Inline Ollama Workers remain supported intentionally.
 There is no dynamic discovery or Provider plugin loader.
 
+Issue #48's audit retained the existing Provider protocol, named connections,
+explicit Workers, factory, HTTP/SSE bounds, lifecycle and shared runtime. The
+incremental additions are typed factory constructors, authenticated transport
+validation, normalized safe HTTP failures/Retry-After observations, and an
+operator onboarding example with integration tests. No vendor SDK or executor
+was added.
+
 Preferred TOML has `[[providers]]` connections and `[[workers]]` referencing their
 IDs through `provider`. The loader resolves this into Worker `provider` (protocol
 type) and `provider_connection` (connection ID). Runtime lookup uses the reference,
@@ -101,8 +108,14 @@ variable name; plaintext `api_key` settings are rejected. The resolved token sta
 in the adapter's private `SecretStr`, never on a Worker, in Task rows, telemetry,
 MCP or HTML. Adapter errors contain fixed diagnostics, not backend bodies,
 request headers or environment values. Reconfigure/restart to rotate the token.
-Bearer credentials are sent to the configured origin only; use HTTPS for remote
-authentication. HTTP sends context and credentials without transport encryption.
+Authenticated remote connections require HTTPS, including private/LAN hosts.
+HTTP authentication is allowed only for literal loopback IPs or exact `localhost`,
+for trusted local development. Other hostnames are never resolved to grant this
+exception. Unauthenticated HTTP remains available for trusted local/LAN setups;
+HTTP sends context without transport encryption. Redirects, ambient netrc
+credentials and environment proxy/CA settings are disabled (`trust_env=False`)
+on both shipped adapters; TLS uses the client's normal verified trust store.
+Deploy behind an explicitly configured trusted endpoint when a proxy is needed.
 
 See [the mixed configuration example](../config/workers.providers.example.toml).
 Multiple Workers can reference the same connection with different models.
@@ -110,6 +123,36 @@ Capabilities are explicit configuration: omitted context/tools stay unknown,
 streaming defaults to disabled. Provider type does not establish tool, streaming
 or reasoning support. Context window limits runtime context; it is not sent as
 an OpenAI-compatible `num_ctx` parameter. Verify examples against your model.
+
+### Add another compatible service without source changes
+
+Copy [the universal example](../config/workers.universal.example.toml) to a private
+operator TOML file. It includes two independent authenticated remote services,
+one local Ollama service and four Workers, two sharing the first connection.
+Replace the `.invalid` URLs and model IDs with your endpoint's documented values.
+Provision `AGENTFORGE_SERVICE_A_KEY` and `AGENTFORGE_SERVICE_B_KEY` independently
+in the process environment using your protected secret mechanism. Do not paste
+tokens into TOML, commands committed to Git, databases or diagnostic output.
+
+For an additional service, add a uniquely named `[[providers]]` using the matching
+implemented `type`, its base URL and optional `api_key_env`. Add `[[workers]]`
+referencing that ID, with operator-selected model IDs and explicit capabilities.
+Compatible URLs include any required `/v1` or other path prefix. No Python edits
+are needed if the service implements the documented wire subset.
+
+```sh
+agentforge worker config-check --workers workers.local.toml
+agentforge worker list --workers workers.local.toml
+```
+
+These commands validate configuration/authentication availability offline; they
+make no model availability or service compatibility claim. Missing/malformed
+secrets, duplicate IDs, invalid references, URL credentials and authenticated
+remote HTTP fail safely before inference. After choosing the data destination,
+use existing explicit `worker probe ID` commands with a migrated database for a
+bounded synthetic observation; remote probes can incur cost. A Worker explicitly
+declaring `supports_tools = false` needs an Agent without tools (programmatic
+Agent definitions support this); shipped repository Agents require tools.
 
 ## Explicit heterogeneous execution
 
@@ -221,8 +264,27 @@ read at all.
 JSON/schema errors never expose the raw payload. HTTP 3xx/4xx map to
 `ProviderRejected` with status, 5xx to `BackendUnavailable`, transport disconnects
 to `BackendUnavailable`, timeout to `ProviderTimeout`, malformed/truncated bodies
-to `InvalidProviderResponse`. Runtime/Task durable codes remain the existing
+to `InvalidProviderResponse`. HTTP 400 uses safe code `invalid_request` (for
+example an unsupported parameter), 401/403 `authentication_failed`, 404 `not_found`
+and 429 `rate_limited`; all 5xx use `backend_unavailable` for both adapters.
+A 404 cannot distinguish an invalid model from a missing route, nor can a 400
+identify a particular unsupported option without reading sensitive bodies. Those
+causes remain unknown; verify model/route/options against operator documentation.
+Runtime/Task durable codes remain the existing
 `provider_error`/`provider_timeout` categories.
+
+Both adapters expose `RateLimitObservation` on direct results, terminal chunks,
+HTTP failures and available health results. Existing diagnostic probes persist
+the normalized observation in their bounded JSON checkpoint and expose it through
+CLI diagnostics. Only the standard [Retry-After field](https://www.rfc-editor.org/rfc/rfc9110.html#name-retry-after)
+is supported: one field of at most 128 characters, integer seconds or a timezone
+bearing HTTP date, normalized at observation time to 0–86400 seconds. Missing,
+duplicate, malformed, expired or larger values stay unknown (`rate_limits=null`),
+without clamping or echoing values. Nonstandard quota headers are ignored: remaining
+requests/tokens, account credits, reset schedules and prices stay unknown. There
+is no mutable connection-wide quota cache, retry, sleep, routing or enforcement.
+Future nonstandard parsing needs an explicit tested header contract; arbitrary
+headers/error bodies must never be projected.
 
 Only HTTP/HTTPS base URLs from trusted configuration are accepted, without
 userinfo/query/fragment. Redirects are disabled on every request, so bearer tokens
@@ -288,7 +350,7 @@ through HTTP context/tool results. Cloud Workers do **not** keep repository data
 local. Select Workers explicitly with this trust boundary in mind. Registering a
 Project does not send it to all Workers. There is no DLP policy engine.
 
-## Adding a third Provider
+## Implementing another inference protocol
 
 Implement the generic `Provider` contracts (`health`, `generate`, scoped `stream`)
 and normalize messages, tool correlation, private reasoning, factual usage/timing
@@ -299,6 +361,56 @@ resource-free/lazy; resource-owning implementations supply `aclose()`. Add offli
 MockTransport tests and repeat the heterogeneous integration tests. Runtime,
 TaskEngine, telemetry, Council, MCP and dashboard must need no Provider-specific
 branches. No new schema is needed for connection secrets.
+
+The typed static registry accepts `Callable[[ProviderConnection], Provider]` and
+returns one independent adapter per connection. The adapter's `name` equals the
+protocol type, not its connection ID or a vendor name. Implement these signatures
+from `core.inference.Provider`:
+
+```python
+async def health(self, worker: Worker) -> WorkerHealth: ...
+async def generate(
+    self, worker: Worker, request: GenerationRequest
+) -> GenerationResult: ...
+def stream(
+    self, worker: Worker, request: GenerationRequest
+) -> AbstractAsyncContextManager[AsyncIterator[GenerationChunk]]: ...
+```
+
+Validate the Worker protocol/connection before HTTP I/O; never select another
+Worker or replace its configured model. Serialize authentication/history/tool
+results in the adapter, preserve call correlation and finish reasons, and keep
+private reasoning outside visible text. Missing usage/capabilities stay unknown.
+Keep construction free of I/O; resource-owning implementations expose async
+`aclose()` for Application cleanup. Enforce wall-clock/byte bounds, propagate
+cancellation and close streams on early exit. Raise fixed `ProviderError`
+categories; normalize only explicitly supported observations. Add deterministic
+wire, multi-turn, isolation and Application/MCP/Council regressions before static
+registration. Never import arbitrary operator-selected Python modules.
+
+Standalone agent applications and subscription-authenticated CLIs are a separate
+integration class. Their sessions are not HTTP inference API credentials and no
+such integration or account automation is included here.
+
+## Compatibility evidence
+
+`test_openai_compatible.py` and `test_ollama.py` cover text, streaming, simultaneous
+structured tool calls, correlated results, missing/partial usage, malformed and
+oversized bodies, truncation, timeouts, cancellation and closure. Shared
+`test_provider_http.py` covers safe HTTP categories and bounded Retry-After on
+both protocols, success/stream/failure observations and diagnostic restart.
+`test_heterogeneous_providers.py` exercises actual factory/Application/TaskEngine,
+MCP and Council boundaries: two independently authenticated remote connections,
+one local connection, Workers sharing a connection, overlapping calls, independent
+failures and stable configured identities. Existing finish-reason tests verify
+incomplete generation discards tool calls/answers without continuation.
+
+These are mocked wire contracts, not proof that every compatible service/model
+works or behaves identically. No live compatibility or GPU claim follows from
+CI. The existing [protected manual smoke](cloud-acceptance.md#optional-remote-free-endpoint-smoke)
+stays disabled unless the owner explicitly authorizes a non-billable endpoint and
+provisions secrets. It performs one bounded synthetic completion, without tools
+or repository content; real tool-capable model validation remains separate.
 
 `GenerationRequest.max_output_tokens` is an optional normalized output budget.
 Ollama maps it to `num_predict`; compatible generation maps to `max_tokens`, or

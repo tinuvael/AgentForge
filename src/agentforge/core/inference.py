@@ -6,6 +6,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictStr, model_validator
 
+from agentforge.core.rate_limits import RateLimitObservation
 from agentforge.core.worker import Worker, WorkerHealth
 
 
@@ -102,6 +103,7 @@ class GenerationResult(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
     token_usage: TokenUsage | None = None
     generation_timing: GenerationTiming | None = None
+    rate_limits: RateLimitObservation | None = None
 
 
 class GenerationChunk(GenerationResult):

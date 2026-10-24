@@ -520,7 +520,15 @@ def main(argv=None) -> int:
             "Project path is missing, replaced or cannot be accessed safely.",
             6,
         )
-    except (ConfigurationError, InvalidProjectName, ValueError, TypeError):
+    except ConfigurationError:
+        code, message, result = (
+            "invalid_configuration",
+            "Check Worker/Provider TOML fields, unique IDs, matching references, "
+            "required secret environment variables and HTTPS for remote "
+            "authentication.",
+            2,
+        )
+    except (InvalidProjectName, ValueError, TypeError):
         code, message, result = (
             "invalid_configuration",
             "Check command arguments and configuration files.",

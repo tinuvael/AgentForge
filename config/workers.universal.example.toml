@@ -1,0 +1,49 @@
+# Copy to a private operator file, replace URLs/model IDs, and provision both
+# environment variables in the server process. No keys belong in this file.
+# These are illustrative capabilities, not detected or verified model features.
+# Explicitly selecting a remote Worker sends its prompts/tool results off-host.
+[[providers]]
+id = "service-a"
+type = "openai_compatible"
+base_url = "https://inference-a.invalid/v1"
+api_key_env = "AGENTFORGE_SERVICE_A_KEY"
+
+[[providers]]
+id = "service-b"
+type = "openai_compatible"
+base_url = "https://inference-b.invalid/api"
+api_key_env = "AGENTFORGE_SERVICE_B_KEY"
+# stream_usage = true # Only when the endpoint accepts include_usage.
+
+[[providers]]
+id = "local"
+type = "ollama"
+base_url = "http://127.0.0.1:11434"
+
+[[workers]]
+id = "a-text"
+provider = "service-a"
+model = "operator-text-model"
+supports_tools = false
+supports_streaming = true
+
+[[workers]]
+id = "a-tools"
+provider = "service-a"
+model = "operator-tool-model"
+supports_tools = true
+supports_streaming = false
+
+[[workers]]
+id = "b-tools"
+provider = "service-b"
+model = "operator-other-model"
+supports_tools = true
+supports_streaming = true
+
+[[workers]]
+id = "local-model"
+provider = "local"
+model = "operator-local-model"
+supports_tools = true
+supports_streaming = true

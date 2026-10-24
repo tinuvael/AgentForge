@@ -1,10 +1,17 @@
 """Small static composition registry; no plugin discovery or selection policy."""
 
+from collections.abc import Callable
+
+from agentforge.core.inference import Provider
 from agentforge.providers.ollama import OllamaProvider
 from agentforge.providers.openai_compatible import OpenAICompatibleProvider
-from agentforge.workers.config import ConfigurationError, WorkersConfig
+from agentforge.workers.config import (
+    ConfigurationError,
+    ProviderConnection,
+    WorkersConfig,
+)
 
-PROVIDER_TYPES = {
+PROVIDER_TYPES: dict[str, Callable[[ProviderConnection], Provider]] = {
     "ollama": OllamaProvider,
     "openai_compatible": OpenAICompatibleProvider,
 }
@@ -27,7 +34,7 @@ def validate_provider_bindings(config: WorkersConfig) -> None:
             )
 
 
-def create_providers(config: WorkersConfig):
+def create_providers(config: WorkersConfig) -> dict[str, Provider]:
     # Validate everything before creating instances. Constructors open no clients.
     validate_provider_bindings(config)
     providers = {p.id: PROVIDER_TYPES[p.type](p) for p in config.providers}

@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from agentforge.core.inference import GenerationTiming, TokenUsage
+from agentforge.core.rate_limits import RateLimitObservation
 
 GenerationProbeKind = Literal["generation", "tools", "streaming"]
 ProbeKind = Literal["health", "generation", "tools", "streaming"]
@@ -16,6 +17,10 @@ FailureCode = Literal[
     "timeout",
     "invalid_response",
     "rejected",
+    "invalid_request",
+    "authentication_failed",
+    "not_found",
+    "rate_limited",
     "tool_call_failed",
     "stream_failed",
     "diagnostic_failed",
@@ -72,6 +77,7 @@ class DiagnosticObservation(DiagnosticModel):
     ttft_seconds: float | None = Field(default=None, ge=0)
     token_usage: TokenUsage | None = None
     generation_timing: GenerationTiming | None = None
+    rate_limits: RateLimitObservation | None = None
     error_code: FailureCode | None = None
 
     @field_validator("checked_at")

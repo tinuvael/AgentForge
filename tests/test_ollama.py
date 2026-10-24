@@ -185,7 +185,7 @@ def test_health_accepts_default_latest_tag(worker, model):
     "response,code",
     [
         (httpx.Response(503), "backend_unavailable"),
-        (httpx.Response(401), "rejected"),
+        (httpx.Response(401), "authentication_failed"),
         (httpx.Response(200, json={"models": "wrong"}), "invalid_response"),
         (httpx.Response(200, content=b"bad json"), "invalid_response"),
     ],
@@ -224,7 +224,7 @@ def test_invalid_json_is_safe(worker, generation_request):
     assert "private-backend-body" not in str(caught.value)
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 429])
 def test_http_rejection_is_safe(worker, generation_request, status):
     body = TrackedStream([b"sensitive backend details"], block=True)
     requests = []
@@ -247,7 +247,7 @@ def test_error_envelope_is_rejection(worker, generation_request):
         asyncio.run(provider.generate(worker, generation_request))
 
 
-@pytest.mark.parametrize("status", [502, 503, 504])
+@pytest.mark.parametrize("status", [500, 502, 503, 504])
 def test_unavailable_http_status(worker, generation_request, status):
     provider = provider_for(lambda _: httpx.Response(status, content=b"private"))
     with pytest.raises(BackendUnavailable):

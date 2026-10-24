@@ -109,7 +109,14 @@ actually observed first-content time without claiming generation success or
 complete usage. `unavailable_metrics` explicitly lists missing metric coverage.
 
 Safe failure categories are backend_unavailable, model_unavailable, timeout,
-invalid_response, rejected, tool_call_failed, stream_failed and diagnostic_failed.
+invalid_response, rejected, invalid_request, authentication_failed, not_found,
+rate_limited, tool_call_failed, stream_failed and diagnostic_failed.
+HTTP 400/401-or-403/404/429 respectively supply the four specific HTTP codes;
+5xx reports backend_unavailable. A 404 does not prove a particular model is absent.
+When the Provider observes a valid bounded standard Retry-After, `rate_limits`
+contains only `retry_after_seconds`; otherwise it is null. This is a historical
+observation, not a countdown or permission to retry. Remaining quota, credits and
+pricing stay unknown. [Provider limits](providers.md) define parsing bounds.
 No arbitrary exception code/message, backend body, response text, hidden reasoning,
 API key, credential environment value/name or endpoint URL/path is projected or
 stored. Cancellation propagates and closes locally owned HTTP streams; it does

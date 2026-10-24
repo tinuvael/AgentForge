@@ -33,6 +33,7 @@ from agentforge.core.provider_errors import (
     ProviderTimeout,
 )
 from agentforge.core.worker import Worker, WorkerHealth
+from agentforge.providers.http import check_status, rate_limits
 from agentforge.providers.json import parse_json
 from agentforge.workers.config import ProviderConnection
 
@@ -112,6 +113,7 @@ class OllamaProvider:
             transport=self._transport,
             headers={"Accept-Encoding": "identity"},
             follow_redirects=False,
+            trust_env=False,
         )
 
     @staticmethod
@@ -120,11 +122,7 @@ class OllamaProvider:
             if response.headers.get("content-encoding", "identity") != "identity":
                 raise InvalidProviderResponse("Compressed Ollama responses unsupported")
             return
-        if response.status_code in {502, 503, 504}:
-            raise BackendUnavailable("Ollama backend unavailable")
-        raise ProviderRejected(
-            "Ollama rejected the request", status_code=response.status_code
-        )
+        check_status(response)
 
     @staticmethod
     def _payload(
@@ -267,6 +265,7 @@ class OllamaProvider:
                     model_available=any(
                         tag.name in {worker.model, model} for tag in tags.models
                     ),
+                    rate_limits=rate_limits(response.headers),
                 )
         except (TimeoutError, httpx.TimeoutException):
             return WorkerHealth(
@@ -280,7 +279,10 @@ class OllamaProvider:
             )
         except ProviderError as error:
             return WorkerHealth(
-                backend_available=False, backend_reachable=True, error_code=error.code
+                backend_available=False,
+                backend_reachable=True,
+                error_code=error.code,
+                rate_limits=error.rate_limits,
             )
 
     async def generate(
@@ -302,7 +304,10 @@ class OllamaProvider:
                     chunk = self._parse_chat(parse_json(await self._body(response)))
                 if not chunk.done:
                     raise InvalidProviderResponse("Incomplete Ollama chat response")
-                return GenerationResult(**chunk.model_dump(exclude={"done"}))
+                return GenerationResult(
+                    **chunk.model_dump(exclude={"done", "rate_limits"}),
+                    rate_limits=rate_limits(response.headers),
+                )
         except (TimeoutError, httpx.TimeoutException):
             raise ProviderTimeout("Ollama generation timed out") from None
         except httpx.RequestError:
@@ -326,6 +331,10 @@ class OllamaProvider:
                         )
                     if line.strip():
                         chunk = self._parse_chat(parse_json(bytes(line)))
+                        if chunk.done:
+                            chunk = chunk.model_copy(
+                                update={"rate_limits": rate_limits(response.headers)}
+                            )
                         yield chunk
                         if chunk.done:
                             return
@@ -337,6 +346,10 @@ class OllamaProvider:
         # Preserve acceptance of a final JSON record without a trailing newline.
         if buffer.strip():
             chunk = self._parse_chat(parse_json(bytes(buffer)))
+            if chunk.done:
+                chunk = chunk.model_copy(
+                    update={"rate_limits": rate_limits(response.headers)}
+                )
             yield chunk
             if chunk.done:
                 return

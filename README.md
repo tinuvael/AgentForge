@@ -145,6 +145,9 @@ connections, multiple Providers or authenticated remote endpoints, start with
 [workers.providers.example.toml](config/workers.providers.example.toml) and
 [Provider configuration](docs/providers.md). It includes OpenAI-compatible
 `/v1` endpoints and credential **environment-variable names**, never real secrets.
+The [universal onboarding example](config/workers.universal.example.toml) shows
+two independently authenticated remote services, one local service and Workers
+sharing a connection. Authenticated remote/LAN endpoints require HTTPS.
 Explicit remote Worker selection sends gathered repository evidence to that endpoint.
 
 Initialize a fresh database explicitly using the

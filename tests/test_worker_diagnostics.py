@@ -178,7 +178,7 @@ def test_listing_and_configuration_are_passive(database):
         ({"models": [{"name": "configured:latest"}]}, None, True, True, True),
         ({"models": []}, "model_unavailable", True, False, True),
         (httpx.Response(503, text=PRIVATE), "backend_unavailable", False, None, True),
-        (httpx.Response(401, text=PRIVATE), "rejected", False, None, True),
+        (httpx.Response(401, text=PRIVATE), "authentication_failed", False, None, True),
         (httpx.Response(200, text=PRIVATE), "invalid_response", False, None, True),
         (httpx.ConnectError(PRIVATE), "backend_unavailable", False, None, False),
         (httpx.ReadTimeout(PRIVATE), "timeout", False, None, None),

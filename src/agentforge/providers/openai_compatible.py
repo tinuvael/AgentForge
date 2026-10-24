@@ -32,6 +32,7 @@ from agentforge.core.provider_errors import (
     ProviderTimeout,
 )
 from agentforge.core.worker import Worker, WorkerHealth
+from agentforge.providers.http import check_status, rate_limits
 from agentforge.providers.json import parse_json as _json
 from agentforge.workers.config import ProviderConnection
 
@@ -155,6 +156,7 @@ class OpenAICompatibleProvider:
                 base_url=str(self._connection.base_url).rstrip("/") + "/",
                 transport=self._transport,
                 follow_redirects=False,
+                trust_env=False,
             )
         return self._http
 
@@ -189,14 +191,8 @@ class OpenAICompatibleProvider:
                     timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
                     follow_redirects=False,
                 ) as response:
-                    if not 200 <= response.status_code < 300:
-                        # Never read error bodies, including structured backend errors.
-                        if response.status_code >= 500:
-                            raise BackendUnavailable("Provider backend unavailable")
-                        raise ProviderRejected(
-                            "Provider rejected the request",
-                            status_code=response.status_code,
-                        )
+                    # Never read error bodies, including structured backend errors.
+                    check_status(response)
                     if (
                         response.headers.get("content-encoding", "identity")
                         != "identity"
@@ -307,6 +303,7 @@ class OpenAICompatibleProvider:
                     model=parsed.model or worker.model,
                     finish_reason=choice.finish_reason,
                     tool_calls=calls,
+                    rate_limits=rate_limits(response.headers),
                     **_usage(parsed.usage),
                 )
             except ValidationError:
@@ -383,6 +380,7 @@ class OpenAICompatibleProvider:
                         done=True,
                         finish_reason=finish,
                         tool_calls=calls,
+                        rate_limits=rate_limits(response.headers),
                         **_usage(usage),
                     )
                     return

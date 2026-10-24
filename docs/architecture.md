@@ -241,6 +241,15 @@ must not branch on vendors. Provider options/raw metric dictionaries remain
 intentional direct-call compatibility; runtime uses normalized usage/timing.
 Inline Ollama TOML remains supported alongside named connections.
 
+The static Provider registry is typed as connection-to-Provider constructors;
+adding a compatible endpoint is configuration only. Credentialed remote
+connections require HTTPS; only explicit loopback development may use HTTP.
+Adapters disable ambient HTTP credentials/proxies and normalize bounded standard
+Retry-After observations into `core.rate_limits.RateLimitObservation`. Direct
+results/errors and diagnostic checkpoints may carry this observation; ordinary
+Task identity/telemetry and MCP contracts do not change. Unknown quotas remain
+unknown; observations never trigger retries, routing or billing enforcement.
+
 Adding a Provider requires connection validation, static factory composition,
 normalization and offline tests, without a dynamic plugin framework. Custom Agents
 are supplied programmatically with explicit tools and limits; no TOML Agent loader
