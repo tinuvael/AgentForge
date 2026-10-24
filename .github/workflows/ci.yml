@@ -39,18 +39,24 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Record environment
         run: python scripts/ci_report.py environment
-      - name: Windows host paths
+      - name: Prepare supported Windows Git and canonical temporary root
         if: runner.os == 'Windows'
-        shell: python
+        shell: pwsh
         run: |
-          import os, shutil, tempfile
-          from pathlib import Path
-          git = Path(shutil.which("git"))
-          print("Git launcher:", git)
-          print("Temporary directory:", tempfile.gettempdir())
-          for architecture in ("mingw64", "mingw32"):
-              candidate = git.parent.parent / architecture / "bin/git.exe"
-              print("Direct Git:", candidate, "exists:", candidate.is_file())
+          $archive = Join-Path $env:RUNNER_TEMP 'PortableGit.7z.exe'
+          $gitRoot = Join-Path $env:RUNNER_TEMP 'agentforge-git'
+          Invoke-WebRequest 'https://github.com/git-for-windows/git/releases/download/v2.51.2.windows.1/PortableGit-2.51.2-64-bit.7z.exe' -OutFile $archive
+          $digest = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($digest -ne 'f5764d546ff9a2511b50ec4e20424c5f4669de1695abc3fa4128e7f7d4a7b2cd') { throw 'Git archive checksum mismatch' }
+          & $archive -y "-o$gitRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'Git extraction failed' }
+          Add-Content $env:GITHUB_PATH (Join-Path $gitRoot 'mingw64/bin')
+          $canonicalTemp = python -c "import os; from pathlib import Path; p = Path(os.environ['RUNNER_TEMP']) / 'agentforge-temp'; p.mkdir(exist_ok=True); print(p.resolve())"
+          Add-Content $env:GITHUB_ENV "TEMP=$canonicalTemp"
+          Add-Content $env:GITHUB_ENV "TMP=$canonicalTemp"
+      - name: Record prepared Windows environment
+        if: runner.os == 'Windows'
+        run: python scripts/ci_report.py environment
       - name: Regression suite (includes native platform and integration tests)
         run: python -m pytest -ra --tb=short --junitxml=reports/pytest.xml
       - name: Lint

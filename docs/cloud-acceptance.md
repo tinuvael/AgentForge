@@ -71,6 +71,21 @@ Ordinary loopback/service connects and DNS remain rejected, with explicit guard
 regressions. Large context-budget parameters use short explicit pytest IDs so
 `PYTEST_CURRENT_TEST` stays below Windows' environment-variable length limit.
 
+Hosted Windows is prepared with the official PortableGit 2.51.2 x64 archive,
+verified against its [published SHA-256](https://github.com/git-for-windows/git/releases/tag/v2.51.2.windows.1).
+The bundled runner Git 2.56 layout lacks the `mingw64`/`mingw32` binary locations
+currently recognized by AgentForge. CI pins supported tooling instead of changing
+production executable authorization; newer-layout support needs separate follow-up.
+Only this ephemeral runner's PATH changes. TEMP/TMP are canonicalized before
+testing because the default `RUNNER~1` spelling is intentionally rejected by the
+backend. Installed smoke similarly canonicalizes its own synthetic root. This
+does not authorize alias/reparse paths from Projects or models. Version reports
+are refreshed after preparation so they record the Git actually under test.
+Fixtures requiring exact source bytes write LF explicitly, and sensitive-cache
+tests seed real stale database rows rather than depending on platform scanner
+policy. Native replacement-race assertions accept either identity rejection or a
+safe I/O error when NTFS sharing prevents the injected replacement itself.
+
 ## What synthetic providers demonstrate
 
 The existing `test_ollama.py` and `test_openai_compatible.py` exercise real adapter

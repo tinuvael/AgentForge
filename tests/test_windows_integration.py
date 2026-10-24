@@ -15,7 +15,7 @@ from agentforge.db.projects import ProjectRepository
 from agentforge.projects.errors import InvalidProjectPath, UnsafeProjectPath
 from agentforge.projects.identity import RootIdentity
 from agentforge.projects.service import ProjectRegistry
-from agentforge.tools.errors import SensitivePath
+from agentforge.tools.errors import RepositoryIOError, SensitivePath
 from agentforge.tools.service import RepositoryTools
 from tests.test_index import indexed as index_fixture
 from tests.test_index import (
@@ -134,8 +134,11 @@ def test_native_replacement_between_observation_and_open(tools, registry, monkey
         return original(path)
 
     monkeypatch.setattr(api, "open", swap)
-    with pytest.raises(UnsafeProjectPath):
+    # A native sharing violation can prevent the injected replacement itself;
+    # either safe error must stop the read before replacement bytes are returned.
+    with pytest.raises((UnsafeProjectPath, RepositoryIOError)):
         service.read_file(project_id, "source.py")
+    assert count == 2
 
 
 def test_native_case_ads_and_sensitive_policy(tools):

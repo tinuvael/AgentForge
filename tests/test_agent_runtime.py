@@ -25,6 +25,7 @@ from agentforge.core.provider_errors import BackendUnavailable, ProviderTimeout
 from agentforge.core.worker import Worker
 from agentforge.db.database import create_session_factory
 from agentforge.db.index import IndexRepository
+from agentforge.db.models import IndexedFileRecord, SymbolRecord
 from agentforge.index.models import IndexStorageError
 from agentforge.index.service import ProjectIndex
 from agentforge.tools.errors import GitFailure
@@ -87,7 +88,7 @@ def setup(registry, database, tmp_path):
     root = tmp_path / "project"
     root.mkdir()
     (root / "source.py").write_text(
-        "def helper():\n    pass\ndef run():\n    helper()\n"
+        "def helper():\n    pass\ndef run():\n    helper()\n", newline="\n"
     )
     (root / ".env").write_text("DENIED FILE SECRET")
     (root / "binary").write_bytes(b"SECRET\0binary")
@@ -285,10 +286,38 @@ def test_symbol_and_relationship_tools(setup, name):
     assert symbol.id in tool_messages(provider)[0].content
 
 
-def test_structural_queries_cannot_leak_sensitive_indexed_files(setup):
-    (setup.root / ".env.py").write_text("def DENIED_SYMBOL_SECRET(): pass\n")
-    setup.index.refresh_index(setup.project.id)
-    secret = setup.index.find_symbol(setup.project.id, "DENIED_SYMBOL_SECRET")[0]
+def sensitive_cached_symbol(setup, database, name):
+    # Windows already excludes sensitive files during scanning. Seed an actual
+    # stale cache on both platforms to test tool filtering independently of scans.
+    with create_session_factory(database[0]).begin() as session:
+        session.add(
+            IndexedFileRecord(
+                project_id=setup.project.id,
+                relative_path=".env.py",
+                module_name="env",
+                observed_hash="0" * 64,
+                parsed_hash="0" * 64,
+            )
+        )
+        session.flush()
+        session.add(
+            SymbolRecord(
+                project_id=setup.project.id,
+                id="cached-private-symbol",
+                relative_path=".env.py",
+                kind="function",
+                name=name,
+                qualified_name=name,
+                start_line=1,
+                end_line=1,
+                import_candidate=False,
+            )
+        )
+    return setup.index.find_symbol(setup.project.id, name)[0]
+
+
+def test_structural_queries_cannot_leak_sensitive_indexed_files(setup, database):
+    secret = sensitive_cached_symbol(setup, database, "DENIED_SYMBOL_SECRET")
     runtime, provider = setup.build(
         [
             turn(
@@ -868,11 +897,9 @@ def test_root_replacement_during_tool_is_terminal_without_publishing_result(
     assert len(provider.requests) == 1
 
 
-def test_relationships_hide_edges_into_sensitive_index_files(setup):
-    (setup.root / ".env.py").write_text("def DENIED_EDGE_SECRET(): pass\n")
-    setup.index.refresh_index(setup.project.id)
+def test_relationships_hide_edges_into_sensitive_index_files(setup, database):
+    secret = sensitive_cached_symbol(setup, database, "DENIED_EDGE_SECRET")
     source = setup.index.find_symbol(setup.project.id, "run")[0]
-    secret = setup.index.find_symbol(setup.project.id, "DENIED_EDGE_SECRET")[0]
     from agentforge.index.models import Relationship
 
     # Test wrapper filtering independently of the deliberately limited resolver.
