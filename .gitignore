@@ -26,6 +26,7 @@ env/
 .coverage.*
 coverage.xml
 htmlcov/
+/reports/
 
 # Local editors and OS files
 .idea/

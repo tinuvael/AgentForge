@@ -1,10 +1,13 @@
 """Manager-private fixed Git invocations, with no checkout/filter operations."""
 
+import hashlib
 import os
 import re
+import struct
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
+from agentforge.coding.filesystem import mutate
 from agentforge.coding.models import CodingError
 from agentforge.coding.process import git_environment
 from agentforge.projects.backends import GitLocation
@@ -13,8 +16,37 @@ from agentforge.projects.windows import WindowsDirectory
 from agentforge.tools.git_backend import _run_git
 
 
+def initial_index(entries, materialized):
+    """A SHA-1 v3 index for the captured tree, without cached stat/extensions.
+
+    Windows cannot commit Git's index.lock rename beneath our pinned admin
+    directory. Encode read-tree + skip-worktree together, then let the manager
+    publish once through its existing exclusive no-follow mutation handle.
+    Format: https://git-scm.com/docs/index-format (v3 adds skip-worktree flags).
+    This is initialization only, never a parser/editor for an existing index.
+    """
+    data = bytearray(struct.pack("!4sII", b"DIRC", 3, len(entries)))
+    for path in sorted(entries, key=lambda name: name.encode("utf-8")):
+        mode, _, object_id = entries[path]
+        name = path.encode("utf-8")
+        absent = path not in materialized
+        entry = struct.pack(
+            "!24xI12x20sH",  # Zero ctime/mtime/dev/ino/uid/gid/size; retain mode.
+            int(mode, 8),
+            bytes.fromhex(object_id),
+            min(len(name), 0xFFF) | (0x4000 if absent else 0),
+        )
+        if absent:
+            entry += struct.pack("!H", 0x4000)  # CE_SKIP_WORKTREE
+        entry += name + b"\0"
+        data.extend(entry + b"\0" * (-len(entry) % 8))
+    data.extend(hashlib.sha1(data).digest())
+    return bytes(data)
+
+
 class WorkspaceGit:
     def __init__(self, executable, repository, metadata, *, worktree=None):
+        self.metadata = metadata
         if isinstance(metadata, WindowsDirectory):
             location = GitLocation(
                 repository.path, prefix="", executable=str(executable)
@@ -63,6 +95,23 @@ class WorkspaceGit:
         }.items():
             self.argv.extend(["-c", key + "=" + value])
         self.environment = git_environment()
+
+    def initialize_index(self, base, entries, materialized):
+        if isinstance(self.metadata, WindowsDirectory):
+            # All _git registration/worktree/executable pins remain held. Never
+            # replace an index left by another writer or interrupted provisioning.
+            mutate(
+                self.metadata,
+                "index",
+                initial_index(entries, materialized),
+                expected=None,
+                create=True,
+                public=False,
+                check=lambda: self.metadata.backend._verify(self.metadata),
+            )
+        else:
+            self.complete(["read-tree", base], 128)
+            self.skip_absent(entries.keys() - materialized)
 
     def complete(self, args, cap=65536, *, allow_failure=False):
         output = _run_git(
