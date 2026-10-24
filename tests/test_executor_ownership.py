@@ -444,18 +444,29 @@ def test_native_windows_junction_alias_uses_same_owner(database, tmp_path):
         os.rmdir(junction)
 
 
-def test_hardlink_created_during_ownership_stops_sql(database, tmp_path):
+def test_hardlink_change_during_ownership_is_rejected(database, tmp_path):
     owner = DatabaseOwnership(database[0])
     owner.acquire()
     alias = tmp_path / "new-hardlink.sqlite"
     try:
-        os.link(database[1].database, alias)
-        with pytest.raises(ExecutorOwnershipError):
+        if os.name == "nt":
+            # Native NTFS rejects CreateHardLink itself while DELETE sharing is
+            # denied. This is kernel denial, not a skipped identity check.
+            with pytest.raises(PermissionError) as error:
+                os.link(database[1].database, alias)
+            assert error.value.winerror == 32  # ERROR_SHARING_VIOLATION
+            assert not alias.exists()
             with database[0].connect() as connection:
-                connection.execute(text("SELECT 1"))
+                assert connection.execute(text("SELECT 1")).scalar_one() == 1
+        else:
+            os.link(database[1].database, alias)
+            with pytest.raises(ExecutorOwnershipError):
+                with database[0].connect() as connection:
+                    connection.execute(text("SELECT 1"))
     finally:
-        alias.unlink(missing_ok=True)
+        # NTFS delete sharing applies to every hardlink of the pinned DB file.
         owner.release()
+        alias.unlink(missing_ok=True)
     owner.acquire()
     owner.release()
 

@@ -412,26 +412,23 @@ class Application:
         return self.councils.cancel(council_id)
 
     def get_coding_workspace(self, *, task_id: UUID):
-        with self.tasks.storage_access():
-            self.tasks.get_task(task_id)
-            if self.coding is None:
-                raise ServiceError("coding_unavailable")
-            return self.coding.get(task_id)
+        self.tasks.get_task(task_id)
+        if self.coding is None:
+            raise ServiceError("coding_unavailable")
+        return self.coding.get(task_id)
 
     def get_coding_summary(self, *, task_id: UUID):
         """Retained bounded facts, with no worktree reads or diff generation."""
-        with self.tasks.storage_access():
-            self.tasks.get_task(task_id)
-            if self.coding is None:
-                raise ServiceError("coding_unavailable")
-            return self.coding.get(task_id, inspect_current=False)
+        self.tasks.get_task(task_id)
+        if self.coding is None:
+            raise ServiceError("coding_unavailable")
+        return self.coding.get(task_id, inspect_current=False)
 
     def get_coding_diff(self, *, task_id: UUID):
-        with self.tasks.storage_access():
-            self.tasks.get_task(task_id)
-            if self.coding is None:
-                raise ServiceError("coding_unavailable")
-            return self.coding.diff(task_id)
+        self.tasks.get_task(task_id)
+        if self.coding is None:
+            raise ServiceError("coding_unavailable")
+        return self.coding.diff(task_id)
 
     def cleanup_coding_workspace(self, *, task_id: UUID, workspace_id: UUID):
         with self.tasks.storage_access():

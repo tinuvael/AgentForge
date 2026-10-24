@@ -34,10 +34,10 @@ Direct Python TaskEngine submission before `start()` remains supported. Task,
 Council submission and cancellation take short exclusive ownership around the
 operation, release it afterwards, and perform no recovery or inference. They fail
 if another executor owns the DB. Application delegation still requires a started
-engine. Application coding inspection/diff/cleanup also takes ownership because
-inspection can persist workspace observations. Raw repositories, migration commands
-and administrative writes are trusted operator APIs: **stop executors first**.
-Read-only administrative DB status does not acquire executor ownership.
+engine. Application coding cleanup also takes ownership. Coding inspection, diff,
+cached summaries and administrative DB status remain read-only and do not acquire
+executor ownership. Raw repositories, migration commands and administrative writes
+are trusted operator APIs: **stop executors first**.
 
 Startup failure (including `CancelledError` during schema/recovery) releases all
 partially acquired handles. There is no retry/polling loop. A process crash releases
@@ -93,8 +93,9 @@ case aliases through NTFS, rejects alternate streams, device/UNC paths,
 reparse ancestry and aliases not matching the resolved final handle path. Case-sensitive Windows directories are unsupported.
 
 Database and sidecar must be regular files with exactly one hardlink. This is
-checked at acquisition and before every SQL statement while owned, so creating a
-hardlink later also stops the owner. Linux retains descriptors and rechecks inode,
+checked at acquisition and before every SQL statement while owned. Linux rejects
+SQL after a new hardlink is created; native Windows sharing denies creation of
+the new hardlink itself while the owner holds its handles. Linux retains descriptors and rechecks inode,
 parent and pathname identity before SQL: replacement/deletion fails closed; a
 contender at the original path still encounters the permanent sidecar. Windows
 handles prevent replacement for their lifetime. Never replace, rename, chmod or
