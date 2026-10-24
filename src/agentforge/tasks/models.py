@@ -58,6 +58,7 @@ class Task(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     task_id: UUID
+    client_id: str | None = None
     project_id: UUID
     agent_id: str
     worker_id: str

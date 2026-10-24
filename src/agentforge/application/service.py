@@ -268,7 +268,7 @@ class Application:
                 "Repository tools require POSIX descriptors or native Windows "
                 "local NTFS handles; unsupported filesystems fail closed.",
                 "Ollama and the text/tool Chat Completions protocol are shipped.",
-                "Local trusted stdio only; one process per database, no "
+                "Trusted stdio or authenticated HTTP; one process per database, no "
                 "distributed lease.",
                 "No raw trace, reasoning, raw responses or telemetry analytics "
                 "over MCP.",
@@ -291,24 +291,49 @@ class Application:
             next_offset=offset + limit if len(values) > limit else None,
         )
 
-    def list_workers(self, *, limit: int = 100, offset: int = 0) -> WorkersPage:
+    def list_workers(
+        self, *, limit: int = 100, offset: int = 0, authorized_ids=None
+    ) -> WorkersPage:
+        values = tuple(
+            w
+            for w in self._worker_info
+            if authorized_ids is None or w.worker_id in authorized_ids
+        )
         return WorkersPage(
-            workers=self._worker_info[offset : offset + limit],
-            next_offset=offset + limit
-            if len(self._worker_info) > offset + limit
-            else None,
+            workers=values[offset : offset + limit],
+            next_offset=offset + limit if len(values) > offset + limit else None,
         )
 
-    def list_agents(self, *, limit: int = 100, offset: int = 0) -> AgentsPage:
+    def list_agents(
+        self, *, limit: int = 100, offset: int = 0, authorized_ids=None
+    ) -> AgentsPage:
+        values = tuple(
+            a
+            for a in self._agent_info
+            if authorized_ids is None or a.agent_id in authorized_ids
+        )
         return AgentsPage(
-            agents=self._agent_info[offset : offset + limit],
-            next_offset=offset + limit
-            if len(self._agent_info) > offset + limit
-            else None,
+            agents=values[offset : offset + limit],
+            next_offset=offset + limit if len(values) > offset + limit else None,
+        )
+
+    def agent_definition(self, agent_id):
+        return self._agents.get(agent_id)
+
+    def configuration_counts(self, *, worker_ids, agent_ids):
+        return (
+            len(set(self._workers).intersection(worker_ids)),
+            len(set(self._agents).intersection(agent_ids)),
         )
 
     def delegate_task(
-        self, *, project_id: UUID, agent_id: str, worker_id: str, task: str
+        self,
+        *,
+        project_id: UUID,
+        agent_id: str,
+        worker_id: str,
+        task: str,
+        client_id: str | None = None,
     ) -> TaskSnapshot:
         if not self.tasks.available:
             raise ServiceError("service_unavailable")
@@ -324,6 +349,7 @@ class Application:
                 agent_id=agent_id,
                 worker_id=worker_id,
                 task=task,
+                client_id=client_id,
             )
         )
 

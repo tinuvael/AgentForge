@@ -50,6 +50,7 @@ async def companion_http(application, config: CompanionConfig):
             workers=1,
             log_config=None,
             access_log=False,
+            proxy_headers=False,
             timeout_graceful_shutdown=2,
         )
     )

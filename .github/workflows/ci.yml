@@ -76,7 +76,7 @@ jobs:
       - name: Record prepared Windows environment
         if: runner.os == 'Windows'
         run: python scripts/ci_report.py environment
-      - name: Regression suite (includes native platform and integration tests)
+      - name: Regression suite (includes native platform and multi-client HTTP MCP)
         run: python -m pytest -ra --tb=short --junitxml=reports/pytest.xml
       - name: Lint
         if: ${{ !cancelled() }}

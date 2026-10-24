@@ -107,7 +107,13 @@ class TaskEngine:
 
     @exclusive_write
     def submit(
-        self, *, project_id: UUID | str, agent_id: str, worker_id: str, task: str
+        self,
+        *,
+        project_id: UUID | str,
+        agent_id: str,
+        worker_id: str,
+        task: str,
+        client_id: str | None = None,
     ) -> Task:
         self._check_thread()
         if self._closed:
@@ -127,6 +133,7 @@ class TaskEngine:
             request=task,
             provider=provider,
             model=model,
+            client_id=client_id,
         )
         self._queued_at[submitted.task_id] = queued_at
         self._wake.set()
@@ -145,7 +152,13 @@ class TaskEngine:
 
     @exclusive_write
     def submit_council(
-        self, *, project_id: UUID, agent_id: str, worker_ids: tuple[str, ...], task: str
+        self,
+        *,
+        project_id: UUID,
+        agent_id: str,
+        worker_ids: tuple[str, ...],
+        task: str,
+        client_id: str | None = None,
     ) -> tuple[Council, tuple[Task, ...]]:
         self._check_thread()
         if self._closed:
@@ -175,6 +188,7 @@ class TaskEngine:
             agent_id=agent_id,
             request=task,
             targets=tuple(targets),
+            client_id=client_id,
         )
         for participant in tasks:
             self._queued_at[participant.task_id] = queued_at
@@ -186,6 +200,10 @@ class TaskEngine:
     def active_counts(self) -> dict[TaskState, int]:
         self._check_thread()
         return self._repository.active_counts()
+
+    def visible_active_counts(self, **filters):
+        self._check_thread()
+        return self._repository.visible_active_counts(**filters)
 
     def state_counts(self) -> dict[TaskState, int]:
         self._check_thread()

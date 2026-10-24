@@ -185,6 +185,9 @@ def parser():
     from agentforge.codex_integration import add_parser
 
     add_parser(groups)
+    from agentforge.gateway.server import add_parser as add_gateway_parser
+
+    add_gateway_parser(groups)
 
     # Reuse the supported service parsers and lifecycle/security implementations.
     from agentforge.mcp import server as mcp
@@ -495,6 +498,10 @@ def main(argv=None) -> int:
 
             emit(execute(args))
             return 0
+        if args.group == "gateway":
+            from agentforge.gateway.server import run
+
+            return run(args)
         if args.group in {"mcp", "web"}:
             return args.service_run(args)
         return {

@@ -26,6 +26,8 @@ RequestText = Annotated[
     str, StringConstraints(strict=True, min_length=1, max_length=32_768, pattern=r"\S")
 ]
 ErrorCode = Literal[
+    "access_denied",
+    "resource_limit",
     "invalid_arguments",
     "coding_unavailable",
     "project_not_found",
@@ -100,6 +102,7 @@ class SafeError(Contract):
 
 
 class Status(Contract):
+    client_id: str | None = None
     available: bool
     version: str
     database_available: Literal[True] = True

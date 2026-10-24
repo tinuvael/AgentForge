@@ -4,6 +4,7 @@ Only marked regions are owned. Validate the complete TOML before and after each
 edit instead of trying to rewrite arbitrary user TOML with a partial parser.
 """
 
+import ipaddress
 import json
 import os
 import stat
@@ -11,6 +12,7 @@ import subprocess
 import tempfile
 import tomllib
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from sqlalchemy.engine import URL, make_url
@@ -28,8 +30,12 @@ POLICY_END = "<!-- END AgentForge delegation policy v1 -->\n"
 OWNERSHIP_WARNING = (
     "Single-client stdio only: use exactly one Codex session (CLI OR IDE) and no "
     "other MCP/web/smoke executor for this database. Cross-process ownership is "
-    "enforced for supported local SQLite storage (#44). Shared authenticated "
-    "service is deferred to #46."
+    "enforced for supported local SQLite storage (#44). Use authenticated HTTP "
+    "to share the persistent Gateway between clients."
+)
+HTTP_NOTICE = (
+    "HTTP client only: connects to an existing authenticated Gateway; "
+    "never starts an executor."
 )
 POLICY = """## Optional AgentForge delegation
 
@@ -92,6 +98,62 @@ def absolute_path(value, *, directory=False, executable=False):
 
 
 def registration(args):
+    if args.url:
+        if args.single_client or any(
+            getattr(args, name)
+            for name in (
+                "python",
+                "installation",
+                "database",
+                "workers",
+                "cwd",
+                "coding",
+            )
+        ):
+            raise IntegrationError(
+                "HTTP registration cannot include executor settings."
+            )
+        try:
+            url = urlsplit(args.url)
+            _ = url.port
+        except ValueError:
+            raise IntegrationError("Use a valid Gateway URL.") from None
+        try:
+            local = (
+                url.hostname == "localhost"
+                or ipaddress.ip_address(url.hostname or "").is_loopback
+            )
+        except ValueError:
+            local = False
+        if (
+            any(ord(c) < 33 or ord(c) == 127 for c in args.url)
+            or url.scheme not in {"http", "https"}
+            or not url.hostname
+            or url.username
+            or url.password
+            or url.query
+            or url.fragment
+            or url.path != "/mcp"
+            or url.scheme == "http"
+            and not local
+        ):
+            raise IntegrationError(
+                "Use HTTPS /mcp, or loopback HTTP, without URL credentials, "
+                "query or fragment."
+            )
+        name = args.bearer_token_env_var
+        if not name or not name.isascii() or not name.isidentifier():
+            raise IntegrationError("Supply a bearer token environment variable name.")
+        return {
+            "url": args.url,
+            "bearer_token_env_var": name,
+            "enabled": True,
+            "required": False,
+            "default_tools_approval_mode": "writes",
+            "disabled_tools": ["cleanup_coding_workspace"],
+        }
+    if args.bearer_token_env_var:
+        raise IntegrationError("Bearer authentication requires --url.")
     if not args.single_client:
         raise IntegrationError(
             "Read the single-client warning and pass --single-client."
@@ -288,6 +350,9 @@ def codex_home(explicit=None):
 
 
 def duplicate_database(config, entry):
+    if "url" in entry:
+        return
+
     def identity(value, cwd):
         try:
             url = make_url(value)
@@ -395,7 +460,7 @@ def execute(args):
             "managed_instructions": policy_block is not None,
             "instructions_shadowed": bool(override and override.strip()),
             "server_availability": "not_probed",
-            "warning": OWNERSHIP_WARNING,
+            "warning": HTTP_NOTICE if entry and "url" in entry else OWNERSHIP_WARNING,
         }
     if args.operation == "install":
         entry = registration(args)
@@ -420,25 +485,28 @@ def execute(args):
         if entry is None:
             raise IntegrationError("No managed registration; run codex install first.")
         if args.operation == "enable":
-            if not args.single_client:
+            if "url" not in entry and not args.single_client:
                 raise IntegrationError(
                     "Read the single-client warning and pass --single-client."
                 )
             duplicate_database(text, entry)
         entry = {**entry, "enabled": args.operation == "enable"}
     config_text = update_config(text, entry)
-    return apply_changes(
+    report = apply_changes(
         [
             (config_path, old_config, config_text.encode("utf-8")),
             (policy_path, old_policy, policy_text.encode("utf-8")),
         ],
         dry_run=args.dry_run,
     )
+    if entry and "url" in entry:
+        report["warning"] = HTTP_NOTICE
+    return report
 
 
 def add_parser(groups):
     command = groups.add_parser(
-        "codex", help="Opt-in global Codex MCP setup (single client)"
+        "codex", help="Opt-in global Codex MCP setup (stdio or authenticated HTTP)"
     )
     commands = command.add_subparsers(dest="operation", required=True)
     for name in ("install", "inspect", "enable", "disable", "uninstall"):
@@ -456,8 +524,15 @@ def add_parser(groups):
         if name == "install":
             for option in ("python", "installation", "database", "workers", "cwd"):
                 item.add_argument(
-                    "--" + option, required=True, help="Explicit absolute path"
+                    "--" + option, help="Explicit absolute path (stdio only)"
                 )
+            item.add_argument(
+                "--url", help="Existing Gateway /mcp URL; no local executor"
+            )
+            item.add_argument(
+                "--bearer-token-env-var",
+                help="Credential environment name, never its value",
+            )
             item.add_argument(
                 "--coding", help="Optional absolute trusted coding TOML path"
             )

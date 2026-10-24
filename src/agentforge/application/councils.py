@@ -51,7 +51,7 @@ class CouncilService:
         except (ValueError, TypeError, AttributeError):
             raise CouncilNotFound("Council ID is not registered") from None
 
-    def submit(self, **arguments) -> CouncilSnapshot:
+    def submit(self, *, client_id: str | None = None, **arguments) -> CouncilSnapshot:
         try:
             request = DelegateCouncilArguments.model_validate(arguments)
         except ValidationError:
@@ -63,7 +63,9 @@ class CouncilService:
             raise ServiceError("agent_not_found")
         if any(worker not in self._worker_ids for worker in request.worker_ids):
             raise ServiceError("worker_not_found")
-        council, tasks = self._tasks.submit_council(**request.model_dump())
+        council, tasks = self._tasks.submit_council(
+            **request.model_dump(), client_id=client_id
+        )
         return snapshot(
             council,
             tuple(

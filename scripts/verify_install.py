@@ -60,6 +60,7 @@ def package_checks():
         "db/migrations/env.py",
         "db/migrations/script.py.mako",
         "db/migrations/versions/0001_initial.py",
+        "db/migrations/versions/0002_gateway_client.py",
         "web/templates/base.html",
         "web/templates/companion_base.html",
         "web/templates/companion_home.html",
@@ -105,7 +106,7 @@ def package_checks():
         file.name
         for file in root.joinpath("db/migrations/versions").iterdir()
         if file.name.endswith(".py")
-    } == {"0001_initial.py"}
+    } == {"0001_initial.py", "0002_gateway_client.py"}
     for module in ("db.migrate", "mcp.server", "web.server"):
         result = subprocess.run(
             [sys.executable, "-m", "agentforge." + module, "--help"],
@@ -221,7 +222,7 @@ async def smoke():
             with engine.connect() as connection:
                 assert (
                     MigrationContext.configure(connection).get_current_revision()
-                    == "0001_initial"
+                    == "0002_gateway_client"
                 )
                 assert set(inspect(connection).get_table_names()) == {
                     *Base.metadata.tables,
@@ -596,6 +597,11 @@ async def smoke():
                         assert "Last observed diagnostics" in response.text
                 assert (await client.get("/static/dashboard.css")).status_code == 200
         print("Dashboard migrated startup, pages, static assets and shutdown: OK")
+        from verify_gateway import installed_gateway, integration
+
+        with TemporaryDirectory() as gateway_directory:
+            await integration(Path(gateway_directory).resolve())
+        await installed_gateway()
 
 
 if __name__ == "__main__":

@@ -41,6 +41,8 @@ from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidati
 from agentforge.web.combined import CompanionConfig, companion_http
 
 _MESSAGES = {
+    "access_denied": "This client is not authorized for the operation.",
+    "resource_limit": "Service capacity reached; wait before retrying.",
     "invalid_arguments": "Supply arguments matching the tool schema.",
     "project_not_found": "Select a registered project_id from list_projects.",
     "worker_not_found": "Select a configured worker_id from list_workers.",
@@ -235,6 +237,8 @@ def create_server(
     application_factory: Callable[[], Application],
     *,
     companion: CompanionConfig | None = None,
+    borrowed: bool = False,
+    client_access=None,
 ) -> Server:
     """Own one shared Application during the SDK server lifespan.
 
@@ -247,6 +251,11 @@ def create_server(
     @asynccontextmanager
     async def lifespan(_server):
         nonlocal application
+        if borrowed:
+            # SDK 1.x enters lifespan per HTTP session. The gateway owns the
+            # Application outside these sessions; disconnect cannot close it.
+            yield application_factory()
+            return
         if application is not None:
             raise ServiceError("service_unavailable")
         app = application_factory()
@@ -282,6 +291,7 @@ def create_server(
 
     @server.list_tools()
     async def list_tools():
+        access = client_access(server.request_context) if client_access else None
         return [
             types.Tool(
                 name=t.name,
@@ -296,6 +306,7 @@ def create_server(
                 ),
             )
             for t in TOOL_CONTRACTS
+            if access is None or access.allows(t.name)
         ]
 
     @server.call_tool(validate_input=False)
@@ -308,8 +319,11 @@ def create_server(
                 validated = contract.arguments.model_validate(arguments)
             except ValidationError:
                 raise ServiceError("invalid_arguments") from None
-            if application is None:
+            app = server.request_context.lifespan_context
+            if app is None:
                 raise ServiceError("service_unavailable")
+            if client_access:
+                app = client_access(server.request_context)
             # Synchronous application calls stay on TaskEngine's owning thread.
             fields = {
                 field: getattr(validated, field)
@@ -320,19 +334,20 @@ def create_server(
                 context = server.request_context
                 token = context.meta.progressToken if context.meta else None
                 if token is None:
-                    response = application.task_progress(**fields)
+                    response = app.task_progress(**fields)
                 else:
-                    async with application.watch_task(**fields) as updates:
+                    async with app.watch_task(**fields) as updates:
                         count = 0
                         async for response in updates:
                             count += 1
-                            await context.session.send_progress_notification(
-                                progress_token=token,
-                                progress=count,
-                                message=response.model_dump_json(),
-                            )
+                            with anyio.fail_after(2):
+                                await context.session.send_progress_notification(
+                                    progress_token=token,
+                                    progress=count,
+                                    message=response.model_dump_json(),
+                                )
             else:
-                response = getattr(application, contract.operation)(**fields)
+                response = getattr(app, contract.operation)(**fields)
             response = contract.response.model_validate(response)
             return types.CallToolResult(
                 content=[
