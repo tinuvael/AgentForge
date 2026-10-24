@@ -76,10 +76,6 @@ jobs:
       - name: Record prepared Windows environment
         if: runner.os == 'Windows'
         run: python scripts/ci_report.py environment
-      - name: Compare Windows coding on original base and reviewed head
-        # Review evidence for #55 only, not a permanent dependency on old refs.
-        if: runner.os == 'Windows' && matrix.python == '3.12' && github.event_name == 'pull_request' && github.event.pull_request.number == 55
-        run: python scripts/ci_diagnose_windows_coding.py --ref 56f9d2b150deefe58574cc88d7b0d87c6fb159e5 --ref ffa95e221d9c51e49b7442695d110ca2bdbdaf4a --output reports
       - name: Regression suite (includes native platform and integration tests)
         run: python -m pytest -ra --tb=short --junitxml=reports/pytest.xml
       - name: Lint

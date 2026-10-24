@@ -43,6 +43,13 @@ secret, uses a self-hosted runner or starts a real inference service. PR code ru
 under `pull_request`, never `pull_request_target`. No privileged follow-on workflow
 consumes PR artifacts.
 
+This is the single permanent acceptance workflow. It installs and tests the
+checked-out production code directly, including the Windows coding fix merged in
+[PR #57](https://github.com/tinuvael/AgentForge/pull/57); it does not apply a frozen
+test harness or substitute historical source. The temporary Issue #56 workflow
+and historical diagnostic script have been removed. The optional manual provider
+smoke below has no push/PR trigger and does not duplicate the acceptance matrix.
+
 Every matrix entry uploads a 14-day `acceptance-<os>-py<version>` artifact containing:
 
 - `pytest.xml`: exact test cases, failures and skip reasons, including platform
@@ -90,45 +97,28 @@ tests seed real stale database rows rather than depending on platform scanner
 policy. Native replacement-race assertions accept either identity rejection or a
 safe I/O error when NTFS sharing prevents the injected replacement itself.
 
-### Windows coding blocker found during PR #55 review
+### Windows coding regression and resolution
 
-The [same hosted Windows job](https://github.com/tinuvael/AgentForge/actions/runs/40075438204/job/120817651523)
-reproduced provisioning failure on original base
-`56f9d2b150deefe58574cc88d7b0d87c6fb159e5` and reviewed head
-`ffa95e221d9c51e49b7442695d110ca2bdbdaf4a`. Each revision was archived into a
-separate temporary source tree and imported by a fresh subprocess using the same
-Python 3.12, dependencies, official Git 2.51.2, canonical TEMP and single-link
-executable. No production source differs between these revisions.
+The [historical Windows investigation](https://github.com/tinuvael/AgentForge/actions/runs/40076027414/job/120819428559)
+reproduced the same production defect on the original base and reviewed head:
+pinning `.git/worktrees/<task-id>` blocked the index-lock rename with WinError 32,
+causing `read-tree` to report `fatal: unable to write new index file`. Releasing
+the pins allowed the identical command to succeed. Those historical failures
+identified [Issue #56](https://github.com/tinuvael/AgentForge/issues/56), resolved
+separately by [PR #57](https://github.com/tinuvael/AgentForge/pull/57).
 
-Git successfully creates the no-checkout worktree, reads its base objects and
-resolves the worktree-specific index and `commondir`. `read-tree` then exits 128
-with `fatal: unable to write new index file` while AgentForge's Win32 handles are
-pinned. The identical argv and sanitized environment succeed after those handles
-are released. This establishes an existing runtime handle-sharing conflict,
-rather than a missing object, provider, fixture or inherited Git environment issue.
-All 60 affected Windows tests remain failures on each Python version; hosted
-Windows acceptance is blocked and this PR must remain draft.
+The merged fix creates the initial Windows index through an exclusive no-follow
+mutation handle from the captured base tree, retaining all registration, worktree,
+primary and executable pins. Filesystem sharing flags and authorization guarantees
+remain unchanged; POSIX still uses Git's index commands. See [coding](coding.md).
 
-`scripts/ci_diagnose_windows_coding.py` records bounded diagnostics from a freshly
-created synthetic repository only. It does not expose production Git stderr,
-alter runtime locking or change test outcomes. For this PR only, Windows/Python
-3.12 saves `windows-coding-<revision>.json` in its report artifact, including
-individual pin and synthetic create/rename/delete probes. These observations are
-investigation data, not an acceptance gate that converts errors into passes.
-To repeat on a prepared Windows host with the revisions fetched:
-
-```sh
-python scripts/ci_diagnose_windows_coding.py --ref 56f9d2b150deefe58574cc88d7b0d87c6fb159e5 --ref ffa95e221d9c51e49b7442695d110ca2bdbdaf4a --output reports
-```
-
-Proposed blocking issue and separate fix PR: **Windows coding: reconcile pinned
-metadata handles with Git index writes**. Limit the fix to manager-owned coding
-metadata/process coordination; preserve no-reparse identity checks, denied
-write/delete sharing for registered Project access, primary index/HEAD safety,
-hardlink refusal and fail-closed races. Add a native regression for index
-initialization and subsequent updates, then require all six acceptance jobs.
-Releasing authorization handles around Git is a diagnostic contrast, not an
-approved production workaround. No runtime fix belongs to this CI-only PR.
+Permanent CI runs `test_coding_index.py` against real Git index/tree semantics and
+the complete coding workspace, validation and native Windows security suites.
+`test_coding_windows.py` covers successful pinned initialization, scoped diffs,
+dirty-primary invariants, the still-denied rename and substitution attacks. These
+native coding cases must execute on Windows; POSIX-platform exclusions are not
+substitutes for their execution. No historical probe, test-harness overlay or
+failure suppression is needed in the permanent workflow.
 
 ## What synthetic providers demonstrate
 
