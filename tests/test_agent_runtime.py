@@ -573,7 +573,7 @@ def test_individual_serialized_result_limit_covers_json_metadata(setup):
     assert len(provider.requests) == 1
 
 
-@pytest.mark.parametrize("task", ["x" * 80_000, "界" * 27_000])
+@pytest.mark.parametrize("task", ["x" * 80_000, "界" * 27_000], ids=["ascii", "utf8"])
 def test_initial_context_counts_utf8_task_and_system_and_schemas(setup, task):
     runtime, provider = setup.build([answer()])
     assert setup.run(runtime, task=task).reason == "context_limit"
@@ -931,7 +931,7 @@ def test_reasoning_is_retained_in_history_and_excluded_from_execution_result(set
     assert "PRIVATE" not in result.model_dump_json()
 
 
-@pytest.mark.parametrize("opaque", ["x" * 80_000, "界" * 27_000])
+@pytest.mark.parametrize("opaque", ["x" * 80_000, "界" * 27_000], ids=["ascii", "utf8"])
 def test_reasoning_bytes_count_toward_context_before_tool_execution(setup, opaque):
     runtime, provider = setup.build(
         [turn(call()).model_copy(update={"reasoning": opaque}), answer()]

@@ -27,6 +27,13 @@ checks; it does not introduce another executor or installation smoke.
 | Real remote inference | Explicit free-endpoint opt-in | Separate protected manual job | Not run |
 | Physical Windows workstation, installed Ollama/model, RTX 4080 | Owner acceptance #31 | Not run | Not run |
 
+Full-suite execution requires a supported Linux or Windows backend. On native
+macOS, portable HTTP/MCP/storage checks and installed smoke can run, but the
+existing Git/coding security backend rejects operations needing Linux descriptor
+cwd/mount identity. The new coding acceptance cases explicitly skip there; older
+Git/coding regressions can fail. Native macOS support belongs to #45 and is not
+implemented or hidden by this CI change.
+
 `.github/workflows/ci.yml` runs on PRs targeting main, main/task-branch pushes and
 manual dispatch. Each job has a 20-minute timeout; matrix failures do not cancel
 other OS/Python evidence. Read-only repository permissions, immutable action SHAs
@@ -57,6 +64,12 @@ JUnit failure output can contain synthetic fixture data; do not replace fixtures
 with private projects or real secrets. The existing socket/DNS guard remains on.
 The installed Companion smoke uses only a temporary loopback listener in a child
 process; it requires host permission to bind loopback.
+
+The network guard allows only synchronous private `socketpair()` construction on
+the calling thread: Windows asyncio needs its internally created loopback pair.
+Ordinary loopback/service connects and DNS remain rejected, with explicit guard
+regressions. Large context-budget parameters use short explicit pytest IDs so
+`PYTEST_CURRENT_TEST` stays below Windows' environment-variable length limit.
 
 ## What synthetic providers demonstrate
 

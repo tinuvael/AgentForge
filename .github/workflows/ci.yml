@@ -39,8 +39,20 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Record environment
         run: python scripts/ci_report.py environment
+      - name: Windows host paths
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os, shutil, tempfile
+          from pathlib import Path
+          git = Path(shutil.which("git"))
+          print("Git launcher:", git)
+          print("Temporary directory:", tempfile.gettempdir())
+          for architecture in ("mingw64", "mingw32"):
+              candidate = git.parent.parent / architecture / "bin/git.exe"
+              print("Direct Git:", candidate, "exists:", candidate.is_file())
       - name: Regression suite (includes native platform and integration tests)
-        run: python -m pytest -ra --junitxml=reports/pytest.xml
+        run: python -m pytest -ra --tb=short --junitxml=reports/pytest.xml
       - name: Lint
         if: ${{ !cancelled() }}
         run: ruff check .
