@@ -51,10 +51,27 @@ jobs:
           $extraction = Start-Process -FilePath $archive -ArgumentList '-y', "-o$gitRoot" -Wait -PassThru
           if ($extraction.ExitCode -ne 0) { throw "Git extraction failed: $($extraction.ExitCode)" }
           if (!(Test-Path (Join-Path $gitRoot 'mingw64/bin/git.exe'))) { throw 'Supported Git binary missing' }
-          Add-Content $env:GITHUB_PATH (Join-Path $gitRoot 'mingw64/bin')
-          $canonicalTemp = python -c "import os; from pathlib import Path; p = Path(os.environ['RUNNER_TEMP']) / 'agentforge-temp'; p.mkdir(exist_ok=True); print(p.resolve())"
-          Add-Content $env:GITHUB_ENV "TEMP=$canonicalTemp"
-          Add-Content $env:GITHUB_ENV "TMP=$canonicalTemp"
+      - name: Finalize ordinary Windows host files
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import hashlib, os, shutil
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          executable = root / "agentforge-git/mingw64/bin/git.exe"
+          digest = hashlib.sha256(executable.read_bytes()).digest()
+          independent = executable.with_name("git-ci-copy.exe")
+          shutil.copyfile(executable, independent)
+          os.replace(independent, executable)
+          assert executable.stat().st_nlink == 1
+          assert hashlib.sha256(executable.read_bytes()).digest() == digest
+          temporary = root / "agentforge-temp"
+          temporary.mkdir(exist_ok=True)
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as stream:
+              stream.write(str(executable.parent.resolve()) + "\n")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              for name in ("TEMP", "TMP"):
+                  stream.write(f"{name}={temporary.resolve()}\n")
       - name: Record prepared Windows environment
         if: runner.os == 'Windows'
         run: python scripts/ci_report.py environment

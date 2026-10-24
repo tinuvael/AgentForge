@@ -81,6 +81,9 @@ testing because the default `RUNNER~1` spelling is intentionally rejected by the
 backend. Installed smoke similarly canonicalizes its own synthetic root. This
 does not authorize alias/reparse paths from Projects or models. Version reports
 are refreshed after preparation so they record the Git actually under test.
+PortableGit's hardlinked `git.exe` is replaced with an independent byte-identical
+copy; CI verifies its link count is one and its SHA-256 is unchanged. The existing
+runtime refusal of hardlinked executables and Project files remains enforced.
 Fixtures requiring exact source bytes write LF explicitly, and sensitive-cache
 tests seed real stale database rows rather than depending on platform scanner
 policy. Native replacement-race assertions accept either identity rejection or a
