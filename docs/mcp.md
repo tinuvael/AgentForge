@@ -492,3 +492,9 @@ cancellation/workspace cleanup controls, on loopback IP binds only. There is no
 authentication layer. Do not start a separate dashboard executor on that database.
 Standalone `agentforge web` can be intentionally LAN-bound by the operator and
 also serves Companion. See [Companion discovery, launch and limitations](companion.md).
+
+## Global Codex registration
+
+The opt-in [Codex installer](codex-integration.md) uses this same stdio server,
+Application lifespan and typed tool contracts. It adds no runtime or Project
+authorization. One active Codex session per database remains mandatory.

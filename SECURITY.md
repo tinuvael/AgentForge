@@ -79,3 +79,15 @@ contact the owner to arrange private disclosure before posting exploit details
 or sensitive repository contents publicly. This first implementation is pending
 native Windows, Ollama and hardware acceptance; offline mocks are not physical
 platform validation.
+
+## Optional global Codex availability
+
+The [global setup adapter](docs/codex-integration.md) changes only owned regions
+in a private Codex home, with backups; it never authorizes the open repository.
+Treat installation, Worker/coding files and Codex home as trusted operator inputs.
+Use one CLI or IDE session per database. Setup cannot detect all independent
+processes/profiles; cross-process ownership remains #44. Generated configuration
+requests approvals for write tools and disables destructive workspace cleanup.
+No unattended coding, automatic paid use or cloud source disclosure is authorized
+by global discovery. Director/client approval and explicit operator authorization
+remain necessary; global guidance is not an enforcement or OS sandbox mechanism.

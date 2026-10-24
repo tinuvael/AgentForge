@@ -196,3 +196,9 @@ stdio. The host must be a loopback IP. The same HTTP server also exposes the ful
 dashboard (`/`, `/workers`, `/projects`, `/tasks`, `/councils`) and its trusted
 cancellation/workspace cleanup controls. Use this single executor instead of
 running MCP and web separately on one database. See [Companion](companion.md).
+
+## Optional global Codex setup
+
+`agentforge codex install|inspect|enable|disable|uninstall` manages marked global
+MCP configuration and optional instructions. See [setup and safety](codex-integration.md)
+for explicit paths, dry runs, backups and the mandatory single-client restriction.
