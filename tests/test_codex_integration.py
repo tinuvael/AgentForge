@@ -445,3 +445,16 @@ def test_generated_stdio_runs_from_python_and_cwd_with_spaces(setup, capsys, tmp
     with (tmp_path / "mcp.stderr").open("w", encoding="utf-8") as errlog:
         asyncio.run(execute())
     assert home.is_dir()
+
+
+def test_unrelated_mcp_database_syntax_is_preserved(setup, capsys):
+    home, command = setup
+    home.mkdir(parents=True)
+    original = (
+        b'[mcp_servers.unrelated]\ncommand="other"\n'
+        b'args=["--database-url", "ODBC DSN=unrelated"]\n'
+    )
+    (home / "config.toml").write_bytes(original)
+    invoke(command, capsys)
+    invoke(["codex", "uninstall"], capsys)
+    assert (home / "config.toml").read_bytes() == original

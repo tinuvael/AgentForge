@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import ArgumentError
 
 from agentforge.coding.config import load_coding
 from agentforge.db.migrate import database_status
@@ -292,7 +293,7 @@ def duplicate_database(config, entry):
             if url.drivername not in {"sqlite", "sqlite+pysqlite"} or not url.database:
                 return None
             return os.path.normcase(str((Path(cwd) / url.database).resolve()))
-        except (ValueError, TypeError):
+        except (ArgumentError, ValueError, TypeError):
             return None
 
     argv = entry.get("args", [])
