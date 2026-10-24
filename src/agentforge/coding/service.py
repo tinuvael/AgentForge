@@ -331,11 +331,7 @@ class CodingWorkspaceManager:
                         self.repository.update(task.task_id, identities=identities)
                         row = self._record(task.task_id)
                         with self._git(row, workspace=True) as worktree_git:
-                            worktree_git.complete(["read-tree", base], 128)
-                            # A sparse materialization must not look like sibling
-                            # deletion to ordinary Git inspection outside tools.
-                            # Special Git entries also remain absent and untouched.
-                            worktree_git.skip_absent(full_tree.keys() - materialized)
+                            worktree_git.initialize_index(base, full_tree, materialized)
                         with self.projects.open_root(task.project_id):
                             pass
                         self.repository.update(task.task_id, state="ready")

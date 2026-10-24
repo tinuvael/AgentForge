@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -165,15 +166,14 @@ def test_timeout_kills_descendants(coding, tmp_path):
 
 def test_repository_executable_shadowing_and_shell_false(coding, monkeypatch):
     setup = coding.create()
-    write(setup, "python", "ATTACK")
+    executable_name = "python.exe" if os.name == "nt" else "python"
+    write(setup, executable_name, "ATTACK")
     with pytest.raises(ValidationError):
         ValidationCommand(argv=("python", "-m", "pytest"))
-    script = str(setup.workspace / "python")
+    script = str(setup.workspace / executable_name)
     coding.manager.config = coding.manager.config.model_copy(
         update={"validations": {"shadow": ValidationCommand(argv=(script,))}}
     )
-    with pytest.raises(CodingError):
-        asyncio.run(run_validation(setup, "shadow"))
     calls = []
     original = subprocess.Popen
 
@@ -182,6 +182,9 @@ def test_repository_executable_shadowing_and_shell_false(coding, monkeypatch):
         return original(argv, **kwargs)
 
     monkeypatch.setattr(subprocess, "Popen", popen)
+    with pytest.raises(CodingError):
+        asyncio.run(run_validation(setup, "shadow"))
+    assert not calls  # Reject the workspace executable before launching anything.
     command(coding, "print('literal ; $(no-shell)')", name="fixed")
     result = asyncio.run(run_validation(setup, "fixed"))
     assert "$(no-shell)" in result["stdout"]

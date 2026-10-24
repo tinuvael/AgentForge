@@ -23,7 +23,7 @@ are trusted operator code; they are **not an OS sandbox**, can run repository co
 access the host and network, and must only be enabled for trusted repositories.
 
 Provisioning uses `worktree add --no-checkout` from the exact captured committed
-HEAD, then raw `ls-tree`/`cat-file` blobs and a worktree-only `read-tree` index.
+HEAD, then raw `ls-tree`/`cat-file` blobs and a worktree-only index.
 Unmaterialized siblings and special entries are marked `skip-worktree` in that
 index, so ordinary Git inspection does not misreport them as deletions. The
 bounded full base-tree inventory is private and never reaches the Worker.
@@ -174,6 +174,18 @@ filesystem namespace against such a process. Git metadata must not be concurrent
 rewritten maliciously by another host process; its links/redirections/layout are
 checked before fixed commands. Windows uses native share locks as well. Native
 Windows tests are provided; Linux mock results do not claim Windows execution.
+
+On POSIX, `read-tree` and `update-index --skip-worktree` initialize that index.
+On Windows, Git's index-lock rename conflicts with the administrative directory's
+no-write/no-delete sharing. The manager therefore encodes the same captured tree
+and skip-worktree flags as a minimal SHA-1 Git index v3, with zero stat cache and
+no extensions, and creates `index` once through the existing exclusive mutation
+handle. All registration, primary, executable and ancestry handles remain pinned;
+sharing flags and identity/reparse checks are unchanged. An existing index or
+replacement object fails exclusive creation. This is initial provisioning only;
+it never parses or rewrites a retained index. An interrupted write fails
+provisioning and retains the partial workspace for explicit recovery. Status/diff
+continue to use immutable base objects and authorized live bytes.
 
 ## Validation execution and privacy
 

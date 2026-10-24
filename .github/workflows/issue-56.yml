@@ -1,0 +1,119 @@
+# Branch-only validation until #55 provides the permanent cloud acceptance CI.
+# Reuse its frozen test portability fixes/scripts, never its production source.
+name: Issue 56 index regression
+
+on:
+  push:
+    branches: [codex/56-windows-worktree-index]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-56-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+        python: ['3.12', '3.13', '3.14']
+    env:
+      PYTHONUTF8: '1'
+      PYTHONNOUSERSITE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Apply frozen cloud test harness (production source unchanged)
+        shell: python
+        run: |
+          import subprocess
+          baseline = "56f9d2b150deefe58574cc88d7b0d87c6fb159e5"
+          harness = "5ebe8785236a88c38857e74084f0dbe1537c7d5d"
+          subprocess.run(["git", "fetch", "origin", harness], check=True)
+          patch = subprocess.check_output([
+              "git", "diff", "--binary", baseline, harness, "--", "tests", "scripts"
+          ])
+          subprocess.run(["git", "apply", "-"], input=patch, check=True)
+          subprocess.run(["git", "diff", "--exit-code", "--", "src", "pyproject.toml"], check=True)
+      - name: Install development tools
+        run: python -m pip install -e ".[dev]"
+      - name: Record environment
+        run: python scripts/ci_report.py environment
+      - name: Prepare supported Windows Git and canonical temporary root
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'PortableGit.7z.exe'
+          $gitRoot = Join-Path $env:RUNNER_TEMP 'agentforge-git'
+          Invoke-WebRequest 'https://github.com/git-for-windows/git/releases/download/v2.51.2.windows.1/PortableGit-2.51.2-64-bit.7z.exe' -OutFile $archive
+          $digest = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($digest -ne 'f5764d546ff9a2511b50ec4e20424c5f4669de1695abc3fa4128e7f7d4a7b2cd') { throw 'Git archive checksum mismatch' }
+          $extraction = Start-Process -FilePath $archive -ArgumentList '-y', "-o$gitRoot" -Wait -PassThru
+          if ($extraction.ExitCode -ne 0) { throw "Git extraction failed: $($extraction.ExitCode)" }
+          if (!(Test-Path (Join-Path $gitRoot 'mingw64/bin/git.exe'))) { throw 'Supported Git binary missing' }
+      - name: Finalize ordinary Windows host files
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import hashlib, os, shutil
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          executable = root / "agentforge-git/mingw64/bin/git.exe"
+          digest = hashlib.sha256(executable.read_bytes()).digest()
+          independent = executable.with_name("git-ci-copy.exe")
+          shutil.copyfile(executable, independent)
+          os.replace(independent, executable)
+          assert executable.stat().st_nlink == 1
+          assert hashlib.sha256(executable.read_bytes()).digest() == digest
+          temporary = root / "agentforge-temp"
+          temporary.mkdir(exist_ok=True)
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as stream:
+              stream.write(str(executable.parent.resolve()) + "\n")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              for name in ("TEMP", "TMP"):
+                  stream.write(f"{name}={temporary.resolve()}\n")
+      - name: Record prepared Windows environment
+        if: runner.os == 'Windows'
+        run: python scripts/ci_report.py environment
+      - name: Regression suite (includes native platform and integration tests)
+        run: python -m pytest -ra --tb=short --junitxml=reports/pytest.xml
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: ruff check .
+      - name: Format
+        if: ${{ !cancelled() }}
+        run: ruff format --check .
+      - name: Whitespace
+        if: ${{ !cancelled() }}
+        run: python scripts/ci_check_whitespace.py --base origin/main --head HEAD
+      - name: Build sdist and wheel
+        id: build
+        if: ${{ !cancelled() }}
+        run: python -m build
+      - name: Verify clean installed wheel outside checkout
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: python scripts/ci_verify_wheel.py
+      - name: Write acceptance status
+        if: always()
+        run: python scripts/ci_report.py summary
+      - name: Upload status and exact versions
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: acceptance-${{ matrix.os }}-py${{ matrix.python }}
+          path: reports/
+          retention-days: 14
+          if-no-files-found: error
