@@ -471,10 +471,10 @@ async def smoke():
                 assert observed["workspace_mode"] == "project_readonly"
                 assert observed["limits"] == definition.limits.model_dump()
             (project_root / "README.md").write_text(
-                "Deployment uses one process per database.\n"
+                "Deployment uses one process per database.\n", newline="\n"
             )
             (project_root / "operations.txt").write_text(
-                "Run two services on separate databases.\n"
+                "Run two services on separate databases.\n", newline="\n"
             )
             before = {path.name: path.read_bytes() for path in project_root.iterdir()}
             project = app.projects.register_project("Synthetic", project_root)

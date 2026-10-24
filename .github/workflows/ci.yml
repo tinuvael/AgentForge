@@ -48,8 +48,9 @@ jobs:
           Invoke-WebRequest 'https://github.com/git-for-windows/git/releases/download/v2.51.2.windows.1/PortableGit-2.51.2-64-bit.7z.exe' -OutFile $archive
           $digest = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($digest -ne 'f5764d546ff9a2511b50ec4e20424c5f4669de1695abc3fa4128e7f7d4a7b2cd') { throw 'Git archive checksum mismatch' }
-          & $archive -y "-o$gitRoot"
-          if ($LASTEXITCODE -ne 0) { throw 'Git extraction failed' }
+          $extraction = Start-Process -FilePath $archive -ArgumentList '-y', "-o$gitRoot" -Wait -PassThru
+          if ($extraction.ExitCode -ne 0) { throw "Git extraction failed: $($extraction.ExitCode)" }
+          if (!(Test-Path (Join-Path $gitRoot 'mingw64/bin/git.exe'))) { throw 'Supported Git binary missing' }
           Add-Content $env:GITHUB_PATH (Join-Path $gitRoot 'mingw64/bin')
           $canonicalTemp = python -c "import os; from pathlib import Path; p = Path(os.environ['RUNNER_TEMP']) / 'agentforge-temp'; p.mkdir(exist_ok=True); print(p.resolve())"
           Add-Content $env:GITHUB_ENV "TEMP=$canonicalTemp"
