@@ -77,7 +77,12 @@ async def main():
     workspaces = WorkspaceRepository(sessions)
     app.tasks._workspaces = SimpleNamespace(
         recover=lambda tasks: CodingWorkspaceManager.recover(
-            SimpleNamespace(repository=workspaces, _record=workspaces.get), tasks
+            SimpleNamespace(
+                repository=workspaces,
+                _record=workspaces.get,
+                finalize=lambda task: workspaces.update(task.task_id, state=task.state),
+            ),
+            tasks,
         )
     )
     if mode in {"failure", "cancel"}:
@@ -124,14 +129,15 @@ async def main():
                 task="Scripted in-flight request",
             )
             await provider.entered.wait()
-            running = council.participants[0].task_id
+            active = app.tasks.list_tasks(state="running")[0]
+            running = active.task_id
             # A ready workspace row proves that a losing startup never reaches
             # workspace recovery. No physical coding host is required here.
             workspaces.add(
                 task_id=running,
                 workspace_id=running,
                 project_id=council.project_id,
-                worker_id="one",
+                worker_id=active.worker_id,
                 branch_name=f"synthetic-{running}",
                 base_commit="0" * 40,
                 created_at=datetime.now(UTC),
@@ -174,6 +180,9 @@ async def main():
                         for row in session.scalars(select(CodingWorkspaceRecord))
                     ],
                 )
+            # Keep queued rows eligible for the following restart. Set TaskEngine
+            # closed synchronously before yielding to its newly scheduled loops.
+            await app.tasks.close()
         else:
             await command()
     finally:

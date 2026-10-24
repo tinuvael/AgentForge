@@ -34,7 +34,7 @@ from agentforge.tasks.observation import TaskObserver
 def exclusive_write(operation):
     @wraps(operation)
     def guarded(self, *args, **kwargs):
-        with self.storage_access():
+        with self.storage_access(allow_closed=True):
             return operation(self, *args, **kwargs)
 
     return guarded
@@ -245,16 +245,17 @@ class TaskEngine:
         return task
 
     @contextmanager
-    def storage_access(self):
+    def storage_access(self, *, allow_closed=False):
         """Pre-start writes take temporary ownership without running recovery."""
         self._check_thread()
-        if self._closed:
+        if self._closed and not allow_closed:
             raise RuntimeError("Task Engine is closed")
+        temporary = not self._ownership.held
         self._ownership.acquire()
         try:
             yield
         finally:
-            if not self._started:
+            if temporary:
                 self._ownership.release()
 
     async def start(self) -> None:

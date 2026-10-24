@@ -54,7 +54,7 @@ def _local_posix(fd):
     function.restype = ctypes.c_int
     if function(fd, buffer) != 0:
         raise ExecutorOwnershipError(UNSAFE_MESSAGE)
-    value = ctypes.c_uint32.from_buffer(buffer).value
+    value = ctypes.c_long.from_buffer(buffer).value & 0xFFFFFFFF
     if value not in supported:
         raise ExecutorOwnershipError(UNSAFE_MESSAGE)
 
@@ -94,9 +94,17 @@ class DatabaseOwnership:
             and not url.username
             and not url.password
         )
-        self.path = None if self._memory else Path(url.database or "").resolve()
+        # The engine factory freezes the actual SQLite filename. Re-resolving it
+        # here could lock a different file after a symlink/working-directory change.
+        self.path = None if self._memory else Path(url.database or "")
+        if self.path is not None and not self.path.is_absolute():
+            self._supported = False
         self.key = database if self._memory else os.path.normcase(str(self.path))
         self._verify = lambda: None
+
+    @property
+    def held(self):
+        return self._resources is not None
 
     def acquire(self):
         if self._resources is not None:
@@ -118,7 +126,7 @@ class DatabaseOwnership:
                 self.verify()
                 # A previous short-lived owner may have left idle SQLite handles.
                 # Never reuse their inode after an offline database replacement.
-                self.database.dispose()
+                self.database.pool.dispose()
                 event.listen(self.database, "before_cursor_execute", self._before_sql)
                 resources.callback(
                     event.remove,
@@ -140,6 +148,8 @@ class DatabaseOwnership:
 
     def _posix(self, resources):
         path = self.path
+        if path.resolve() != path:
+            raise ExecutorOwnershipError(UNSAFE_MESSAGE)
         parent = path.parent
         directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         resources.callback(os.close, directory)

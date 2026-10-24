@@ -11,10 +11,12 @@ import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select, text
 
+from agentforge.db.councils import CouncilRepository
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.models import (
     CodingWorkspaceRecord,
@@ -145,8 +147,10 @@ def test_simultaneous_cold_starts_have_exactly_one_owner(tmp_path):
     from agentforge.db.migrate import upgrade_database
 
     upgrade_database(url)
-    processes = [Peer(url) for _ in range(4)]
+    processes = []
     try:
+        for _ in range(4):
+            processes.append(Peer(url))
         for process in processes:
             process.receive("ready")
         for process in processes:
@@ -174,7 +178,8 @@ def test_force_kill_releases_lock_and_recovers_only_orphaned_work(
     with peer(database[1], "active") as owner:
         start(owner)
         owner.send(project_id=str(project.id))
-        running = owner.receive("running")["task_id"]
+        active = owner.receive("running")
+        running = active["task_id"]
         owner.process.kill()
         owner.process.wait(timeout=10)
     with peer(database[1], "recover") as restarted:
@@ -185,6 +190,11 @@ def test_force_kill_releases_lock_and_recovers_only_orphaned_work(
         assert recovered["coding"] == ["interrupted"]
         restarted.receive("closed")
         restarted.finish()
+    councils = CouncilRepository(create_session_factory(database[0]))
+    recovered_council = councils.get(UUID(active["council_id"]))[1]
+    assert not recovered_council.terminal
+    assert recovered_council.participant_counts["failed"] == 1
+    assert recovered_council.participant_counts["queued"] == 1
     # Another restart can execute the preserved queued Council participant.
     with peer(database[1], "active") as next_owner:
         start(next_owner)
@@ -197,6 +207,10 @@ def test_force_kill_releases_lock_and_recovers_only_orphaned_work(
     with create_session_factory(database[0])() as session:
         states = list(session.scalars(select(TaskRecord.state)))
     assert states.count("failed") == 1 and states.count("completed") == 3
+    final_council = councils.get(UUID(active["council_id"]))[1]
+    assert final_council.terminal
+    assert final_council.participant_counts["failed"] == 1
+    assert final_council.participant_counts["completed"] == 1
 
 
 @pytest.mark.parametrize("mode", ["failure", "cancel"])
@@ -407,3 +421,73 @@ def test_offline_replacement_discards_connections_to_previous_database(
             ).all()
     finally:
         owner.release()
+
+
+@pytest.mark.windows
+def test_native_windows_junction_alias_uses_same_owner(database, tmp_path):
+    parent = Path(database[1].database).parent
+    junction = tmp_path / "junction"
+    subprocess.run(
+        ["cmd.exe", "/c", "mklink", "/J", str(junction), str(parent)],
+        check=True,
+        capture_output=True,
+        timeout=5,
+    )
+    try:
+        with peer(database[1]) as owner:
+            start(owner)
+            reject("sqlite:///" + str(junction / Path(database[1].database).name))
+            owner.send()
+            owner.receive("closed")
+            owner.finish()
+    finally:
+        os.rmdir(junction)
+
+
+def test_hardlink_created_during_ownership_stops_sql(database, tmp_path):
+    owner = DatabaseOwnership(database[0])
+    owner.acquire()
+    alias = tmp_path / "new-hardlink.sqlite"
+    try:
+        os.link(database[1].database, alias)
+        with pytest.raises(ExecutorOwnershipError):
+            with database[0].connect() as connection:
+                connection.execute(text("SELECT 1"))
+    finally:
+        alias.unlink(missing_ok=True)
+        owner.release()
+    owner.acquire()
+    owner.release()
+
+
+@pytest.mark.posix
+def test_database_symlink_retarget_after_composition_fails_closed(database, tmp_path):
+    path = Path(database[1].database)
+    moved = tmp_path / "original.sqlite"
+    other = tmp_path / "other.sqlite"
+    other.touch()
+    path.rename(moved)
+    path.symlink_to(other)
+    try:
+        owner = DatabaseOwnership(database[0])
+        with pytest.raises(ExecutorOwnershipError):
+            owner.acquire()
+        assert other.read_bytes() == b""
+    finally:
+        path.unlink()
+        moved.rename(path)
+
+
+def test_injected_relative_engine_cannot_guess_frozen_sqlite_path(
+    tmp_path, monkeypatch
+):
+    from sqlalchemy import create_engine
+
+    monkeypatch.chdir(tmp_path)
+    engine = create_engine("sqlite:///relative.sqlite")
+    try:
+        with pytest.raises(ExecutorOwnershipError):
+            DatabaseOwnership(engine).acquire()
+        assert not (tmp_path / "relative.sqlite").exists()
+    finally:
+        engine.dispose()

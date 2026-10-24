@@ -658,12 +658,20 @@ def test_cancelled_close_caller_cannot_interrupt_cleanup_or_release_owner(setup)
             await closing
         with pytest.raises(RuntimeError, match="already owns"):
             await replacement.start()
+        from tests.test_executor_ownership import reject
+
+        reject(setup.database[1])  # Independent process during cancelled-close cleanup.
         provider.cleanup_release.set()
         await engine.close()
         async with replacement:
             return replacement.get_task(task.task_id)
 
-    task = run(execute())
+    async def bounded():
+        # Independent interpreter startup is slower on native Windows runners.
+        async with asyncio.timeout(30):
+            return await execute()
+
+    task = asyncio.run(bounded())
     assert task.state == "failed" and task.reason == "executor_cancelled"
     assert provider.cleaned == 1 and engine._tokens == {}
 

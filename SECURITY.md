@@ -87,7 +87,8 @@ in a private Codex home, with backups; it never authorizes the open repository.
 Treat installation, Worker/coding files and Codex home as trusted operator inputs.
 Use one CLI or IDE session per database. Setup cannot detect all independent
 processes/profiles; runtime [kernel ownership](docs/executor-ownership.md) now
-enforces exclusive execution on supported local SQLite storage (#44). Generated configuration
+enforces exclusive execution on supported local SQLite storage (#44).
+Generated configuration
 requests approvals for write tools and disables destructive workspace cleanup.
 No unattended coding, automatic paid use or cloud source disclosure is authorized
 by global discovery. Director/client approval and explicit operator authorization

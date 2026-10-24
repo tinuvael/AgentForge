@@ -86,7 +86,9 @@ SQL, not an OS sandbox against malicious concurrent same-user filesystem writes.
 
 Relative/absolute paths and `.`/`..` normalize to the same absolute path before
 SQLite opens. Existing symlinks resolve to their target. Changing the working
-directory afterwards cannot retarget a composed database. Windows resolves ordinary
+directory afterwards cannot retarget a composed database. Injected SQLAlchemy
+engines must also use an absolute canonical filename; relative/noncanonical injected
+engines fail closed rather than guessing the dialect's captured connection path. Windows resolves ordinary
 case aliases through NTFS, rejects alternate streams, device/UNC paths,
 reparse ancestry and aliases not matching the resolved final handle path. Case-sensitive Windows directories are unsupported.
 

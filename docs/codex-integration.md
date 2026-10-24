@@ -39,7 +39,8 @@ setup also rejects recognizable duplicate database bindings in this global MCP
 configuration, including relative-path aliases. This is a limited configuration
 safeguard. Runtime [kernel ownership](executor-ownership.md) now rejects a second
 executor on supported local SQLite storage before recovery (#44), including another
-Codex stdio child. The first service remains active; stop it or select another DB. Authenticated shared Streamable HTTP and the Windows-to-Mac
+Codex stdio child. The first service remains active; stop it or select another DB.
+Authenticated shared Streamable HTTP and the Windows-to-Mac
 service are Issue #46. There is no HTTP transport option or new listener here.
 Transport-specific generation is isolated so a future authenticated transport can
 be added without changing instruction ownership or application composition.
