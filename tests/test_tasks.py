@@ -894,3 +894,30 @@ def test_missing_ids_and_safe_storage_errors(setup):
 def test_invalid_concurrency_rejected(setup, concurrency):
     with pytest.raises(TaskValidationError):
         setup.build(concurrency=concurrency)
+
+
+def test_independent_owner_blocks_prestart_task_council_and_cancel_writes(setup):
+    from tests.test_executor_ownership import peer, start
+
+    engine, _, _ = setup.build()
+    queued = setup.submit(engine)
+    before = engine.list_tasks()
+    with peer(setup.database[1], "lock") as owner:
+        start(owner)
+        for operation in (
+            lambda: setup.submit(engine),
+            lambda: engine.submit_council(
+                project_id=setup.project.id,
+                agent_id="general",
+                worker_ids=("home-i5", "ai395"),
+                task="Should never be stored",
+            ),
+            lambda: engine.cancel_task(queued.task_id),
+        ):
+            with pytest.raises(RuntimeError, match="already owns"):
+                operation()
+        assert engine.list_tasks() == before
+        owner.send()
+        owner.receive("closed")
+        owner.finish()
+    assert setup.submit(engine).state == "queued"

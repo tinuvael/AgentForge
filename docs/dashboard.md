@@ -64,10 +64,10 @@ Worker configuration, Agent definitions, Provider/runtime, TaskRepository/TaskEn
 and TelemetryService composition. Read projections live in `application.dashboard`;
 HTTP handlers perform validation, rendering and existing application calls.
 
-**Run only one process per database.** The existing guard rejects a duplicate
-TaskEngine owner within a process; it is not a cross-process lease. Separate executor
-processes, including separate MCP and standalone web processes, must not execute
-against the same SQLite database simultaneously.
+**Run only one process per database.** A kernel-backed nonblocking lock enforces
+this on supported local SQLite storage. A separate web or MCP startup fails before
+recovery while another executor owns it. See [ownership](executor-ownership.md)
+for supported filesystems, safe diagnostics, aliases and restart behavior.
 
 `agentforge mcp ... --companion` supports combined MCP stdio and full dashboard/Companion HTTP
 in one process. MCP owns and starts/closes one Application and one TaskEngine;

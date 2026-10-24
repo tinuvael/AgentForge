@@ -114,6 +114,36 @@ def verify_companion(database_url, workers_path):
                     assert b"invalid-PRIVATE" not in error.read()
                 else:
                     raise AssertionError("UUID validation missing")
+                # These are independent OS processes, using installed entrypoints.
+                # They must fail before recovery while the combined owner stays live.
+                from agentforge.db.ownership import BUSY_MESSAGE
+
+                for adapter in ("mcp", "web"):
+                    contender = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "agentforge",
+                            adapter,
+                            "--database-url",
+                            str(database_url),
+                            "--workers",
+                            str(workers_path),
+                        ],
+                        input="",
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    assert contender.returncode != 0, contender.stdout
+                    assert BUSY_MESSAGE in contender.stderr, contender.stderr
+                    assert "Traceback" not in contender.stderr
+                    assert str(database_url) not in contender.stderr
+                    assert not contender.stdout
+                    status = request(
+                        4, "tools/call", {"name": "agentforge_status", "arguments": {}}
+                    )
+                    assert status["structuredContent"]["available"]
                 request(4, "tools/call", {"name": "agentforge_status", "arguments": {}})
                 process.stdin.close()
                 assert process.wait(timeout=8) == 0

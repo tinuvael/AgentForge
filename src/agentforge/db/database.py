@@ -1,7 +1,9 @@
 """Explicit SQLAlchemy engine/session setup; schema changes belong to Alembic."""
 
+from pathlib import Path
+
 from sqlalchemy import Engine, create_engine, event
-from sqlalchemy.engine import URL
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -11,6 +13,14 @@ class Base(DeclarativeBase):
 
 def create_database_engine(url: str | URL) -> Engine:
     """Create an engine without opening a database or creating any tables."""
+    url = make_url(url)
+    if (
+        url.get_backend_name() == "sqlite"
+        and url.database not in {None, "", ":memory:"}
+        and not url.query
+    ):
+        # Fix relative paths at construction; SQLite and ownership use one spelling.
+        url = url.set(database=str(Path(url.database).resolve()))
     engine = create_engine(url)
     if engine.dialect.name == "sqlite":
 

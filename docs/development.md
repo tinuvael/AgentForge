@@ -165,3 +165,19 @@ including `mcp>=1.30,<2`, remain unchanged. There is no existing constraints or
 lockfile mechanism. Record `python -m pip freeze`, Python/SQLite versions and the
 tested AgentForge SHA for every acceptance environment, including physical Issue
 #31 acceptance; a successful offline environment is not hardware evidence.
+
+## Executor ownership acceptance (#44)
+
+See [exact lifecycle and filesystem policy](executor-ownership.md). The default
+`tests/test_executor_ownership.py` suite uses independent Python interpreters and
+pipe barriers with bounded deadlines, without inference credentials or sockets.
+It must run in every hosted Linux and native Windows matrix job; platform-specific
+alias/replacement tests use explicit native markers, not lock simulations. Unknown
+filesystems and other POSIX platforms fail closed. No security test is skipped to
+conceal failure. Existing real coding-workspace tests complement synthetic coding
+metadata in the cross-process recovery tests.
+
+The installed-wheel Companion smoke also checks separate MCP/web startup rejection
+while the shared MCP/Companion remains available, then legitimate EOF restart.
+Physical device acceptance, live Providers and real Codex model tool selection
+remain pending under #31; hosted NTFS evidence is recorded separately.

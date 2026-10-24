@@ -2,7 +2,9 @@
 
 import asyncio
 from collections.abc import Callable
-from threading import Lock, get_ident
+from contextlib import contextmanager
+from functools import wraps
+from threading import get_ident
 from time import monotonic
 from uuid import UUID
 
@@ -16,6 +18,7 @@ from agentforge.agents.models import (
 )
 from agentforge.agents.runtime import AgentRuntime
 from agentforge.councils.models import MAX_PARTICIPANTS, Council, InvalidCouncil
+from agentforge.db.ownership import DatabaseOwnership
 from agentforge.db.tasks import TaskRepository
 from agentforge.tasks.models import (
     TERMINAL_STATES,
@@ -27,8 +30,14 @@ from agentforge.tasks.models import (
 )
 from agentforge.tasks.observation import TaskObserver
 
-_OWNERS: set[object] = set()
-_OWNERS_LOCK = Lock()
+
+def exclusive_write(operation):
+    @wraps(operation)
+    def guarded(self, *args, **kwargs):
+        with self.storage_access():
+            return operation(self, *args, **kwargs)
+
+    return guarded
 
 
 class TaskEngine:
@@ -50,6 +59,7 @@ class TaskEngine:
         if type(concurrency) is not int or not 1 <= concurrency <= 32:
             raise TaskValidationError("Concurrency must be between 1 and 32")
         self._repository = repository
+        self._ownership = DatabaseOwnership(repository.database)
         self._runtime = runtime
         self._workspaces = workspaces
         self._concurrency = concurrency
@@ -95,6 +105,7 @@ class TaskEngine:
         except (ValueError, TypeError, AttributeError):
             raise TaskNotFound("Task ID is not registered") from None
 
+    @exclusive_write
     def submit(
         self, *, project_id: UUID | str, agent_id: str, worker_id: str, task: str
     ) -> Task:
@@ -132,6 +143,7 @@ class TaskEngine:
             and all(not loop.done() for loop in self._loops)
         )
 
+    @exclusive_write
     def submit_council(
         self, *, project_id: UUID, agent_id: str, worker_ids: tuple[str, ...], task: str
     ) -> tuple[Council, tuple[Task, ...]]:
@@ -207,6 +219,7 @@ class TaskEngine:
             offset=offset,
         )
 
+    @exclusive_write
     def cancel_task(self, task_id: UUID | str) -> Task:
         self._check_thread()
         identity = self._id(task_id)
@@ -231,37 +244,46 @@ class TaskEngine:
         )
         return task
 
+    @contextmanager
+    def storage_access(self):
+        """Pre-start writes take temporary ownership without running recovery."""
+        self._check_thread()
+        if self._closed:
+            raise RuntimeError("Task Engine is closed")
+        self._ownership.acquire()
+        try:
+            yield
+        finally:
+            if not self._started:
+                self._ownership.release()
+
     async def start(self) -> None:
         self._check_thread()
         if self._closed:
             raise RuntimeError("Task Engine is closed")
         if self._started:
             return
-        key = self._repository.ownership_key
-        with _OWNERS_LOCK:
-            if key in _OWNERS:
-                raise RuntimeError("A Task Engine already owns this database")
-            _OWNERS.add(key)
+        self._ownership.acquire()
         try:
             self._repository.check_schema()
             self._repository.recover_running()
             if self._workspaces is not None:
                 self._workspaces.recover(self._repository)
+            self._event_loop = asyncio.get_running_loop()
+            for index in range(self._concurrency):
+                loop = asyncio.create_task(
+                    self._execute_loop(), name=f"agentforge-executor-{index}"
+                )
+                self._loops.append(loop)
+                loop.add_done_callback(self._executor_stopped)
+            self._started = True
+            self._changed.set()
         except BaseException:
-            with _OWNERS_LOCK:
-                _OWNERS.remove(key)
+            for loop in self._loops:
+                loop.cancel()
+            self._loops.clear()
+            self._ownership.release()
             raise
-        self._event_loop = asyncio.get_running_loop()
-        self._started = True
-        self._loops = [
-            asyncio.create_task(
-                self._execute_loop(), name=f"agentforge-executor-{index}"
-            )
-            for index in range(self._concurrency)
-        ]
-        for loop in self._loops:
-            loop.add_done_callback(self._executor_stopped)
-        self._changed.set()
 
     def _validated_result(self, task: Task, result: ExecutionResult) -> ExecutionResult:
         # Serialize only the ExecutionResult schema, never provider/history objects.
@@ -423,8 +445,7 @@ class TaskEngine:
             if any(isinstance(result, Exception) for result in results):
                 raise TaskStorageError("Task executor could not finish cleanup")
         finally:
-            with _OWNERS_LOCK:
-                _OWNERS.discard(self._repository.ownership_key)
+            self._ownership.release()
             self._changed.set()
 
     async def close(self) -> None:

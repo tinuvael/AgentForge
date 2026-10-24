@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
@@ -75,15 +74,7 @@ def cancelled_result(result: ExecutionResult) -> ExecutionResult:
 class TaskRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
-        # One active Task Engine per database in this process (no distributed lease).
-        bind = sessions.kw["bind"]
-        url = bind.url
-        self.ownership_key = (
-            ("sqlite", str(Path(url.database).resolve()))
-            if url.get_backend_name() == "sqlite"
-            and url.database not in (None, "", ":memory:")
-            else bind
-        )
+        self.database = sessions.kw["bind"]
 
     @contextmanager
     def _session(self):
