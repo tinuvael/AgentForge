@@ -34,8 +34,9 @@ cwd/mount identity. The new coding acceptance cases explicitly skip there; older
 Git/coding regressions can fail. Native macOS support belongs to #45 and is not
 implemented or hidden by this CI change.
 
-`.github/workflows/ci.yml` runs on PRs targeting main, main/task-branch pushes and
-manual dispatch. Each job has a 20-minute timeout; matrix failures do not cancel
+`.github/workflows/ci.yml` runs on PRs targeting main, pushes to main and manual
+dispatch. Feature-branch pushes do not start a second matrix alongside the PR run.
+Each job has a 20-minute timeout; matrix failures do not cancel
 other OS/Python evidence. Read-only repository permissions, immutable action SHAs
 and checkout without persisted credentials apply. No default job references a
 secret, uses a self-hosted runner or starts a real inference service. PR code runs
@@ -89,6 +90,46 @@ tests seed real stale database rows rather than depending on platform scanner
 policy. Native replacement-race assertions accept either identity rejection or a
 safe I/O error when NTFS sharing prevents the injected replacement itself.
 
+### Windows coding blocker found during PR #55 review
+
+The [same hosted Windows job](https://github.com/tinuvael/AgentForge/actions/runs/40075438204/job/120817651523)
+reproduced provisioning failure on original base
+`56f9d2b150deefe58574cc88d7b0d87c6fb159e5` and reviewed head
+`ffa95e221d9c51e49b7442695d110ca2bdbdaf4a`. Each revision was archived into a
+separate temporary source tree and imported by a fresh subprocess using the same
+Python 3.12, dependencies, official Git 2.51.2, canonical TEMP and single-link
+executable. No production source differs between these revisions.
+
+Git successfully creates the no-checkout worktree, reads its base objects and
+resolves the worktree-specific index and `commondir`. `read-tree` then exits 128
+with `fatal: unable to write new index file` while AgentForge's Win32 handles are
+pinned. The identical argv and sanitized environment succeed after those handles
+are released. This establishes an existing runtime handle-sharing conflict,
+rather than a missing object, provider, fixture or inherited Git environment issue.
+All 60 affected Windows tests remain failures on each Python version; hosted
+Windows acceptance is blocked and this PR must remain draft.
+
+`scripts/ci_diagnose_windows_coding.py` records bounded diagnostics from a freshly
+created synthetic repository only. It does not expose production Git stderr,
+alter runtime locking or change test outcomes. For this PR only, Windows/Python
+3.12 saves `windows-coding-<revision>.json` in its report artifact, including
+individual pin and synthetic create/rename/delete probes. These observations are
+investigation data, not an acceptance gate that converts errors into passes.
+To repeat on a prepared Windows host with the revisions fetched:
+
+```sh
+python scripts/ci_diagnose_windows_coding.py --ref 56f9d2b150deefe58574cc88d7b0d87c6fb159e5 --ref ffa95e221d9c51e49b7442695d110ca2bdbdaf4a --output reports
+```
+
+Proposed blocking issue and separate fix PR: **Windows coding: reconcile pinned
+metadata handles with Git index writes**. Limit the fix to manager-owned coding
+metadata/process coordination; preserve no-reparse identity checks, denied
+write/delete sharing for registered Project access, primary index/HEAD safety,
+hardlink refusal and fail-closed races. Add a native regression for index
+initialization and subsequent updates, then require all six acceptance jobs.
+Releasing authorization handles around Git is a diagnostic contrast, not an
+approved production workaround. No runtime fix belongs to this CI-only PR.
+
 ## What synthetic providers demonstrate
 
 The existing `test_ollama.py` and `test_openai_compatible.py` exercise real adapter
@@ -134,6 +175,7 @@ python -m pytest -ra --junitxml=reports/pytest.xml
 ruff check .
 ruff format --check .
 git diff --check
+python scripts/ci_check_whitespace.py --base origin/main --head HEAD
 python -m build
 python scripts/ci_verify_wheel.py
 python scripts/ci_report.py summary
@@ -156,6 +198,30 @@ Run `python -m pytest -ra -m windows` on Windows for native regressions. Linux/m
 skip counts do not establish native Windows execution. A Codex sandbox may require
 approval for package downloads, Git metadata writes or the loopback smoke; report
 those limitations instead of weakening authorization or calling them passes.
+
+### Committed whitespace gate
+
+`git diff --check` remains a useful local check before staging. In a clean CI
+checkout it checks no committed changes. `scripts/ci_check_whitespace.py` instead
+reads the event JSON, validates full commit IDs and checks:
+
+- PRs: the merge base of the event's base/head commits through the event head,
+  matching the PR diff even when checkout uses GitHub's synthetic merge commit.
+- Main pushes: the event's before → after commits. A new branch, absent before
+  value or all-zero before SHA checks the entire after snapshot against an empty
+  tree, so an unavailable starting range cannot silently pass.
+- Manual dispatch: every tracked line of the checked-out commit against an empty
+  tree. No PR range is inferred from the branch name.
+
+Checkout fetches full history (`fetch-depth: 0`); missing nonzero commit objects,
+invalid event data or an unavailable merge base fail the gate. The script runs
+Git with argument arrays, disables external diff/textconv and sets the whitespace
+rules explicitly. It never evaluates event strings as shell code. To reproduce
+a PR, fetch its base/head and run the local command above using their merge base
+as `--base`. `tests/test_ci_whitespace.py` creates actual commits in disposable
+repositories: committed trailing whitespace passes the old clean-worktree command
+and fails PR, push, manual and explicit local checks. It also covers zero/missing
+before values, missing objects and main-only changes outside the PR diff.
 
 ## Optional remote free-endpoint smoke
 

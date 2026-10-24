@@ -7,6 +7,7 @@ Exceptions are observations, not successful acceptance: pytest remains the gate.
 import argparse
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -124,6 +125,57 @@ def probe(source, root):
         }
         report["index_exists"] = (gitdir / "index").exists()
         report["index_lock_exists"] = (gitdir / "index.lock").exists()
+        # Isolate the conflicting root without changing the runtime's locking.
+        worktree = Path(
+            next(value[12:] for value in argv if value.startswith("--work-tree="))
+        )
+        report["individual_pins"] = []
+        for path in (
+            primary,
+            primary / ".git",
+            gitdir,
+            worktree,
+            Path(executable).parent,
+        ):
+            (gitdir / "index").unlink(missing_ok=True)
+            with manager.filesystem.anchored_root(
+                path, manager.filesystem.observe_root(path)
+            ):
+                result = run(argv, env=environment)
+                result["pinned_path"] = str(path)
+                report["individual_pins"].append(result)
+        report["directory_mutations"] = []
+        for pinned in (False, True):
+            from contextlib import nullcontext
+
+            context = (
+                manager.filesystem.anchored_root(
+                    gitdir, manager.filesystem.observe_root(gitdir)
+                )
+                if pinned
+                else nullcontext()
+            )
+            with context:
+                operation = "create"
+                first, second = gitdir / "diagnostic.lock", gitdir / "diagnostic.index"
+                try:
+                    first.write_bytes(b"synthetic index\n")
+                    operation = "rename"
+                    os.replace(first, second)
+                    operation = "delete"
+                    second.unlink()
+                    report["directory_mutations"].append({"pinned": pinned, "ok": True})
+                except OSError as error:
+                    report["directory_mutations"].append(
+                        {
+                            "pinned": pinned,
+                            "operation": operation,
+                            "error": str(error),
+                            "winerror": getattr(error, "winerror", None),
+                        }
+                    )
+            first.unlink(missing_ok=True)
+            second.unlink(missing_ok=True)
     engine.dispose()
     return report
 
