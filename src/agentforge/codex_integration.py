@@ -28,7 +28,8 @@ POLICY_END = "<!-- END AgentForge delegation policy v1 -->\n"
 OWNERSHIP_WARNING = (
     "Single-client stdio only: use exactly one Codex session (CLI OR IDE) and no "
     "other MCP/web/smoke executor for this database. Cross-process ownership is "
-    "not enforced (#44). Shared authenticated service is deferred to #46."
+    "enforced for supported local SQLite storage (#44). Shared authenticated "
+    "service is deferred to #46."
 )
 POLICY = """## Optional AgentForge delegation
 

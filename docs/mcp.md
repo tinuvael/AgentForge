@@ -94,9 +94,9 @@ banner or application logs go to stdout. SDK stdio wraps the binary handles as
 UTF-8, including on Windows. No POSIX signal handling is introduced in MCP.
 
 Use **one server process per database**, including while running smoke scripts.
-The existing TaskEngine rejects duplicate ownership in one process. There is no
-cross-process enforcement; a second process can start and recovery can interrupt
-the first owner's live Tasks and affect coding workspace state. Do not connect two
+A kernel-backed nonblocking lock now rejects a second executor before schema
+checks or Task/coding recovery on supported local SQLite storage. See
+[ownership lifecycle and filesystem limits](executor-ownership.md). Do not connect two
 directors by launching two processes against the same database. Local stdio inherits
 the trust of the launching user. There is no HTTP MCP listener. Optional combined
 HTTP exposes trusted operator routes on loopback only, with no authentication layer.

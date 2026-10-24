@@ -92,12 +92,11 @@ before claiming another. Async events wake idle loops; there is no per-submissio
 asyncio task, broker or external scheduler. Concurrent inference can complete out
 of order. Use `async with TaskEngine(...)` to own startup/shutdown;
 `await wait_task(id)` waits for a terminal snapshot without owning execution.
-Cancelling that waiter does not cancel the Task. A process-local ownership guard
-rejects a second active engine for the same SQLite database before recovery;
-deployments must run only one control-plane process per database. There are no
-cross-process leases or enforcement. Another OS process can start against this
-database; its startup recovery can interrupt the first owner's live Task and
-affect coding workspace state. Use exactly one executor process per database.
+Cancelling that waiter does not cancel the Task. A nonblocking kernel ownership
+lock rejects another OS process before schema checks or recovery on supported
+local SQLite storage. See [executor ownership](executor-ownership.md) for the
+pre-start submission guard, cleanup ordering, filesystem/alias policy and limits.
+Use exactly one executor process per database.
 
 Queued cancellation commits `cancelled` before execution and prevents claiming.
 Running cancellation commits `cancellation_requested_at` and signals the active

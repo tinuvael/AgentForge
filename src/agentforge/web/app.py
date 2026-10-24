@@ -24,6 +24,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from agentforge.application.service import Application, ServiceError
 from agentforge.coding.models import CodingError
 from agentforge.councils.models import CouncilNotFound
+from agentforge.db.ownership import ExecutorOwnershipError
 from agentforge.projects.errors import ProjectStorageError
 from agentforge.tasks.models import (
     TERMINAL_STATES,
@@ -132,6 +133,9 @@ def create_app(
         try:
             await application.start()
             yield
+        except ExecutorOwnershipError as error:
+            logging.getLogger(__name__).error(str(error))
+            raise
         finally:
             try:
                 with anyio.CancelScope(shield=True):

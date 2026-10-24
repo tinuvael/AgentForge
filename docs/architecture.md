@@ -51,12 +51,12 @@ have no separate execution policy. Shutdown first cancels/awaits executors and
 validation cleanup, then closes owned Providers and disposes the database. Cleanup
 is shielded from caller cancellation. Injected Providers remain caller-owned.
 
-Use exactly one executor process per database. The ownership guard detects
-duplicate TaskEngines only inside a process; there is no cross-process enforcement.
-A second OS process can start and its recovery can mark another owner's live Tasks
-interrupted and affect coding workspace state. Separate MCP and standalone web
-executors must not share a database. `agentforge mcp ... --companion` provides one
-Application/TaskEngine with MCP stdio and the full HTTP dashboard on loopback.
+Use exactly one executor process per database. A nonblocking kernel ownership lock
+now rejects another OS process before schema checks or recovery on supported local
+SQLite storage. See [exact ownership ordering and filesystem policy](executor-ownership.md).
+Separate MCP and standalone web executors cannot share an active database.
+`agentforge mcp ... --companion` provides one Application/TaskEngine with MCP stdio
+and the full HTTP dashboard on loopback.
 
 The installed `agentforge` CLI is separate from model tools. Administrative
 commands compose only the required Registry/Index/storage/configuration services;
@@ -312,6 +312,6 @@ regions in global Codex TOML/instructions and validates explicit local paths wit
 no TaskEngine startup, recovery, registration, inference or automatic selection.
 Codex launches the existing stdio composition; no parallel runtime is introduced.
 Single-client acknowledgment and duplicate configuration checks cannot enforce
-cross-process database ownership (#44). Shared authenticated transport remains
+cross-process database ownership; the runtime kernel lock now enforces it (#44). Shared authenticated transport remains
 #46. Director policy cannot grant repository/data-egress permissions or guarantee
 model tool selection. See [global setup](codex-integration.md).

@@ -80,8 +80,10 @@ handler, access logs, or logging configuration. MCP stdout is exclusively JSON-R
 sanitized operational diagnostics go to stderr.
 
 **Do not also launch `agentforge web` or another MCP executor on that database.**
-The existing owner guard detects duplicate owners within a process; it is not a
-distributed/process lock. The one-executor rule remains an operator requirement.
+The [executor ownership lock](executor-ownership.md) enforces the one-executor
+rule across OS processes on supported local SQLite storage. A separate MCP/web
+startup fails before recovery; combined MCP/Companion shares one owner. The lock
+does not provide multiple active executors or multi-client MCP.
 MCP-only works without `--companion`. Dashboard-only remains
 `agentforge web ...`; `/companion` is also available within that dashboard's
 existing Application when MCP is not running. No second HTTP-only launch mode is

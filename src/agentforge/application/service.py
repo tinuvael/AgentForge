@@ -74,7 +74,7 @@ class Application:
     """Construct once, start once, close once. No migrations or health probes.
 
     The Database Engine passed here is owned by this application. TaskEngine's
-    existing per-database process guard also rejects independently composed owners.
+    per-database kernel lock also rejects independently composed executors.
     """
 
     def __init__(
@@ -431,7 +431,8 @@ class Application:
         return self.coding.diff(task_id)
 
     def cleanup_coding_workspace(self, *, task_id: UUID, workspace_id: UUID):
-        task = self.tasks.get_task(task_id)
-        if self.coding is None or task.state not in TERMINAL_STATES:
-            raise ServiceError("coding_unavailable")
-        return self.coding.cleanup(task_id, workspace_id)
+        with self.tasks.storage_access():
+            task = self.tasks.get_task(task_id)
+            if self.coding is None or task.state not in TERMINAL_STATES:
+                raise ServiceError("coding_unavailable")
+            return self.coding.cleanup(task_id, workspace_id)

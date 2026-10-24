@@ -35,6 +35,7 @@ from agentforge.application.contracts import (
 from agentforge.application.service import Application, ServiceError
 from agentforge.coding.models import CodingDiff, CodingError, CodingResult
 from agentforge.councils.models import CouncilNotFound, CouncilSnapshot, InvalidCouncil
+from agentforge.db.ownership import ExecutorOwnershipError
 from agentforge.projects.errors import ProjectNotFound, ProjectStorageError
 from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidationError
 from agentforge.web.combined import CompanionConfig, companion_http
@@ -64,6 +65,8 @@ _MESSAGES = {
 
 
 def safe_error(error: Exception) -> SafeError:
+    if isinstance(error, ExecutorOwnershipError):
+        return SafeError(code="storage_unavailable", message=str(error))
     if isinstance(error, ServiceError):
         code = error.code
     elif isinstance(error, CodingError):
@@ -424,10 +427,20 @@ def run(arguments) -> int:
         )
     except KeyboardInterrupt:
         return 0
-    except Exception:
+    except Exception as error:
         # Startup/shutdown failures can contain secrets, SQL and local paths.
+        def ownership_failure(error):
+            if isinstance(error, ExecutorOwnershipError):
+                return str(error)
+            if isinstance(error, BaseExceptionGroup):
+                for nested in error.exceptions:
+                    if message := ownership_failure(nested):
+                        return message
+            return None
+
         logging.getLogger(__name__).error(
-            "service_unavailable: MCP server stopped; check configuration "
+            ownership_failure(error)
+            or "service_unavailable: MCP server stopped; check configuration "
             "and migrations."
         )
         return 1

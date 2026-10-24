@@ -154,9 +154,8 @@ agentforge web --database-url sqlite:///agentforge.db --workers workers.local.to
 
 Choose one executor process per database. Stop MCP before starting standalone web
 against that database, or use `agentforge mcp ... --companion` for both transports
-in one Application/TaskEngine. Ownership is checked only within one process;
-another OS process can start and its recovery can interrupt live Tasks and affect
-coding workspaces. There is no cross-process enforcement. `--coding` and
+in one Application/TaskEngine. [Kernel ownership](executor-ownership.md) now rejects
+another OS process before recovery on supported local SQLite storage. `--coding` and
 `--concurrency` retain their existing meaning. Web additionally accepts the
 existing host/port/allowed-host options and may be intentionally LAN-bound.
 Combined MCP HTTP accepts loopback IP binds only. Neither HTTP mode has authentication.
