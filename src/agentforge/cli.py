@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 
 from agentforge.application.definitions import shipped_agents
+from agentforge.codex_integration import IntegrationError
 from agentforge.coding.config import load_coding
 from agentforge.coding.inspection import check_coding_host
 from agentforge.coding.service import CodingWorkspaceManager
@@ -180,6 +181,10 @@ def parser():
         )
         if name == "check":
             database(command)
+
+    from agentforge.codex_integration import add_parser
+
+    add_parser(groups)
 
     # Reuse the supported service parsers and lifecycle/security implementations.
     from agentforge.mcp import server as mcp
@@ -485,6 +490,11 @@ def config_command(args):
 def main(argv=None) -> int:
     try:
         args = parser().parse_args(argv)
+        if args.group == "codex":
+            from agentforge.codex_integration import execute
+
+            emit(execute(args))
+            return 0
         if args.group in {"mcp", "web"}:
             return args.service_run(args)
         return {
@@ -494,6 +504,8 @@ def main(argv=None) -> int:
             "agent": config_command,
             "coding": config_command,
         }[args.group](args)
+    except IntegrationError as error:
+        code, message, result = "codex_setup_failed", str(error), 2
     except OperatorError as error:
         code, message, result = error.code, error.message, error.exit_code
     except UnsupportedSchema:

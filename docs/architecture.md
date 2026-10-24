@@ -304,3 +304,14 @@ hints reuse TaskObserver multi-subscriptions. Templates have no repository/Git/S
 Provider access. Coding captures are stripped from the companion summary; the
 bounded diff is fetched only by an explicit detail route. See [Companion](companion.md)
 for the Codex capability discovery and security boundary.
+
+## Global Codex operator configuration
+
+`codex_integration` is an operator-only configuration adapter. It writes marked
+regions in global Codex TOML/instructions and validates explicit local paths with
+no TaskEngine startup, recovery, registration, inference or automatic selection.
+Codex launches the existing stdio composition; no parallel runtime is introduced.
+Single-client acknowledgment and duplicate configuration checks cannot enforce
+cross-process database ownership (#44). Shared authenticated transport remains
+#46. Director policy cannot grant repository/data-egress permissions or guarantee
+model tool selection. See [global setup](codex-integration.md).

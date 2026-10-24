@@ -266,6 +266,50 @@ async def smoke():
             'endpoint = "http://worker.invalid"\nmodel = "offline"\n'
             "supports_tools = true\n"
         )
+        # Only a disposable global home; never inherit the operator's real home.
+        codex_home = root / "codex-home"
+        import_root = Path(importlib.import_module("agentforge").__file__).parent.parent
+        setup_args = (
+            "codex",
+            "install",
+            "--codex-home",
+            codex_home,
+            "--python",
+            sys.executable,
+            "--installation",
+            import_root,
+            "--database",
+            root / "smoke.db",
+            "--workers",
+            config,
+            "--cwd",
+            root,
+            "--single-client",
+            "--instructions",
+        )
+        assert operator(*setup_args, "--dry-run")["changed_files"]
+        assert not codex_home.exists()
+        operator(*setup_args)
+        assert operator(*setup_args)["changed_files"] == []
+        entry = operator("codex", "inspect", "--codex-home", codex_home)[
+            "managed_registration"
+        ]
+        # Use the exact generated executable/argv after setup, one owner at a time.
+        params = StdioServerParameters(
+            command=entry["command"], args=entry["args"], cwd=entry["cwd"]
+        )
+        async with asyncio.timeout(15), stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as client:
+                await client.initialize()
+                assert (
+                    await client.call_tool("agentforge_status", {})
+                ).structuredContent["available"]
+                assert {t.name for t in (await client.list_tools()).tools} == {
+                    c.name for c in TOOL_CONTRACTS
+                }
+        operator("codex", "uninstall", "--codex-home", codex_home)
+        assert (codex_home / "config.toml").read_bytes() == b""
+        print("Installed global Codex setup, generated stdio discovery and removal: OK")
         operator("worker", "config-check", "--workers", config)
         assert (
             operator("worker", "list", "--workers", config)["availability"]

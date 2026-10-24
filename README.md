@@ -326,3 +326,7 @@ The [AgentForge Companion](docs/companion.md) is a compact operator panel
 for active work beside Codex. `agentforge mcp ... --companion` serves it from the
 same Application as MCP on loopback; standalone `agentforge web` also serves it
 and may be intentionally LAN-bound by the operator. It is not an embedded Codex sidebar.
+
+Optional per-device [global Codex MCP setup](docs/codex-integration.md) provides
+discovery and delegation guidance across repositories with a single-client local
+stdio deployment. Real client acceptance remains separate from offline tests.
