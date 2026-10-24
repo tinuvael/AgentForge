@@ -1,0 +1,44 @@
+name: Optional free remote provider smoke
+
+# Never triggered by a pull request, push, schedule or workflow_run.
+on:
+  workflow_dispatch:
+    inputs:
+      free_endpoint:
+        description: Confirm the configured endpoint has no billable usage
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-provider-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: >-
+      github.repository == 'tinuvael/AgentForge' &&
+      github.ref == 'refs/heads/main' &&
+      vars.LIVE_PROVIDER_SMOKE_ENABLED == 'true' && inputs.free_endpoint
+    environment: live-provider-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[dev]"
+      - name: One bounded synthetic prompt (no repository content)
+        run: python -m pytest -q live_tests --tb=no
+        env:
+          AGENTFORGE_LIVE_SMOKE: '1'
+          AGENTFORGE_SMOKE_PROVIDER: ${{ vars.AGENTFORGE_SMOKE_PROVIDER }}
+          AGENTFORGE_SMOKE_BASE_URL: ${{ secrets.AGENTFORGE_SMOKE_BASE_URL }}
+          AGENTFORGE_SMOKE_MODEL: ${{ vars.AGENTFORGE_SMOKE_MODEL }}
+          AGENTFORGE_SMOKE_API_KEY: ${{ secrets.AGENTFORGE_SMOKE_API_KEY }}

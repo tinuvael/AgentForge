@@ -1,17 +1,17 @@
-# Branch-only validation until #55 provides the permanent cloud acceptance CI.
-# Reuse its frozen test portability fixes/scripts, never its production source.
-name: Issue 56 index regression
+name: Cloud acceptance
 
 on:
   push:
-    branches: [codex/56-windows-worktree-index]
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: issue-56-${{ github.workflow }}-${{ github.ref }}
+  group: cloud-acceptance-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,18 +36,6 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: ${{ matrix.python }}
-      - name: Apply frozen cloud test harness (production source unchanged)
-        shell: python
-        run: |
-          import subprocess
-          baseline = "56f9d2b150deefe58574cc88d7b0d87c6fb159e5"
-          harness = "5ebe8785236a88c38857e74084f0dbe1537c7d5d"
-          subprocess.run(["git", "fetch", "origin", harness], check=True)
-          patch = subprocess.check_output([
-              "git", "diff", "--binary", baseline, harness, "--", "tests", "scripts"
-          ])
-          subprocess.run(["git", "apply", "-"], input=patch, check=True)
-          subprocess.run(["git", "diff", "--exit-code", "--", "src", "pyproject.toml"], check=True)
       - name: Install development tools
         run: python -m pip install -e ".[dev]"
       - name: Record environment
@@ -98,7 +86,7 @@ jobs:
         run: ruff format --check .
       - name: Whitespace
         if: ${{ !cancelled() }}
-        run: python scripts/ci_check_whitespace.py --base origin/main --head HEAD
+        run: python scripts/ci_check_whitespace.py
       - name: Build sdist and wheel
         id: build
         if: ${{ !cancelled() }}

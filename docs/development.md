@@ -1,5 +1,9 @@
 # Development and release validation
 
+Hosted Linux/Windows validation, reproducible status artifacts, synthetic Provider
+coverage and the separate physical #31 gate are documented in
+[cloud-first acceptance](cloud-acceptance.md).
+
 Use Python 3.12+ and local Git. Install the package before testing so the `src/`
 layout exercises installed imports:
 

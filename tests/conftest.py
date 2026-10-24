@@ -2,6 +2,7 @@
 
 import os
 import socket
+import threading
 from pathlib import Path
 
 import pytest
@@ -29,9 +30,24 @@ def pytest_collection_modifyitems(items):
 @pytest.fixture(autouse=True)
 def forbid_live_network(monkeypatch):
     original_connect = socket.socket.connect
+    original_socketpair = socket.socketpair
+    state = threading.local()
+
+    def socketpair(*args, **kwargs):
+        # Windows implements socketpair using a private TCP loopback pair for
+        # asyncio's self-pipe. Permit only this synchronous construction, on this
+        # thread, rather than allowing connections to arbitrary local services.
+        previous = getattr(state, "socketpair", False)
+        state.socketpair = True
+        try:
+            return original_socketpair(*args, **kwargs)
+        finally:
+            state.socketpair = previous
 
     def connect(sock, *args, **kwargs):
-        if sock.family in {socket.AF_INET, socket.AF_INET6}:
+        if sock.family in {socket.AF_INET, socket.AF_INET6} and not getattr(
+            state, "socketpair", False
+        ):
             raise AssertionError("Tests must not connect to live network services")
         return original_connect(sock, *args, **kwargs)
 
@@ -39,6 +55,7 @@ def forbid_live_network(monkeypatch):
         raise AssertionError("Tests must not perform live DNS lookups")
 
     monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket, "socketpair", socketpair)
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
 
 

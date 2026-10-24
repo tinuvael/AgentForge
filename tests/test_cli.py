@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import shlex
 import shutil
 import sqlite3
@@ -185,7 +186,8 @@ def test_project_lifecycle_and_retained_history(
         "Again",
         "--database-url",
         url,
-        expected=5,
+        # Windows rejects dot components before duplicate-root detection.
+        expected=6 if os.name == "nt" else 5,
     )
     inspection = invoke(capsys, "project", "inspect", identity, "--database-url", url)
     assert inspection["registration"] == project

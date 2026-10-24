@@ -224,15 +224,21 @@ def test_invalid_json_is_safe(worker, generation_request):
     assert "private-backend-body" not in str(caught.value)
 
 
-@pytest.mark.parametrize("status", [400, 401, 404, 500])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500])
 def test_http_rejection_is_safe(worker, generation_request, status):
-    provider = provider_for(
-        lambda _: httpx.Response(status, json={"error": "sensitive backend details"})
-    )
+    body = TrackedStream([b"sensitive backend details"], block=True)
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status, stream=body, headers={"Retry-After": "3600"})
+
+    provider = provider_for(handler)
     with pytest.raises(ProviderRejected) as caught:
         asyncio.run(provider.generate(worker, generation_request))
     assert caught.value.status_code == status
     assert "sensitive" not in str(caught.value)
+    assert len(requests) == 1 and body.closed and not body.waiting.is_set()
 
 
 def test_error_envelope_is_rejection(worker, generation_request):

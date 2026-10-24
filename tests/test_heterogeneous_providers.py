@@ -29,7 +29,7 @@ REASONING = "PRIVATE_INTEGRATION_REASONING"
 def setup(database, registry, tmp_path, monkeypatch):
     root = tmp_path / "source"
     root.mkdir()
-    (root / "source.py").write_text("def evidence():\n    pass\n")
+    (root / "source.py").write_text("def evidence():\n    pass\n", newline="\n")
     project = registry.register_project("Evidence", root)
     monkeypatch.setenv("AGENTFORGE_TEST_TOKEN", SECRET)
     path = tmp_path / "workers.toml"

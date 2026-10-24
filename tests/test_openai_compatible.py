@@ -300,7 +300,9 @@ class BytesStream(httpx.AsyncByteStream):
         self.closed = True
 
 
-@pytest.mark.parametrize("status", [301, 302, 307, 308, 401, 403, 404, 429, 500, 503])
+@pytest.mark.parametrize(
+    "status", [301, 302, 307, 308, 400, 401, 403, 404, 429, 500, 503]
+)
 def test_status_never_reads_error_or_follows_redirect(
     worker, generation_request, monkeypatch, status
 ):
@@ -311,7 +313,9 @@ def test_status_never_reads_error_or_follows_redirect(
     def handler(req):
         requests.append(req)
         return httpx.Response(
-            status, stream=body, headers={"Location": "https://other.invalid/stolen"}
+            status,
+            stream=body,
+            headers={"Location": "https://other.invalid/stolen", "Retry-After": "3600"},
         )
 
     with pytest.raises(
