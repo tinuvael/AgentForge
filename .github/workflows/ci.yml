@@ -1,0 +1,70 @@
+name: Cloud acceptance
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-acceptance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+        python: ['3.12', '3.13', '3.14']
+    env:
+      PYTHONUTF8: '1'
+      PYTHONNOUSERSITE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install development tools
+        run: python -m pip install -e ".[dev]"
+      - name: Record environment
+        run: python scripts/ci_report.py environment
+      - name: Regression suite (includes native platform and integration tests)
+        run: python -m pytest -ra --junitxml=reports/pytest.xml
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: ruff check .
+      - name: Format
+        if: ${{ !cancelled() }}
+        run: ruff format --check .
+      - name: Whitespace
+        if: ${{ !cancelled() }}
+        run: git diff --check
+      - name: Build sdist and wheel
+        id: build
+        if: ${{ !cancelled() }}
+        run: python -m build
+      - name: Verify clean installed wheel outside checkout
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: python scripts/ci_verify_wheel.py
+      - name: Write acceptance status
+        if: always()
+        run: python scripts/ci_report.py summary
+      - name: Upload status and exact versions
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: acceptance-${{ matrix.os }}-py${{ matrix.python }}
+          path: reports/
+          retention-days: 14
+          if-no-files-found: error
