@@ -35,12 +35,16 @@ def group_stopper(process, *, signal_group=None):
                 return
             try:
                 signal_group()
-            except PermissionError:
+            except PermissionError as error:
                 # A naturally exiting Darwin group leader can also cause EPERM
                 # until reaped. Retry only after proving that this parent exited;
                 # surviving descendants still require a successful group signal.
-                if process.poll() is None:
-                    raise
+                from subprocess import TimeoutExpired
+
+                try:
+                    process.wait(timeout=0.25)
+                except TimeoutExpired:
+                    raise error from None
                 try:
                     signal_group()
                 except ProcessLookupError:
