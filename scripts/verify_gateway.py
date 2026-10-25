@@ -296,7 +296,8 @@ supports_tools = true
     c = ClientPolicy(client_id="unprivileged", token_sha256=fingerprint(token_c))
 
     def policy(*clients):
-        save_policies(auth_path, Policies(clients=clients))
+        snapshot = CredentialStore(auth_path).load() if auth_path.exists() else None
+        save_policies(auth_path, Policies(clients=clients), expected=snapshot)
 
     policy(a, b, c)
     port, companion_port = free_port(), free_port()
@@ -543,6 +544,72 @@ supports_tools = true
                     flush=True,
                 )
 
+                # Exercise successful HTTP cancellation, separately from denial.
+                inference.release.clear()
+                running_a = await call(ca, "delegate_task", binding)
+                running_b = await call(cb, "delegate_task", binding)
+                await wait_running(app, 2)
+                queued_council = await call(cb, "delegate_council", council_binding)
+                cancelled_council = await call(
+                    cb, "cancel_council", {"council_id": queued_council["council_id"]}
+                )
+                assert cancelled_council["terminal"]
+                assert cancelled_council["participant_counts"]["cancelled"] == 2
+                policy(
+                    a.model_copy(update={"read_shared": True, "cancel_shared": True}),
+                    b,
+                    c,
+                )
+                cancelled = await call(
+                    ca, "cancel_task", {"task_id": running_b["task_id"]}
+                )
+                assert cancelled["cancellation_requested_at"] is not None
+                await call(ca, "cancel_task", {"task_id": running_a["task_id"]})
+                policy(a, b, c)
+                inference.release.set()
+                for item in (running_a, running_b):
+                    terminal = await app.tasks.wait_task(item["task_id"])
+                    assert (
+                        terminal.state == "cancelled" and terminal.final_answer is None
+                    )
+
+                # Standard MCP request cancellation releases bounded watches,
+                # without cancelling the durable Task they observe.
+                inference.release.clear()
+                observed = await call(cb, "delegate_task", binding)
+                watches = [
+                    asyncio.create_task(
+                        call(
+                            cb,
+                            "watch_task",
+                            {"task_id": observed["task_id"]},
+                            progress_callback=on_progress,
+                        )
+                    )
+                    for _ in range(4)
+                ]
+                async with asyncio.timeout(5):
+                    while settings.watchers.get("macbook-codex") != 4:
+                        await asyncio.sleep(0.01)
+                await call(
+                    cb,
+                    "watch_task",
+                    {"task_id": observed["task_id"]},
+                    error="resource_limit",
+                    progress_callback=on_progress,
+                )
+                for watching in watches:
+                    watching.cancel()
+                await asyncio.gather(*watches, return_exceptions=True)
+                async with asyncio.timeout(5):
+                    while settings.watchers or app.tasks.observer.subscriber_count:
+                        await asyncio.sleep(0.01)
+                assert (await call(cb, "get_task", {"task_id": observed["task_id"]}))[
+                    "state"
+                ] == "running"
+                inference.release.set()
+                await app.tasks.wait_task(observed["task_id"])
+
                 # Revoke while a request is already streaming: revalidation stops
                 # its output, even though the POST authenticated before revocation.
                 inference.release.clear()
@@ -556,7 +623,12 @@ supports_tools = true
                         progress_callback=on_progress,
                     )
                 )
-                await asyncio.sleep(0.1)
+                async with asyncio.timeout(5):
+                    while (
+                        settings.watchers.get("macbook-codex") != 1
+                        or app.tasks.observer.subscriber_count != 1
+                    ):
+                        await asyncio.sleep(0.01)
                 policy(a, b.model_copy(update={"enabled": False}), c)
                 await asyncio.wait_for(watch, 3)
                 async with httpx.AsyncClient(trust_env=False) as raw:
@@ -771,28 +843,25 @@ async def installed_gateway():
             token_file,
         )
         store = CredentialStore(auth)
-        entry = (
-            store.load()
-            .clients[0]
-            .model_copy(
-                update={
-                    "tools": (
-                        "agentforge_status",
-                        "list_workers",
-                        "list_agents",
-                        "list_projects",
-                        "delegate_task",
-                        "get_task",
-                        "watch_task",
-                    ),
-                    "projects": (
-                        ProjectGrant(project_id=project_id, workers=("local-4080",)),
-                    ),
-                    "agents": ("general_agent",),
-                }
-            )
+        snapshot = store.load()
+        entry = snapshot.clients[0].model_copy(
+            update={
+                "tools": (
+                    "agentforge_status",
+                    "list_workers",
+                    "list_agents",
+                    "list_projects",
+                    "delegate_task",
+                    "get_task",
+                    "watch_task",
+                ),
+                "projects": (
+                    ProjectGrant(project_id=project_id, workers=("local-4080",)),
+                ),
+                "agents": ("general_agent",),
+            }
         )
-        save_policies(auth, Policies(clients=(entry,)))
+        save_policies(auth, Policies(clients=(entry,)), expected=snapshot)
         token = token_file.read_text().strip()
         inference = Inference()
 
@@ -980,6 +1049,7 @@ async def tls_transport():
                     ),
                 )
             ),
+            expected=None,
         )
         port = free_port()
         settings = GatewayConfig(

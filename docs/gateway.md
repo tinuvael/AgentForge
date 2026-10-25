@@ -99,9 +99,10 @@ it never holds bearer values. New identities have **no tool, Project, Agent or
 Worker grants**. Do not reuse client IDs for different people/devices: durable
 Task ownership follows the stable ID through rotation.
 
-Edit each existing client entry in the private JSON, retaining its generated
-`client_id`, `token_sha256`, `enabled` and `expires_at`. For read-only analysis
-and explicit lifecycle control, set these fields (replace the UUID):
+Prepare changes from a loaded snapshot, retaining each generated `client_id`,
+`token_sha256`, `enabled` and `expires_at`. Do not edit the live JSON in place.
+For read-only analysis and explicit lifecycle control, set these fields (replace
+the UUID):
 
 ```json
 {
@@ -140,18 +141,69 @@ workspace identity/terminal-state checks. Ordinary Task snapshots redact coding
 captures unless workspace inspection is granted. Keep coding opt-in, with explicit
 Director approvals; existing [coding trust boundaries](coding.md) still apply.
 
-Write policy updates through a same-directory temporary file and atomic replace;
-serialize operator edits and credential commands. On Windows NTFS, use
-`[IO.File]::Replace($temporary, $authPath, $null)` after saving valid UTF-8 JSON.
-Protect temporary files with the same directory ACL. Validate before replacement
-by running `gateway auth-check --auth <temporary>`, then validate the live file:
+Publish policy through the compare-and-swap API. Capture `before` **before**
+preparing changes; never reload it merely to force an old candidate through:
+
+```python
+from pathlib import Path
+from agentforge.gateway.auth import CredentialStore, save_policies
+
+path = Path(r"C:\AgentForgeState\clients.json")
+before = CredentialStore(path).load()
+# Example: grant only status to one identity. Apply the explicit Project/Worker,
+# Agent and tool fields above in the same model_copy update when authorizing work.
+after = before.model_copy(
+    update={
+        "clients": tuple(
+            client.model_copy(update={"tools": ("agentforge_status",)})
+            if client.client_id == "windows-codex"
+            else client
+            for client in before.clients
+        )
+    }
+)
+save_policies(path, after, expected=before)
+```
+
+`expected=None` means create-only. Missing expectations are refused. Client
+commands and this API use one permanent private `<auth>.agentforge-policy.lock`
+file with a nonblocking OS writer lock and compare the expected policy under that
+lock. A concurrent or stale update fails explicitly (`policy_update_conflict`,
+CLI exit 7); reload and deliberately redo it, including a failed revocation.
+Never delete/replace the lock while administrators may be running. External
+editors/File.Replace do not participate in this protocol and must not write the
+live file concurrently. No Gateway restart is needed for ordinary updates.
+
+Updates flush a private same-directory temporary file before atomic publication;
+POSIX additionally fsyncs the directory, and Windows uses write-through rename.
+Windows readers permit DELETE sharing (but no WRITE sharing), so authentication
+does not prevent publication or observe in-place partial writes. Readers held
+across publication recheck file identity and retry at most four snapshots before
+failing closed. External antivirus/indexer sharing conflicts get at most eleven
+rename attempts with ten 20 ms delays; there is no unbounded retry loop.
+
+Rotation never re-enables a revoked identity; reactivation requires an explicit
+policy authorization. New credentials activate only at policy publication.
+Pre-publication failure/conflict removes the new output, preserving the old policy
+and token; existing output files are never overwritten or removed. An exceptional
+cleanup failure reports `credential_cleanup_failed` and requires quarantining the
+inactive output. If publication succeeded but its final durability confirmation
+failed, `policy_persistence_uncertain` retains the recovery credential and instructs
+the operator to inspect state. Do not blindly retry or roll back an observed
+revocation. Policy and credential files are not one multi-file transaction: a
+process crash before publication can leave an inactive output to inspect/remove.
+Use private local storage, 0600 POSIX files or the inherited Windows operator ACL.
+
+Validate the live policy without printing credentials:
 
 ```powershell
 & $afPython -m agentforge gateway auth-check --auth C:\AgentForgeState\clients.json
 ```
 
 Malformed/missing policy fails closed; it is never replaced with cached grants.
-The file is checked on every HTTP request and operation. Active watches recheck
+The file is checked on every HTTP request and operation. Authorization checks
+linearize at their verified snapshot; a completed revocation denies later checks,
+while already authorized operations may finish. Active watches recheck
 within one second and before sending each notification. Revocation stops further
 access; it does not cancel already committed Tasks. Use explicit cancellation
 before revocation if required. Revocation cannot retract data already delivered.
@@ -200,8 +252,9 @@ Disable response buffering; allow the 30-second watch window plus overhead.
 The Gateway ignores forwarded IP/Host/proto headers and Uvicorn proxy trust is
 disabled. It makes no identity decision from proxy headers. TLS termination must
 be on this trusted loopback upstream; do not forward plaintext over a LAN hop.
-No Origin is allowed by default. Native Codex sends no browser Origin; if another
-client requires one, supply an exact trusted `--allowed-origin https://...`.
+No Origin is allowed by default. Clients that omit Origin need no additional
+setting; if a client sends one, supply an exact trusted
+`--allowed-origin https://...`.
 
 Alternatively bind an explicit private/tailnet IP with `--tls-cert` and `--tls-key`,
 and exact `--allowed-host` authorities. Non-loopback plaintext, unspecified/public

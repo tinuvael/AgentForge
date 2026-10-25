@@ -84,10 +84,9 @@ def test_private_provisioning_rotation_revocation_and_malformed_policy(
     store = CredentialStore(auth)
     client = asyncio.run(store.verify_token(token))
     assert client.client_id == "macbook" and client.scopes == []
-    policy = (
-        store.load().clients[0].model_copy(update={"tools": ("agentforge_status",)})
-    )
-    save_policies(auth, Policies(clients=(policy,)))
+    snapshot = store.load()
+    policy = snapshot.clients[0].model_copy(update={"tools": ("agentforge_status",)})
+    save_policies(auth, Policies(clients=(policy,)), expected=snapshot)
     assert (
         main(["gateway", "client-rotate", *base[2:], "--token-file", str(second)]) == 0
     )
@@ -96,12 +95,11 @@ def test_private_provisioning_rotation_revocation_and_malformed_policy(
     assert asyncio.run(store.verify_token(rotated)).scopes == ["agentforge_status"]
     assert main(["gateway", "client-revoke", *base[2:]]) == 0
     assert asyncio.run(store.verify_token(rotated)) is None
-    expired = (
-        store.load()
-        .clients[0]
-        .model_copy(update={"enabled": True, "expires_at": int(time()) - 1})
+    snapshot = store.load()
+    expired = snapshot.clients[0].model_copy(
+        update={"enabled": True, "expires_at": int(time()) - 1}
     )
-    save_policies(auth, Policies(clients=(expired,)))
+    save_policies(auth, Policies(clients=(expired,)), expected=snapshot)
     assert asyncio.run(store.verify_token(rotated)) is None
     auth.write_text('{"clients": [{"tools": ["shell"]}]}')
     with pytest.raises(ServiceError, match="access_denied"):
@@ -141,3 +139,94 @@ def test_duplicate_identity_or_token_rejected():
         Policies.model_validate({"clients": [row, row]})
     with pytest.raises(ValueError):
         Policies.model_validate({"clients": [row, {**row, "client_id": "b"}]})
+
+
+def test_policy_replacement_with_concurrent_readers(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from agentforge.application.access import ClientPolicy
+    from agentforge.gateway.auth import fingerprint
+
+    path = tmp_path / "policy.json"
+    row = ClientPolicy(client_id="reader", token_sha256=fingerprint("test-" + "r" * 48))
+    save_policies(path, Policies(clients=(row,)), expected=None)
+    store = CredentialStore(path)
+
+    def reading():
+        for _ in range(100):
+            try:
+                value = store.load()
+            except ServiceError as error:
+                assert str(error) == "access_denied"
+                continue
+            assert len(value.clients) == 1 and value.clients[0].client_id == "reader"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        future = pool.submit(reading)
+        for index in range(25):
+            save_policies(
+                path,
+                Policies(
+                    clients=(row.model_copy(update={"enabled": bool(index % 2)}),)
+                ),
+                expected=store.load(),
+            )
+        future.result(timeout=5)
+    assert not store.load().clients[0].enabled
+
+
+def test_policy_replace_sharing_retry_preserves_atomic_update(tmp_path, monkeypatch):
+    from agentforge.application.access import ClientPolicy
+    from agentforge.gateway import auth
+
+    path = tmp_path / "policy.json"
+    row = ClientPolicy(client_id="reader", token_sha256="a" * 64)
+    save_policies(path, Policies(clients=(row,)), expected=None)
+    original = auth._replace_policy
+    conflicts = []
+
+    def scanning(source, target):
+        if len(conflicts) < 2:
+            conflicts.append(True)
+            assert CredentialStore(path).load().clients[0].enabled
+            error = PermissionError("Synthetic sharing conflict")
+            error.winerror = 32
+            raise error
+        return original(source, target)
+
+    monkeypatch.setattr(auth, "_replace_policy", scanning)
+    save_policies(
+        path,
+        Policies(clients=(row.model_copy(update={"enabled": False}),)),
+        expected=CredentialStore(path).load(),
+    )
+    assert len(conflicts) == 2 and not CredentialStore(path).load().clients[0].enabled
+
+
+def test_policy_and_token_output_cannot_be_the_same_file(tmp_path, capsys):
+    path = tmp_path / "policy.json"
+    assert (
+        main(
+            [
+                "gateway",
+                "client-add",
+                "--client-id",
+                "client",
+                "--auth",
+                str(path),
+                "--token-file",
+                str(path),
+            ]
+        )
+        == 2
+    )
+    assert not path.exists()
+    assert "invalid_configuration" in capsys.readouterr().err
+
+
+@pytest.mark.posix
+def test_policy_fifo_is_refused_without_blocking(tmp_path):
+    path = tmp_path / "policy.json"
+    os.mkfifo(path)
+    with pytest.raises(ServiceError, match="access_denied"):
+        CredentialStore(path).load()

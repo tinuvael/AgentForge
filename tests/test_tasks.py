@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 from sqlalchemy import select, text, update
 
@@ -17,6 +18,7 @@ from agentforge.core.provider_errors import BackendUnavailable, ProviderTimeout
 from agentforge.core.worker import Worker
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.index import IndexRepository
+from agentforge.db.migrate import _configuration
 from agentforge.db.models import TaskRecord
 from agentforge.db.tasks import TaskRepository
 from agentforge.index.service import ProjectIndex
@@ -532,14 +534,16 @@ def test_exclusive_in_process_owner_before_recovery(setup):
     run(execute())
 
 
-def test_start_requires_current_schema_before_recovery_or_execution(setup):
+@pytest.mark.parametrize("stamp", ["unsupported", "0001_initial"])
+def test_start_requires_current_schema_before_recovery_or_execution(setup, stamp):
     engine, runtime, provider = setup.build()
+    current_head = ScriptDirectory.from_config(_configuration()).get_current_head()
     running = setup.submit(engine)
     queued = setup.submit(engine)
     setup.repository.claim(running.task_id)
     with setup.database[0].begin() as connection:
         connection.execute(
-            text("UPDATE alembic_version SET version_num = 'unsupported'")
+            text("UPDATE alembic_version SET version_num = :stamp"), {"stamp": stamp}
         )
 
     async def execute():
@@ -548,12 +552,14 @@ def test_start_requires_current_schema_before_recovery_or_execution(setup):
                 await engine.start()
             assert engine.get_task(running.task_id).state == "running"
             assert engine.get_task(queued.task_id).state == "queued"
-            assert not provider.requests
+            assert not provider.requests and not engine._loops
+            assert not engine._ownership.held
         finally:
             await engine.close()
         with setup.database[0].begin() as connection:
             connection.execute(
-                text("UPDATE alembic_version SET version_num = '0001_initial'")
+                text("UPDATE alembic_version SET version_num = :stamp"),
+                {"stamp": current_head},
             )
         # Rejection releases the process owner; a properly initialized database
         # can subsequently recover and execute on a new engine.

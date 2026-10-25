@@ -49,6 +49,28 @@ Task admission and progress handlers/delivery. Active Tasks use existing executi
 limits. Default settings and failure semantics are in the [operator guide](gateway.md).
 These are bounded service capacities, not per-client billing or fair scheduling.
 
+## Concurrent policy publication
+
+Policy readers use immutable file snapshots; native Windows opens with
+FILE_SHARE_READ | FILE_SHARE_DELETE and denies in-place WRITE access. Identity is
+rechecked after reading so a held old handle cannot authorize from stale policy
+after replacement; at most four raced snapshots are retried before default-deny.
+This preserves live per-request/per-operation checks and stream revalidation.
+
+Administrative writes use a permanent OS-locked sidecar plus expected-snapshot
+comparison. A stale add/rotate/revoke or full replacement conflicts explicitly;
+commands never re-enable a disabled identity during rotation. This is cooperative
+local-operator serialization, not a distributed policy store. Direct edits must
+use the same CAS API, not a concurrent external text editor. Readers never take
+an administrative lock. Files are flushed before same-directory atomic publication
+and the platform durability barrier; no plaintext bearer enters policy/logs.
+
+An unpublished generated output is removed on failure. After publication, a
+failed durability acknowledgement is reported separately and its recovery token is
+retained. Rolling back could undo a revocation already seen by readers. There is
+no claim of a transaction spanning credential output and policy through a crash.
+See [operator recovery and exact bounds](gateway.md).
+
 ## Network and operator UI separation
 
 Prefer loopback HTTP for Windows Codex and private HTTPS via Tailscale Serve to

@@ -76,3 +76,6 @@ Desktop.ini
 # Explicit local Worker configuration may contain Provider options/secrets
 /workers.local.toml
 /config/*.local.toml
+
+# Permanent local policy writer mutex
+*.agentforge-policy.lock

@@ -491,6 +491,12 @@ def config_command(args):
 
 
 def main(argv=None) -> int:
+    from agentforge.gateway.auth import (
+        CredentialCleanupFailed,
+        PolicyPersistenceUncertain,
+        PolicyUpdateConflict,
+    )
+
     try:
         args = parser().parse_args(argv)
         if args.group == "codex":
@@ -511,6 +517,26 @@ def main(argv=None) -> int:
             "agent": config_command,
             "coding": config_command,
         }[args.group](args)
+    except PolicyUpdateConflict:
+        code, message, result = (
+            "policy_update_conflict",
+            "Policy changed or another update is in progress; reload and retry.",
+            7,
+        )
+    except CredentialCleanupFailed:
+        code, message, result = (
+            "credential_cleanup_failed",
+            "Policy update failed; inactive new credential output could not be "
+            "removed. Quarantine that output before retrying.",
+            3,
+        )
+    except PolicyPersistenceUncertain:
+        code, message, result = (
+            "policy_persistence_uncertain",
+            "Policy publication succeeded but durability is unconfirmed. "
+            "Retain any new credential output; inspect policy before retrying.",
+            3,
+        )
     except IntegrationError as error:
         code, message, result = "codex_setup_failed", str(error), 2
     except OperatorError as error:

@@ -316,7 +316,11 @@ def test_baseline_upgrade_retains_history_with_no_inferred_client(tmp_path):
                     updated_at=datetime.now(UTC),
                 )
             )
+            assert migrate.connection_status(connection) == "out_of_date"
+            assert not migrate.schema_is_current(connection)
             command.upgrade(config, "head")
+            assert migrate.connection_status(connection) == "current"
+            assert migrate.schema_is_current(connection)
             assert_schema(connection)
         task = TaskRepository(create_session_factory(engine)).get(identity)
         assert task.request == "Legacy private request" and task.client_id is None
