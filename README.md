@@ -119,7 +119,10 @@ physical GPU, Tailscale, Codex and Xcode verification.
 
 Requires Python 3.12+ and a reachable, operator-configured inference endpoint with
 a model supporting native tool calls. Linux supports descriptor-based repository
-operations; native Windows supports ordinary fixed local NTFS. Git tools require
+operations; native Windows supports ordinary fixed local NTFS. Optional
+[native macOS](docs/macos.md) supports local APFS and Mac-local dirty checkouts
+using separate private storage from the Windows Gateway. Physical MacBook/Xcode
+acceptance remains pending in #31. Git tools require
 Git, and isolated coding requires an ordinary committed SHA-1 repository. No GPU
 is required on the AgentForge host when inference runs elsewhere.
 
@@ -260,9 +263,8 @@ Open `http://127.0.0.1:8765` for Projects, Workers, Task/Council history, teleme
 live metadata and confirmed cancellation. It uses Jinja2, vendored HTMX and SSE,
 with no frontend build or CDN. The dashboard observes work; it has no task
 submission UI. **Use one executor process per database**, including smoke scripts.
-The guard rejects duplicate owners only within one process. AgentForge does not
-enforce ownership across OS processes; a second executor's startup recovery can
-interrupt the first owner's live Tasks and affect coding workspaces.
+The [kernel ownership guard](docs/executor-ownership.md) rejects a second executor
+across OS processes before schema validation or recovery on supported local storage.
 
 For coding, create a private workspace parent **outside registered repositories**
 and edit [coding.example.toml](config/coding.example.toml) with absolute real Git

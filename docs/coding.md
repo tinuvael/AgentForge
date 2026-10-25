@@ -47,7 +47,9 @@ Tasks or workspaces are created.
 
 See [coding.example.toml](../config/coding.example.toml). The operator must create
 an existing private workspace parent outside every registered repository. POSIX
-requires an owned 0700 parent, Linux descriptor-backed Git cwd and `renameat2`.
+requires an owned 0700 parent. Linux uses descriptor-backed Git cwd and `renameat2`;
+native macOS uses local APFS, a descriptor `fchdir` child and `renameatx_np`.
+See [macOS setup and trusted Xcode validators](macos.md).
 Windows requires ordinary fixed local NTFS, no reparse ancestors, case-insensitive
 directories and a private user-owned ACL, consistent with the existing backend.
 Do not put runtime state in the implementation repository. Database, private
@@ -130,7 +132,8 @@ root identity. The coding backend additionally rejects multi-link files and moun
 transitions. New directories use descriptor-relative creation. Writes use an
 exclusive random temporary file in the authorized directory, fsync, ancestry and
 file precondition rechecks, and same-directory `replace` or atomic Linux
-`renameat2(RENAME_NOREPLACE)` creation. No generic chmod/chown/link/symlink API is
+`renameat2(RENAME_NOREPLACE)` creation (Darwin: `renameatx_np(RENAME_EXCL)`).
+No generic chmod/chown/link/symlink API is
 exposed. Existing executable bits are preserved without retaining setuid/setgid.
 Deletion unlinks only a precondition-checked ordinary file.
 

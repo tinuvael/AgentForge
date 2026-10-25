@@ -44,13 +44,14 @@ repository has no commit. Git failures/timeouts are best effort and do not preve
 registration. `inspect_project` first opens the identity-checked registered root
 through `open_root`; boundary failures propagate Project errors, not best-effort
 Git metadata. Inspection uses bounded, read-only `rev-parse`/`symbolic-ref` calls
-with the verified descriptor inherited as Linux `/proc/self/fd` cwd, a sanitized
+with the verified descriptor inherited as Linux `/proc/self/fd` cwd or native
+Darwin child `fchdir` cwd, a sanitized
 Git environment, disabled optional locks and no network or repository mutation.
 Registry inspection, read-only Git tools and coding share one bounded process
 runner: concurrent capped stdout/stderr, a two-second command deadline and owned
 process cleanup. POSIX inspection caps each stdout capture at 4 KiB; oversized,
 failed or timed-out observations become `unavailable` without releasing diagnostics.
-On POSIX without descriptor-backed Git cwd, Git is observationally `unavailable`;
+On unsupported POSIX hosts without descriptor-backed Git cwd, Git is `unavailable`;
 no pathname fallback may inspect a replacement. Windows instead copies approved
 Git metadata and Project working files through locked handles into a pinned,
 bounded private snapshot, then executes the same fixed Git commands there.
@@ -274,6 +275,8 @@ Filesystem scans process one file at a time; directory names are sorted in memor
 Separate filesystem and Git observations are not an atomic snapshot.
 
 Git tools require a Git worktree. Linux uses `/proc/self/fd` to pin subprocess cwd;
+macOS inherits the authorized descriptor into a child that calls `fchdir` before
+exec, with local APFS/exact-spelling/single-link policy from [the macOS guide](macos.md).
 Windows uses an isolated bounded Git snapshot copied through authorized handles.
 Absence, unavailable Git, timeout and backend failure are separate domain errors.
 A private backend uses fixed explicit argv, `shell=False`, bounded concurrently

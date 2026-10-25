@@ -1,6 +1,7 @@
 """Read-only setup checks using the existing coding filesystem boundary."""
 
 import os
+import sys
 from pathlib import Path
 
 from agentforge.coding.filesystem import CodingDirectory
@@ -26,10 +27,20 @@ def check_coding_host(manager) -> None:
             executable.parent, backend.observe_root(executable.parent)
         ) as directory:
             # Match pinned_repository: trusted POSIX Git installation may use
-            # hardlinks/mounts; validators retain the stricter coding boundary.
+            # hardlinks/mounts. Darwin's /usr/bin toolchain dispatchers are also
+            # hardlinked; this exception never applies to repository files.
             opened = (
-                posix.regular_file(directory.fd, executable.name)
-                if position == 0 and isinstance(directory, CodingDirectory)
+                posix.regular_file(
+                    directory.fd, executable.name, trusted_executable=True
+                )
+                if isinstance(directory, CodingDirectory)
+                and (
+                    position == 0
+                    or (
+                        sys.platform == "darwin"
+                        and executable.parent == Path("/usr/bin")
+                    )
+                )
                 else backend.regular_file(directory, executable.name)
             )
             with opened:

@@ -33,7 +33,7 @@ def _run_git(argv, location, budget: int, *, environment, allow_failure=False):
     """Drain both pipes concurrently with fixed memory; stop excess output."""
     try:
         with subprocess.Popen(
-            argv,
+            location.command(argv),
             env=environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

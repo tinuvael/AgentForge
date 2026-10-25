@@ -28,6 +28,8 @@ python -m venv .venv
 ```
 
 On POSIX, use `.venv/bin/python` in place of `.venv\Scripts\python.exe`.
+For a native Mac-local instance, follow [macOS setup](macos.md): local APFS and a
+private Mac database are required, separate from the remote Windows Gateway.
 Before startup, explicitly upgrade the selected database. The packaged migration
 command works from a source checkout or wheel; pass **the same database URL** to
 MCP. Source contributors can also use root `alembic.ini` for Alembic operations:

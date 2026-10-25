@@ -1,6 +1,6 @@
 # Development and release validation
 
-Hosted Linux/Windows validation, reproducible status artifacts, synthetic Provider
+Hosted Linux/Windows/macOS validation, reproducible status artifacts, synthetic Provider
 coverage and the separate physical #31 gate are documented in
 [cloud-first acceptance](cloud-acceptance.md).
 
@@ -174,7 +174,10 @@ See [exact lifecycle and filesystem policy](executor-ownership.md). The default
 pipe barriers with bounded deadlines, without inference credentials or sockets.
 It must run in every hosted Linux and native Windows matrix job; platform-specific
 alias/replacement tests use explicit native markers, not lock simulations. Unknown
-filesystems and other POSIX platforms fail closed. No security test is skipped to
+filesystems and unsupported POSIX platforms fail closed. Native macOS accepts local
+APFS with Darwin OFD inode ownership and a permanent sidecar; its native tests run
+on hosted macOS with Python 3.12–3.14. See [macOS policy](macos.md).
+No security test is skipped to
 conceal failure. Existing real coding-workspace tests complement synthetic coding
 metadata in the cross-process recovery tests.
 
@@ -196,7 +199,7 @@ The installed-wheel smoke repeats the multi-client acceptance with wheel imports
 then launches the packaged CLI Gateway against a loopback scripted Ollama server,
 verifies discovery/authenticated analysis, stops it through SIGINT and reads the
 same result after restart. Existing migration, ownership, stdio, coding and
-Companion checks remain required. MacOS is not a supported persistent host; do not
+Companion checks remain required. macOS has a separate optional local APFS host; do not
 bypass storage checks to claim macOS or Windows acceptance. The optional in-memory
 helper diagnostic establishes transport behavior only. See [Gateway design](gateway-design.md)
 and the [operator/physical acceptance guide](gateway.md).

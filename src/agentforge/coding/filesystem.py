@@ -9,6 +9,7 @@ import hashlib
 import ntpath
 import os
 import stat
+import sys
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from uuid import uuid4
@@ -36,6 +37,10 @@ def parts_for(backend, path, *, public=True):
 
 
 def _mount(fd):
+    if sys.platform == "darwin":
+        from agentforge.projects.darwin import local_apfs
+
+        return local_apfs(fd)
     try:
         with open(f"/proc/self/fdinfo/{fd}", encoding="ascii") as file:
             for line in file:
@@ -276,12 +281,15 @@ def _publish_new(parent, temporary, name):
     import errno
 
     library = c.CDLL(None, use_errno=True)
-    rename = getattr(library, "renameat2", None)
+    darwin = sys.platform == "darwin"
+    rename = getattr(library, "renameatx_np" if darwin else "renameat2", None)
     if rename is None:
         raise UnsafeProjectPath("Atomic no-replace creation is unavailable")
     rename.argtypes = [c.c_int, c.c_char_p, c.c_int, c.c_char_p, c.c_uint]
     rename.restype = c.c_int
-    if rename(parent, os.fsencode(temporary), parent, os.fsencode(name), 1):
+    if rename(
+        parent, os.fsencode(temporary), parent, os.fsencode(name), 4 if darwin else 1
+    ):
         if c.get_errno() == errno.EEXIST:
             raise EditConflict("File appeared before creation")
         raise OSError(c.get_errno(), "Atomic creation failed")

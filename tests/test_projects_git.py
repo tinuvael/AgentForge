@@ -179,10 +179,18 @@ def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch
     before = {p: p.read_bytes() for p in (git_root / ".git").rglob("*") if p.is_file()}
 
     def checked_run(args, **kwargs):
-        assert args[:3] == ["git", "--no-optional-locks", "-C"]
         (fd,) = kwargs["pass_fds"]
-        assert args[3] == f"/proc/self/fd/{fd}"
-        assert os.path.samefile(args[3], git_root)
+        if sys.platform == "darwin":
+            assert args[:2] == [sys.executable, "-I"]
+            assert args[2].endswith("descriptor_process.py")
+            assert args[3] == str(fd)
+            assert os.fstat(fd).st_ino == git_root.stat().st_ino
+            args = args[4:]
+            assert args[3] == "."
+        else:
+            assert args[3] == f"/proc/self/fd/{fd}"
+            assert os.path.samefile(args[3], git_root)
+        assert args[:3] == ["git", "--no-optional-locks", "-C"]
         assert args[4] in {"rev-parse", "symbolic-ref"}
         assert kwargs["start_new_session"] is True
         assert kwargs["env"]["GIT_OPTIONAL_LOCKS"] == "0"
@@ -234,7 +242,11 @@ def test_git_inspection_pins_verified_root_during_path_swap(
             git_root.rename(moved)
             git_root.mkdir()
         (fd,) = kwargs["pass_fds"]
-        assert os.path.samefile(args[3], moved)
+        if sys.platform == "darwin":
+            assert args[3] == str(fd)
+            assert os.fstat(fd).st_ino == moved.stat().st_ino
+        else:
+            assert os.path.samefile(args[3], moved)
         pinned_stats.append(os.fstat(fd))
         return original_run(args, **kwargs)
 

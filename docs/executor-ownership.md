@@ -64,21 +64,36 @@ could create a second inode and defeat pathname-only locking.
   publication but still deny DELETE. DB/lock file pins and identity checks retain
   their protections; repository/coding filesystem sharing is unchanged.
   Handles and CRT descriptors are non-inheritable. Locks disappear on process death.
+- Native macOS: permanent-sidecar `flock(LOCK_EX | LOCK_NB)` plus Darwin
+  `F_OFD_SETLK` on byte zero of the pinned database inode. OFD ownership survives
+  unrelated descriptor closure and releases on the final close/process crash.
+  SQLite's normal local APFS VFS uses POSIX transaction locks in
+  `[0x40000000, 0x40000200)`; byte zero is disjoint. No whole-file database flock
+  or process-scoped ownership fcntl lock is used. Same-process inode aliases are
+  reserved before opening another DB descriptor, because closing any such extra
+  descriptor could drop SQLite's process-scoped transaction locks. Sidecar cold
+  creation retries one identical no-follow open after APFS concurrent-create
+  ENOENT, with no lock waiting or stale-file removal. Missing APIs fail closed.
 - The process-local registry remains for independently composed engines and
   in-memory SQLite. A losing owner never reaches schema/recovery or executor launch.
 
 References: [Python CRT locking](https://docs.python.org/3/library/msvcrt.html),
-[Linux flock semantics](https://man7.org/linux/man-pages/man2/flock.2.html).
+[Linux flock semantics](https://man7.org/linux/man-pages/man2/flock.2.html),
+[Darwin OFD definitions](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/fcntl.h),
+[Darwin OFD lifetime](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_descrip.c),
+[SQLite Unix VFS](https://github.com/sqlite/sqlite/blob/master/src/os_unix.c).
 
 ## Filesystem and alias policy
 
 Supported persistent storage is Linux local ext-family, XFS, Btrfs or tmpfs, or
-native Windows fixed local NTFS. Unknown filesystems fail closed, including NFS,
-SMB, FUSE and overlay filesystems. Other POSIX platforms currently fail closed:
-BSD/macOS database flock may interact with SQLite locking and is not represented
-as validated Linux behavior. No distributed filesystem ownership is promised.
+native Windows fixed local NTFS, or native macOS local APFS. Unknown filesystems
+fail closed, including HFS+, NFS, SMB, FUSE and overlay filesystems. Other POSIX
+platforms fail closed. Darwin whole-file database flock can interfere with SQLite;
+the port instead uses a disjoint OFD byte lock, tested with independent SQLite
+writers in rollback and WAL modes. Custom SQLite builds/VFSes using flock are
+unsupported; URI/VFS overrides remain refused. No distributed ownership is promised.
 
-Use a trusted operator-controlled storage directory and ancestry. On Linux the
+Use a trusted operator-controlled storage directory and ancestry. On Linux/macOS the
 immediate parent and files must be owned by the effective user; parent/database
 must not be group/world writable. Sidecars are created 0600 and existing sidecars
 must remain private. Windows uses the storage directory's inherited operator ACL;
@@ -97,9 +112,10 @@ reparse ancestry and aliases not matching the resolved final handle path. Case-s
 
 Database and sidecar must be regular files with exactly one hardlink. This is
 checked at acquisition and before every SQL statement while owned. A new hardlink
-makes both live SQL and alias acquisition fail closed on Linux and Windows.
+makes both live SQL and alias acquisition fail closed on all supported hosts.
 Some Windows handle/directory configurations deny link creation earlier; the
-ownership guarantee does not depend on that incidental denial. Linux retains descriptors and rechecks inode,
+ownership guarantee does not depend on that incidental denial. Linux/macOS retain
+descriptors and recheck inode,
 parent and pathname identity before SQL: replacement/deletion fails closed; a
 contender at the original path still encounters the permanent sidecar. Windows
 handles prevent replacement for their lifetime. Never replace, rename, chmod or
@@ -134,7 +150,8 @@ starts, forced kill/recovery, startup failure/cancellation, aliases and restart.
 Workspace rows in the crash/contention test are synthetic metadata and use the real
 workspace recovery method; existing coding suites validate real managed worktrees.
 All unmarked cross-process tests run on both hosted platforms. `windows` tests use
-real native locks/NTFS; `posix` tests use real Linux descriptors, never Windows mocks.
-CI's six Linux/Windows × Python 3.12/3.13/3.14 jobs also run installed-wheel,
+real native locks/NTFS; `posix` tests use real Linux/Darwin descriptors, never mocks.
+Native `macos` tests additionally verify APFS OFD/SQLite coexistence and aliases.
+CI's nine Linux/Windows/macOS × Python 3.12/3.13/3.14 jobs also run installed-wheel,
 migrations, MCP discovery, Companion, coding and Task recovery regressions. Physical
 workstation/RTX 4080, live Ollama and real model-driven Codex acceptance remain #31.

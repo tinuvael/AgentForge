@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import sys
 from uuid import UUID
 
 import httpx
@@ -70,13 +69,7 @@ def cloud(request, coding, database, tmp_path, monkeypatch):
     "agent",
     [
         "general_agent",
-        pytest.param(
-            "coder",
-            marks=pytest.mark.skipif(
-                sys.platform not in {"linux", "win32"},
-                reason="Coding backend requires Linux or Windows; native macOS is #45",
-            ),
-        ),
+        "coder",
     ],
 )
 def test_mcp_tool_rounds_durable_history_companion_and_worktree(cloud, coding, agent):

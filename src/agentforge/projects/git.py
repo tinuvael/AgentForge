@@ -1,6 +1,7 @@
 """Offline, read-only Git observations without parsing repository internals."""
 
 import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,22 +40,27 @@ def _inspect_posix_git(root_fd: int) -> GitMetadata:
     Global/system configuration and optional locks are disabled. These separate
     reads are best effort, not an atomic snapshot of a concurrently changing repo.
     """
-    from agentforge.projects.backends import GitLocation
+    from agentforge.projects.backends import POSIX, GitLocation
     from agentforge.tools.errors import GitFailure, GitTimeout, GitUnavailable
     from agentforge.tools.git_backend import _run_git
 
     observed_at = datetime.now(UTC)
     env = git_environment()
     root = Path(f"/proc/self/fd/{root_fd}")
-    if not root.is_dir():
+    if sys.platform != "darwin" and not root.is_dir():
         # No pathname fallback: Git is observationally unavailable without a
         # descriptor-backed cwd, rather than inspecting an unverified replacement.
         return GitMetadata(status="unavailable", observed_at=observed_at)
+    location = (
+        POSIX.git_location(None, root_fd)
+        if sys.platform == "darwin"
+        else GitLocation(str(root), (root_fd,))
+    )
 
     def run(*args: str):
         result = _run_git(
-            ["git", "--no-optional-locks", "-C", str(root), *args],
-            GitLocation(str(root), (root_fd,)),
+            ["git", "--no-optional-locks", "-C", location.cwd, *args],
+            location,
             4096,
             environment=env,
             allow_failure=True,

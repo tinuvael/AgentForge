@@ -441,5 +441,9 @@ Before declaring device acceptance, record versions and actual evidence for:
 - FieldForge revision handoff via Git and independent Xcode/simulator/device build
   on MacBook. Confirm that untransferred Mac-local edits remain invisible.
 
-No workstation, tailnet, RTX 4080, real Ollama, Xcode or macOS execution-host
+An optional [Mac-local instance](macos.md) can inspect dirty Mac-local sources;
+it has separate storage and Project/Task IDs. This does not change the Windows
+Gateway or share either host's filesystem state.
+
+No workstation, tailnet, RTX 4080, real Ollama, Xcode or physical macOS execution-host
 acceptance is claimed by this implementation or its scripted tests.
