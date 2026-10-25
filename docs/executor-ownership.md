@@ -96,9 +96,10 @@ case aliases through NTFS, rejects alternate streams, device/UNC paths,
 reparse ancestry and aliases not matching the resolved final handle path. Case-sensitive Windows directories are unsupported.
 
 Database and sidecar must be regular files with exactly one hardlink. This is
-checked at acquisition and before every SQL statement while owned. Linux rejects
-SQL after a new hardlink is created; native Windows sharing denies creation of
-the new hardlink itself while the owner holds its handles. Linux retains descriptors and rechecks inode,
+checked at acquisition and before every SQL statement while owned. A new hardlink
+makes both live SQL and alias acquisition fail closed on Linux and Windows.
+Some Windows handle/directory configurations deny link creation earlier; the
+ownership guarantee does not depend on that incidental denial. Linux retains descriptors and rechecks inode,
 parent and pathname identity before SQL: replacement/deletion fails closed; a
 contender at the original path still encounters the permanent sidecar. Windows
 handles prevent replacement for their lifetime. Never replace, rename, chmod or

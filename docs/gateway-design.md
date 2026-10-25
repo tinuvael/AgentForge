@@ -61,7 +61,10 @@ MoveFileEx plus DELETE sharing alone does not provide this behavior. The databas
 owner's directory pins allow WRITE sharing for child-file publication while still
 denying DELETE; DB/sidecar pins, identity checks and repository/coding handles
 retain their protections. This permits policy beside an owned DB without relaxing
-its replacement/ancestry boundary. The already
+its replacement/ancestry boundary. Directory WRITE sharing may permit new
+hardlinks; the existing link-count guard then refuses both live SQL mutation and
+alias ownership before recovery. No assumption that link creation itself is
+always denied is used. The already
 flushed temporary file is renamed and FlushFileBuffers confirms publication via
 its write-through handle. Unsupported platforms fail closed; no in-place fallback.
 This preserves live per-request/per-operation checks and stream revalidation.
