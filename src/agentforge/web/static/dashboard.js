@@ -15,7 +15,7 @@
   };
   const editing = (node) => node && (
     node.contains(document.activeElement) &&
-    document.activeElement.matches('input, select, textarea, button, summary, a') ||
+    document.activeElement.matches('input, select, textarea, button, summary, a, [tabindex="0"]') ||
     node.querySelector('input[type="checkbox"]:checked, form[aria-busy="true"]')
   );
   const refresh = () => {
@@ -45,6 +45,9 @@
     }, 200);
   };
   const connect = () => {
+    const session = document.getElementById('director-session');
+    const conversationState = document.querySelector('.director-conversation[aria-current="page"] small');
+    if (session && conversationState) conversationState.textContent = session.dataset.state;
     const node = document.getElementById('task-detail') || document.getElementById('council-detail');
     if (!node) return;
     const active = ['queued', 'running'].includes(node.dataset.state);

@@ -86,6 +86,7 @@ def test_detail_navigation_filters_and_fragments_keep_dom_identity(setup):
             assert fragment.text.count('id="task-detail"') == 1
             assert "<!doctype" not in fragment.text
             assert "&lt;script&gt;" in fragment.text
+            assert '<pre tabindex="0">' in fragment.text
             filtered = await client.get(
                 "/tasks?state=completed", headers={"HX-Request": "true"}
             )
@@ -165,6 +166,7 @@ def test_director_long_output_restoration_and_active_task_recovery(setup, tmp_pa
                     response = await client.get(path)
                     assert response.status_code == 200
                     assert "Read full message" in response.text
+                    assert 'aria-label="Full message" tabindex="0"' in response.text
                     assert "&lt;unsafe&gt;" in response.text
                     assert 'id="director-message"' in response.text
                     assert "Restore known Task results" in response.text

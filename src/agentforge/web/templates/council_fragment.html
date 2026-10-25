@@ -13,12 +13,12 @@
     <button type="submit">Cancel remaining participants</button>
     <p>Queued participants will not execute. Running cancellation is cooperative; remote inference may continue.</p>
   </form>{% endif %}
-  <h2>Request</h2><pre>{{ detail.request }}</pre>
+  <h2>Request</h2><pre tabindex="0">{{ detail.request }}</pre>
   {% for p in council.participants %}{% set index = loop.index0 %}{% set t = detail.telemetry[index] %}
   <article class="council-participant"><h2>Participant {{ loop.index }} · {{ p.worker_id }}</h2>{{ badge(p.state) }}
     <dl class="facts"><dt>Task</dt><dd><a href="/tasks/{{ p.task_id }}"><code>{{ p.task_id }}</code></a></dd><dt>Provider / model</dt><dd>{{ p.provider|known }} / {{ p.model|known }}</dd><dt>Termination / error</dt><dd>{{ p.reason|known }} / {{ p.error_code|known }}</dd><dt>Cancellation requested (UTC)</dt><dd>{{ p.cancellation_requested_at|known }}</dd><dt>Telemetry coverage</dt><dd>{{ p.telemetry_status }}</dd></dl>
     {% if t %}<dl class="facts metrics"><dt>Execution runtime</dt><dd>{{ t.execution_duration_seconds|seconds }}</dd><dt>Prompt tokens</dt><dd>{{ t.prompt_tokens|known }}</dd><dt>Completion tokens</dt><dd>{{ t.completion_tokens|known }}</dd><dt>Token accounting</dt><dd>{{ 'complete' if t.token_usage_complete else 'partial / incomplete' }}</dd><dt>Observed prompt tokens / covered turns</dt><dd>{{ t.observed_prompt_tokens|known }} / {{ t.prompt_observed_turns }} of {{ t.model_call_count|known }}</dd><dt>Observed completion tokens / covered turns</dt><dd>{{ t.observed_completion_tokens|known }} / {{ t.completion_observed_turns }} of {{ t.model_call_count|known }}</dd><dt>Observed throughput (tokens/s)</dt><dd>{{ t.tokens_per_second|known }}</dd></dl>{% endif %}
-    <h3>Final answer</h3><pre>{{ detail.answers[index] if detail.answers[index] is not none else 'No final answer.' }}</pre>
+    <h3>Final answer</h3><pre tabindex="0">{{ detail.answers[index] if detail.answers[index] is not none else 'No final answer.' }}</pre>
   </article>{% endfor %}
   {% if detail.text_truncated %}<p>Long request/result text truncated for display.</p>{% endif %}
 </section>

@@ -60,7 +60,8 @@ large gradients, decorative metrics or entrance animations. Hover transitions
 Skip-to-main; semantic headings, tables and scoped headers; descriptive control
 labels; visible 2px cyan keyboard focus with 4px offset; status text as well as
 color; locally drawn decorative SVGs hidden from assistive technology. No forced
-scroll-to-bottom. Scroll containers retain keyboard access. No zoom restrictions.
+scroll-to-bottom. Table, long-message, activity and preformatted output scroll containers retain
+keyboard access. Refresh also defers while these reading regions are focused. No zoom restrictions.
 
 HTMX owns snapshots, never inference. Task refresh defers during focused controls
 or checked confirmations. Director polling defers during focused controls. Open

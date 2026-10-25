@@ -48,7 +48,8 @@ All records came from the offline fixture server documented in [README](README.m
 | 390 | Fits | Contained table | Contained table | Contained table | Contained table | Stacked workspace, six-route navigation |
 
 For these 28 route/viewport combinations, document scroll width equalled viewport
-width; each had one main element and all six real navigation links. Full UUIDs,
+width; each had one main element and all six real navigation links. The active
+Director also fit 375×812 and 844×390 landscape without page overflow. Full UUIDs,
 models and dates were retained. See the committed desktop/mobile screenshots,
 plus [tablet](screenshots/after-director-tablet-768.jpg),
 [laptop](screenshots/after-tasks-laptop-1024.jpg) and
@@ -57,7 +58,10 @@ plus [tablet](screenshots/after-director-tablet-768.jpg),
 Browser interaction checks:
 
 - Skip link focused `main`; native conversation disclosure operated with Space;
-  focused summary displayed a solid outline.
+  focused summary displayed a solid outline. A 5,590-character message was
+  expanded and scrolled to its end with keyboard input (1,398px scroll range),
+  retaining visible focus. Activity and preformatted output regions are also
+  keyboard-focusable; reading focus pauses refresh.
 - HTMX filtering retained the selected state, produced the expected single
   result and retained exactly one `task-table` element.
 - Created a conversation, selected a Worker, submitted a request containing
