@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import struct
+import sys
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
@@ -56,6 +57,17 @@ class WorkspaceGit:
                 worktree.path
                 if isinstance(worktree, WindowsDirectory)
                 else repository.path
+            )
+        elif sys.platform == "darwin":
+            # Fixed manager commands access only objects/refs/index/admin data.
+            # Anchor cwd at the pinned metadata itself; commondir stays relative.
+            # File inspection/diffs use the separate descriptor filesystem path.
+            gitdir = tree = "."
+            location = GitLocation(
+                ".",
+                (metadata.fd,),
+                executable=str(executable),
+                cwd_descriptor=metadata.fd,
             )
         else:
             repo_fd, meta_fd = repository.fd, metadata.fd
@@ -202,7 +214,9 @@ def pinned_repository(filesystem, path, identity, executable):
         else:
             from agentforge.projects.filesystem import regular_file
 
-            stack.enter_context(regular_file(exe_root.fd, executable.name))
+            stack.enter_context(
+                regular_file(exe_root.fd, executable.name, trusted_executable=True)
+            )
         git = WorkspaceGit(executable, repo, meta)
         for name in (
             "commondir",

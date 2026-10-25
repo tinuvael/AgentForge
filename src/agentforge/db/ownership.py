@@ -48,6 +48,11 @@ def _local_posix(fd):
             0x9123683E,
             0x01021994,
         }  # ext, XFS, Btrfs, tmpfs
+    elif sys.platform == "darwin":
+        from agentforge.projects.darwin import local_apfs
+
+        local_apfs(fd)
+        return
     else:
         raise ExecutorOwnershipError(UNSAFE_MESSAGE)
     function.argtypes = [ctypes.c_int, ctypes.c_void_p]
@@ -75,6 +80,82 @@ def _lock(fd):
         if error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
             raise ExecutorOwnershipError(BUSY_MESSAGE) from None
         raise ExecutorOwnershipError(UNSAFE_MESSAGE) from None
+
+
+def _darwin_database_lock(fd):
+    """OFD byte zero, disjoint from SQLite's POSIX [0x40000000, +512) locks.
+
+    Unlike flock on Darwin, this is not a whole-file lock competing with SQLite.
+    Unlike process fcntl locks it survives closing unrelated descriptors. Never
+    use a wait variant, PID record, URI VFS override or network filesystem.
+    """
+    import fcntl
+
+    class Flock(ctypes.Structure):
+        _fields_ = [
+            ("start", ctypes.c_int64),
+            ("length", ctypes.c_int64),
+            ("pid", ctypes.c_int32),
+            ("type", ctypes.c_int16),
+            ("whence", ctypes.c_int16),
+        ]
+
+    value = Flock(0, 1, 0, fcntl.F_WRLCK, os.SEEK_SET)
+    # Public Darwin ABI from sys/fcntl.h. Some supported CPython builds (notably
+    # the hosted 3.12 binary) omit this constant despite a capable native kernel.
+    # Calling the same syscall by number preserves OFD semantics; an unsupported
+    # kernel/filesystem still fails closed through its actual errno below.
+    operation = 90  # F_OFD_SETLK, not Linux's numerically different command.
+    try:
+        fcntl.fcntl(fd, operation, bytes(value))
+    except OSError as error:
+        if error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+            raise ExecutorOwnershipError(BUSY_MESSAGE) from None
+        raise ExecutorOwnershipError(UNSAFE_MESSAGE) from None
+
+
+def _open_posix_file(directory, name):
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        return os.open(name, flags, 0o600, dir_fd=directory)
+    except FileNotFoundError:
+        if sys.platform != "darwin":
+            raise
+        # Native APFS concurrent first creation can return ENOENT. Repeat the
+        # identical no-follow open once, never wait for or replace a locked file.
+        return os.open(name, flags, 0o600, dir_fd=directory)
+
+
+def _discard_key(key):
+    with _OWNERS_LOCK:
+        _OWNERS.discard(key)
+
+
+def _open_darwin_database(directory, name, resources):
+    # Reject same-process inode aliases BEFORE opening another DB descriptor.
+    # Closing any extra DB descriptor could drop SQLite's process POSIX locks,
+    # even though our own OFD lock survives. No SQL runs during this reservation.
+    with _OWNERS_LOCK:
+        try:
+            observed = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            observed = None
+        if observed is not None:
+            key = ("darwin", observed.st_dev, observed.st_ino)
+            if key in _OWNERS:
+                raise ExecutorOwnershipError(BUSY_MESSAGE)
+        fd = _open_posix_file(directory, name)
+        resources.callback(os.close, fd)
+        actual = os.fstat(fd)
+        if observed is not None and (actual.st_dev, actual.st_ino) != (
+            observed.st_dev,
+            observed.st_ino,
+        ):
+            raise ExecutorOwnershipError(UNSAFE_MESSAGE)
+        key = ("darwin", actual.st_dev, actual.st_ino)
+        _OWNERS.add(key)
+        resources.callback(_discard_key, key)
+    return fd
 
 
 class DatabaseOwnership:
@@ -160,13 +241,11 @@ class DatabaseOwnership:
         sidecar = path.with_name(path.name + ".agentforge.lock")
         pins = []
         for name in (sidecar.name, path.name):
-            fd = os.open(
-                name,
-                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
-                0o600,
-                dir_fd=directory,
-            )
-            resources.callback(os.close, fd)
+            if sys.platform == "darwin" and name == path.name:
+                fd = _open_darwin_database(directory, name, resources)
+            else:
+                fd = _open_posix_file(directory, name)
+                resources.callback(os.close, fd)
             info = os.fstat(fd)
             if (
                 not stat.S_ISREG(info.st_mode)
@@ -177,8 +256,12 @@ class DatabaseOwnership:
             ):
                 raise ExecutorOwnershipError(UNSAFE_MESSAGE)
             # Also lock the DB inode: rename/bind aliases cannot evade ownership.
-            # Local flock does not overlap SQLite's POSIX byte-range locks.
-            _lock(fd)
+            # Linux flock is separate from SQLite locks; Darwin uses a disjoint
+            # OFD byte range instead of a whole-file database flock.
+            if sys.platform == "darwin" and name == path.name:
+                _darwin_database_lock(fd)
+            else:
+                _lock(fd)
             pins.append((name, fd, (info.st_dev, info.st_ino)))
 
         def verify():

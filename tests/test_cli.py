@@ -656,7 +656,8 @@ def test_validator_keeps_strict_policy_when_it_uses_git_executable(
         config=config, filesystem=Backend(), parent=config.workspace_parent
     )
     monkeypatch.setattr(
-        "agentforge.coding.inspection.posix.regular_file", lambda *_: nullcontext()
+        "agentforge.coding.inspection.posix.regular_file",
+        lambda *_, **kwargs: nullcontext(),
     )
     monkeypatch.setattr("agentforge.coding.inspection.os.access", lambda *_: True)
     with pytest.raises(CodingError, match="Validator installation is unsafe"):

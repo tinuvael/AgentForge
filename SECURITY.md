@@ -46,10 +46,15 @@ structured arguments; model text and repository instructions never grant authori
 Repo Explorer is read-only. Coding tools bind to a dedicated Task worktree and
 preserve primary files/index/HEAD. Runtime never commits, pushes, merges or opens PRs.
 
-POSIX read-only access rejects symlinks/special files and detects changes, but
+Linux read-only access rejects symlinks/special files and detects changes, but
 allows regular-file hardlinks and does not claim mount containment. POSIX coding
 additionally rejects hardlinks and directory/file mount transitions. Native
-Windows requires ordinary local fixed NTFS, pinned ancestry, single-link files
+macOS requires local APFS, rejects repository hardlinks, mount transitions and
+case/Unicode aliases, and uses no-follow descriptor access. Its child-process
+cwd uses `fchdir` on the inherited authorized descriptor. Trusted configured
+executable pins allow Apple's system hardlinks; repository files do not.
+See [macOS policy and physical acceptance](docs/macos.md).
+Native Windows requires ordinary local fixed NTFS, pinned ancestry, single-link files
 and no reparse points or ambiguous aliases. Unsupported access fails closed.
 Detailed guarantees and limits: [repository tools](docs/repository.md),
 [Windows security](docs/windows-repository-security.md), [coding](docs/coding.md).

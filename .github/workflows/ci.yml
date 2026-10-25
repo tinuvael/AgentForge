@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025]
+        os: [ubuntu-24.04, windows-2025, macos-15]
         python: ['3.12', '3.13', '3.14']
     env:
       PYTHONUTF8: '1'
@@ -78,6 +78,9 @@ jobs:
         run: python scripts/ci_report.py environment
       - name: Regression suite (includes native platform and multi-client HTTP MCP)
         run: python -m pytest -ra --tb=short --junitxml=reports/pytest.xml
+      - name: Native APFS case variants, security and coding acceptance
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        run: python scripts/ci_macos_apfs.py
       - name: Lint
         if: ${{ !cancelled() }}
         run: ruff check .

@@ -2,6 +2,7 @@
 
 import os
 import signal
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -20,6 +21,14 @@ class GitLocation:
     prefix: str | None = None
     repository_root: Path | None = None
     executable: str = "git"
+    cwd_descriptor: int | None = None
+
+    def command(self, argv):
+        if self.cwd_descriptor is not None:
+            from agentforge.projects.descriptor_process import command
+
+            return command(argv, self.cwd_descriptor)
+        return argv
 
     @property
     def isolated(self):
@@ -60,7 +69,17 @@ class SafeFilesystemBackend(Protocol):
 
 class PosixSafeFilesystemBackend:
     canonical_root = staticmethod(canonical_project_root)
-    walk_files = staticmethod(posix.walk_files)
+
+    def walk_files(self, directory, parts=(), *, include=None):
+        if sys.platform == "darwin":
+
+            def allowed(candidate):
+                return self.automatic(candidate) and (
+                    include is None or include(candidate)
+                )
+        else:
+            allowed = include
+        return posix.walk_files(directory, parts, include=allowed)
 
     def directory(self, root, parts, *, expected=None):
         return posix.anchored_directory(root, parts)
@@ -92,6 +111,8 @@ class PosixSafeFilesystemBackend:
         return posix.regular_file(directory, name)
 
     def git_location(self, root, handle):
+        if sys.platform == "darwin":
+            return GitLocation(".", (handle,), cwd_descriptor=handle)
         cwd = f"/proc/self/fd/{handle}"
         if not Path(cwd).is_dir():
             raise GitUnavailable("Git tools require Linux descriptor-backed cwd")
@@ -116,7 +137,7 @@ class PosixSafeFilesystemBackend:
     def excluded_directory(self, name):
         from agentforge.projects.exclusions import excluded_directory
 
-        return excluded_directory(name)
+        return excluded_directory(name.casefold() if sys.platform == "darwin" else name)
 
     def require_public(self, parts):
         from agentforge.tools.policy import require_public

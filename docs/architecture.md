@@ -203,11 +203,21 @@ secret scrubber. Telemetry stores identities, safe codes, counts and timings;
 unknown observations stay null. See [Tasks and telemetry](tasks.md).
 
 Live repository access uses identity-checked POSIX descriptors or native local
-NTFS handles, with fail-closed authorization. Read-only POSIX tools and coding
-have different hardlink/mount guarantees; Windows rejects reparse points,
+NTFS handles, with fail-closed authorization. Native macOS adapts the descriptor
+backend to local APFS with `F_GETPATH` spelling checks, single-link files and
+mount containment. Git/validators inherit a descriptor through an `fchdir`/exec
+child, without threaded `preexec_fn` or unchecked pathname cwd. Coding Git runs
+fixed metadata commands at its pinned admin directory; the manager compares
+authorized files with immutable Git blobs. Linux retains `/proc` and `renameat2`;
+Darwin uses `renameatx_np(RENAME_EXCL)`. No new runtime/Provider is introduced.
+Linux read-only tools and coding have different hardlink/mount guarantees;
+Windows rejects reparse points,
 ambiguous names and multi-link files. Detailed policies and budgets are in
 [repository operations](repository.md), [Windows security](windows-repository-security.md)
-and [coding](coding.md). Git metadata, executable installation, operator settings,
+and [coding](coding.md). The [macOS guide](macos.md) defines APFS aliases and the
+separate local instance; Darwin SQLite ownership uses an inode OFD byte lock
+disjoint from SQLite's transaction locks plus the permanent sidecar. Git metadata,
+executable installation, operator settings,
 private runtime storage and the control-plane account are trusted.
 
 Validation is trusted host execution, **not an OS or network sandbox**. Fixed

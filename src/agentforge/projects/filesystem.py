@@ -2,6 +2,7 @@
 
 import os
 import stat
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -39,6 +40,12 @@ def anchored_root(root: Path, expected: tuple[int, int] | None = None):
             fd = child
         if expected is not None and identity(os.fstat(fd)) != expected:
             raise UnsafeProjectPath("Registered project root was replaced")
+        if sys.platform == "darwin":
+            from agentforge.projects.darwin import descriptor_path, local_apfs
+
+            local_apfs(fd)
+            if descriptor_path(fd) != str(root):
+                raise UnsafeProjectPath("macOS root aliases are unsupported")
         yield fd
         for parent, name, child in links:
             if identity(os.fstat(child)) != identity(
@@ -64,6 +71,12 @@ def anchored_directory(root_fd: int, parts: tuple[str, ...]):
                 name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
             )
             descriptors.append(child)
+            if sys.platform == "darwin":
+                from agentforge.projects.darwin import exact_name, local_apfs
+
+                exact_name(child, name)
+                if local_apfs(child) != local_apfs(root_fd):
+                    raise UnsafeProjectPath("macOS mount transitions are denied")
             links.append((fd, name, child))
             fd = child
         try:
@@ -82,15 +95,25 @@ def anchored_directory(root_fd: int, parts: tuple[str, ...]):
 
 
 @contextmanager
-def regular_file(directory_fd: int, name: str):
+def regular_file(directory_fd: int, name: str, *, trusted_executable=False):
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
     with os.fdopen(fd, "rb") as file:
         before = os.fstat(file.fileno())
         if not stat.S_ISREG(before.st_mode):
             raise UnsafeProjectPath("Only regular files can be read")
+        if sys.platform == "darwin":
+            from agentforge.projects.darwin import exact_name, local_apfs
+
+            exact_name(file.fileno(), name)
+            if local_apfs(file.fileno()) != local_apfs(directory_fd):
+                raise UnsafeProjectPath("macOS file mounts are denied")
+        if sys.platform == "darwin" and not trusted_executable and before.st_nlink != 1:
+            raise UnsafeProjectPath("macOS repository hardlinks are denied")
         yield file
         after = os.fstat(file.fileno())
         current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if sys.platform == "darwin" and not trusted_executable and after.st_nlink != 1:
+            raise UnsafeProjectPath("macOS file acquired another link")
         if identity(before) != identity(current) or (
             before.st_size,
             before.st_mtime_ns,

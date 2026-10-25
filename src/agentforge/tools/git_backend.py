@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,7 @@ def _run_git(argv, location, budget: int, *, environment, allow_failure=False):
     """Drain both pipes concurrently with fixed memory; stop excess output."""
     try:
         with subprocess.Popen(
-            argv,
+            location.command(argv),
             env=environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -46,6 +47,13 @@ def _run_git(argv, location, budget: int, *, environment, allow_failure=False):
 
             def stop():
                 location.stop(process)
+
+            if sys.platform == "darwin" and not location.isolated:
+                from agentforge.projects.descriptor_process import group_stopper
+
+                stop = group_stopper(
+                    process, signal_group=lambda: location.stop(process)
+                )
 
             def drain(stream, index, cap):
                 while chunk := stream.read(8192):

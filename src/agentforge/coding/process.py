@@ -4,6 +4,7 @@ import asyncio
 import os
 import signal
 import subprocess
+import sys
 from time import monotonic
 
 
@@ -129,6 +130,10 @@ async def validation_process(
             if job
             else {"start_new_session": True, "pass_fds": pass_fds}
         )
+        if sys.platform == "darwin" and pass_fds:
+            from agentforge.projects.descriptor_process import command
+
+            argv, cwd = command(argv, pass_fds[0]), None
         process = subprocess.Popen(
             argv,
             cwd=cwd,
@@ -149,9 +154,17 @@ async def validation_process(
             if resume(int(process._handle)) != 0:
                 raise OSError("Validation could not resume safely")
 
+        stop_group = None
+        if sys.platform == "darwin":
+            from agentforge.projects.descriptor_process import group_stopper
+
+            stop_group = group_stopper(process)
+
         def stop():
             if job:
                 job.stop()
+            elif stop_group:
+                stop_group()
             else:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)

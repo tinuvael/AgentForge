@@ -6,6 +6,7 @@ import platform
 import sqlite3
 import subprocess
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree
@@ -26,6 +27,21 @@ def environment():
         "run_sha": os.environ.get("GITHUB_SHA"),
         "runner_image": os.environ.get("ImageVersion"),
     }
+    if sys.platform == "darwin":
+        from agentforge.projects.darwin import filesystem, local_apfs
+
+        facts["macos_version"] = platform.mac_ver()[0]
+        for label, directory in (
+            ("checkout", ROOT),
+            ("temporary", tempfile.gettempdir()),
+        ):
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                facts[label + "_filesystem"] = filesystem(fd).name.decode("ascii")
+                # Fail preflight instead of labeling a skipped test APFS acceptance.
+                local_apfs(fd)
+            finally:
+                os.close(fd)
     (REPORTS / "environment.json").write_text(
         json.dumps(facts, indent=2) + "\n", encoding="utf-8"
     )
@@ -73,12 +89,22 @@ def summary():
         ]
     else:
         lines += ["", "Pytest report unavailable; no regression success claim."]
+    if sys.platform == "darwin":
+        for label in ("case-sensitive", "case-insensitive"):
+            image_result = REPORTS / f"apfs-{label}.json"
+            lines += [
+                "",
+                f"Native {label} APFS image acceptance: "
+                + ("passed" if image_result.exists() else "not verified")
+                + ".",
+            ]
     wheel = REPORTS / "wheel.json"
     lines += [
         "",
         "Clean installed wheel: " + ("passed" if wheel.exists() else "not verified"),
         "",
-        "Physical Windows/Ollama/RTX 4080 acceptance (#31): NOT RUN. "
+        "Physical MacBook/APFS/FieldForge/Xcode and Windows/Ollama/RTX 4080 "
+        "acceptance (#31): NOT RUN. "
         "Hosted Windows tests exercise runner NTFS/Git/SQLite only. "
         "Native symlink privilege skips remain explicit in JUnit. "
         "Live remote inference is never part of default CI.",

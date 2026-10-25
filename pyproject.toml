@@ -42,6 +42,7 @@ addopts = "--import-mode=importlib"
 markers = [
     "windows: requires actual native Windows execution",
     "posix: exercises POSIX-specific descriptors, symlink semantics or race seams",
+    "macos: requires actual native Darwin and local APFS",
 ]
 
 [tool.ruff]

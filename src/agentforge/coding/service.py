@@ -4,6 +4,7 @@ import difflib
 import hashlib
 import os
 import stat
+import sys
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
@@ -1034,7 +1035,15 @@ class CodingSession:
             with backend.anchored_root(
                 executable.parent, backend.observe_root(executable.parent)
             ) as directory:
-                with backend.regular_file(directory, executable.name):
+                if sys.platform == "darwin" and executable.parent == Path("/usr/bin"):
+                    from agentforge.projects.filesystem import regular_file
+
+                    opened = regular_file(
+                        directory.fd, executable.name, trusted_executable=True
+                    )
+                else:
+                    opened = backend.regular_file(directory, executable.name)
+                with opened:
                     cwd = (
                         root.path
                         if isinstance(root, WindowsDirectory)

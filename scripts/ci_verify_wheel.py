@@ -1,4 +1,4 @@
-"""Run the existing installed smoke in a clean external venv on Linux/Windows."""
+"""Run installed smoke in a clean external venv on Linux, Windows and macOS."""
 
 import hashlib
 import json
