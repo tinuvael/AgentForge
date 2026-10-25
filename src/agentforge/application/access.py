@@ -26,6 +26,7 @@ Tool = Literal[
     "describe_capabilities",
     "list_projects",
     "list_workers",
+    "suggest_workers",
     "list_agents",
     "delegate_task",
     "get_task",
@@ -48,7 +49,8 @@ class PolicyModel(BaseModel):
 
 class ProjectGrant(PolicyModel):
     project_id: UUID
-    # Explicit egress decision for this Project. Empty grants allow no Worker.
+    # Additional restriction; Project policy independently authorizes egress.
+    # Empty grants allow no Worker.
     workers: tuple[Name, ...] = Field(default=(), max_length=256)
 
 
@@ -57,7 +59,7 @@ class ClientPolicy(PolicyModel):
     token_sha256: str = Field(pattern=r"^[a-f0-9]{64}$", repr=False)
     enabled: bool = True
     expires_at: int | None = Field(default=None, ge=1)
-    tools: tuple[Tool, ...] = Field(default=(), max_length=15)
+    tools: tuple[Tool, ...] = Field(default=(), max_length=16)
     projects: tuple[ProjectGrant, ...] = Field(default=(), max_length=256)
     agents: tuple[Name, ...] = Field(default=(), max_length=256)
     read_shared: bool = False
@@ -179,6 +181,24 @@ class ClientApplication:
         ids = {w for p in client.projects for w in p.workers}
         return self.app.list_workers(limit=limit, offset=offset, authorized_ids=ids)
 
+    def suggest_workers(self, **fields):
+        client = self.require("suggest_workers")
+        self.binding(client, fields["project_id"], fields["agent_id"], ())
+        grant = next(p for p in client.projects if p.project_id == fields["project_id"])
+        result = self.app.suggest_workers(**fields, authorized_ids=grant.workers)
+        # Connection-wide counters can include other Projects/clients. Reveal the
+        # admission outcome and bounded cooldown, not their aggregate activity.
+        return result.model_copy(
+            update={
+                "candidates": tuple(
+                    candidate.model_copy(
+                        update={"requests_used": None, "tokens_used": None}
+                    )
+                    for candidate in result.candidates
+                )
+            }
+        )
+
     def list_agents(self, *, limit=100, offset=0):
         client = self.require("list_agents")
         return self.app.list_agents(
@@ -223,6 +243,7 @@ class ClientApplication:
                 field: tuple(t for t in getattr(current, field) if t in client.tools)
                 for field in (
                     "task_operations",
+                    "advisory_operations",
                     "council_operations",
                     "coding_operations",
                 )

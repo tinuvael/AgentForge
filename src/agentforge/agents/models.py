@@ -60,6 +60,7 @@ TerminationReason = Literal[
     "timeout",
     "provider_timeout",
     "provider_error",
+    "policy_denied",
     "invalid_configuration",
     "invalid_response",
     "security_error",

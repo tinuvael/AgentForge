@@ -1,6 +1,6 @@
 """Concrete inference target configuration, independent of protocol adapters."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -12,6 +12,7 @@ from pydantic import (
     model_validator,
 )
 
+from agentforge.core.capabilities import Capability
 from agentforge.core.rate_limits import RateLimitObservation
 
 NonBlank = Annotated[str, Field(min_length=1, pattern=r"\S")]
@@ -30,6 +31,11 @@ class Worker(BaseModel):
     provider_connection: NonBlank | None = None
     # Inline connection; preferred configurations use provider_connection.
     endpoint: HttpUrl | None = Field(default=None, repr=False)
+    kind: Literal["inference_worker"] = "inference_worker"
+    # Specialist executable Tools will have separate contracts in Issue #52.
+    capabilities: dict[Capability, bool | None] = Field(default_factory=dict)
+    # Inline Workers only; named connections own trust metadata.
+    trust: Literal["local", "cloud", "unknown"] = "unknown"
     context_window: int | None = Field(default=None, gt=0)
     supports_streaming: bool = False
     supports_tools: bool | None = None
@@ -48,6 +54,10 @@ class Worker(BaseModel):
 
     @model_validator(mode="after")
     def connection_binding(self):
+        if "tool_calling" in self.capabilities:
+            raise ValueError("Use supports_tools for tool_calling declarations")
+        if self.provider_connection is not None and self.trust != "unknown":
+            raise ValueError("Named connection owns trust classification")
         if (self.endpoint is None) == (self.provider_connection is None):
             raise ValueError(
                 "Supply exactly one connection reference or inline endpoint"

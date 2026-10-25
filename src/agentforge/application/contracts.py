@@ -15,6 +15,8 @@ from pydantic import (
 
 from agentforge.agents.models import RuntimeLimits
 from agentforge.coding.models import CodingResult
+from agentforge.core.capabilities import Capability, CapabilityDescriptor
+from agentforge.core.policy import ResourceBudget, TaskPolicy
 from agentforge.councils.models import MAX_PARTICIPANTS, CouncilHistoryItem
 from agentforge.tasks.models import TaskReason, TaskState
 from agentforge.tasks.observation import TRACE_LIMIT, Notice, TimelineEvent
@@ -28,6 +30,7 @@ RequestText = Annotated[
 ErrorCode = Literal[
     "access_denied",
     "resource_limit",
+    "policy_denied",
     "invalid_arguments",
     "coding_unavailable",
     "project_not_found",
@@ -61,6 +64,7 @@ class DelegateArguments(Contract):
     agent_id: Identifier
     worker_id: Identifier
     task: RequestText
+    task_policy: TaskPolicy = TaskPolicy()
 
 
 class TaskArguments(Contract):
@@ -75,6 +79,7 @@ class DelegateCouncilArguments(Contract):
     project_id: UUID
     agent_id: Identifier
     task: RequestText
+    task_policy: TaskPolicy = TaskPolicy()
     worker_ids: tuple[Identifier, ...] = Field(
         min_length=2, max_length=MAX_PARTICIPANTS
     )
@@ -123,6 +128,7 @@ class Capabilities(Contract):
     task_progress: Literal["request_scoped_mcp_progress; bounded_safe_snapshots"] = (
         "request_scoped_mcp_progress; bounded_safe_snapshots"
     )
+    advisory_operations: tuple[str, ...] = ("suggest_workers",)
     council_operations: tuple[str, ...]
     coding_operations: tuple[str, ...] = ()
     council_max_participants: Literal[16] = MAX_PARTICIPANTS
@@ -145,6 +151,11 @@ class ProjectInfo(Contract):
 
 class WorkerInfo(Contract):
     worker_id: Identifier
+    kind: Literal["inference_worker"] = "inference_worker"
+    transport: Literal["text_and_tools"] = "text_and_tools"
+    provider_connection: str | None = None
+    trust: Literal["local", "cloud", "unknown"] = "unknown"
+    capabilities: dict[Capability, CapabilityDescriptor] = Field(default_factory=dict)
     provider: Identifier
     model: str = Field(max_length=512)
     context_window: int | None
@@ -185,6 +196,9 @@ class ExecutionSummary(Contract):
 
 
 class TaskSnapshot(Contract):
+    provider: str | None = None
+    model: str | None = None
+    provider_connection: str | None = None
     task_id: UUID
     project_id: UUID
     agent_id: str
@@ -216,3 +230,40 @@ class TaskProgress(Contract):
     resync_required: bool
     truncated: bool
     timeline: tuple[TimelineEvent, ...] = Field(max_length=TRACE_LIMIT)
+
+
+class SuggestArguments(Contract):
+    project_id: UUID
+    agent_id: Identifier
+    required: tuple[Capability, ...] = Field(default=(), max_length=8)
+    preferred: tuple[Capability, ...] = Field(default=(), max_length=8)
+    min_context_window: Annotated[StrictInt, Field(ge=1, le=10_000_000)] | None = None
+    require_tools: bool = False
+    task_policy: TaskPolicy = TaskPolicy()
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 100
+    offset: Annotated[StrictInt, Field(ge=0, le=1_000_000)] = 0
+
+
+class Candidate(Contract):
+    worker: WorkerInfo
+    eligible: bool
+    hard_exclusions: tuple[Identifier, ...] = Field(max_length=16)
+    unknown_capabilities: tuple[Capability, ...] = Field(max_length=8)
+    preferred_supported: tuple[Capability, ...] = Field(max_length=8)
+    availability: Literal["unknown", "observed_available", "observed_unavailable"]
+    availability_observed_at: datetime | None
+    last_failure: str | None = Field(default=None, max_length=40)
+    failure_observed_at: datetime | None = None
+    cooldown_until: datetime | None = None
+    requests_used: int | None = None
+    tokens_used: int | None = None
+    token_usage_unknown: bool = False
+    configured_budget: ResourceBudget
+    remaining_quota: Literal["unknown"] = "unknown"
+    pricing: Literal["unknown"] = "unknown"
+
+
+class CandidateSuggestions(Contract):
+    candidates: tuple[Candidate, ...] = Field(max_length=100)
+    next_offset: int | None
+    explanation: str = Field(max_length=500)

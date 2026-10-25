@@ -202,3 +202,9 @@ running MCP and web separately on one database. See [Companion](companion.md).
 `agentforge codex install|inspect|enable|disable|uninstall` manages marked global
 MCP configuration and optional instructions. See [setup and safety](codex-integration.md)
 for explicit paths, dry runs, backups and the mandatory single-client restriction.
+
+
+`project egress <uuid> --mode local_only` or `--mode cloud_allowed` with repeated
+`--allow-connection <id>` sets durable operator authorization while executors are
+stopped. It requires `--database-url`; no remote/Agent tool can run this operation.
+Legacy/new Projects default to local-only. See [policy migration and examples](worker-policy.md).

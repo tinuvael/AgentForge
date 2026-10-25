@@ -76,6 +76,7 @@ Authenticated endpoint and a LAN endpoint:
 [[providers]]
 id = "remote-compatible"
 type = "openai_compatible"
+trust = "cloud"
 base_url = "https://example-compatible-provider.invalid/v1"
 api_key_env = "AGENTFORGE_REMOTE_API_KEY"
 # Opt in only if this backend supports it:
@@ -84,6 +85,7 @@ api_key_env = "AGENTFORGE_REMOTE_API_KEY"
 [[providers]]
 id = "lan-compatible"
 type = "openai_compatible"
+trust = "local" # Only after operator verification of LAN processing.
 base_url = "http://ai395.local:8000/v1"
 
 [[workers]]
@@ -281,8 +283,9 @@ is supported: one field of at most 128 characters, integer seconds or a timezone
 bearing HTTP date, normalized at observation time to 0–86400 seconds. Missing,
 duplicate, malformed, expired or larger values stay unknown (`rate_limits=null`),
 without clamping or echoing values. Nonstandard quota headers are ignored: remaining
-requests/tokens, account credits, reset schedules and prices stay unknown. There
-is no mutable connection-wide quota cache, retry, sleep, routing or enforcement.
+requests/tokens, account credits, reset schedules and prices stay unknown. The
+shared [policy layer](worker-policy.md) now maintains bounded connection
+admission counters and 429 cooldowns; adapters still never retry, sleep or route.
 Future nonstandard parsing needs an explicit tested header contract; arbitrary
 headers/error bodies must never be projected.
 
@@ -343,12 +346,12 @@ an unrelated rewrite of its native protocol or resource ownership.
 
 ## Repository data egress
 
-A remote/LAN/cloud Worker receives whatever model context and repository tool
-results AgentForge sends during that explicit execution. The Provider receives no
-direct filesystem access, but repository content can leave the central machine
-through HTTP context/tool results. Cloud Workers do **not** keep repository data
-local. Select Workers explicitly with this trust boundary in mind. Registering a
-Project does not send it to all Workers. There is no DLP policy engine.
+Project policy defaults to `local_only`; explicit Worker selection alone cannot
+permit cloud egress. Named connections declare `trust`, and cloud-enabled Projects
+must allowlist the exact connection ID. LAN processing requires explicit operator
+local trust. Task restrictions and Gateway grants can only narrow authorization.
+See [capability and policy design](worker-policy.md) for migration, declarations,
+advisory selection, budgets and the [five-target template](../config/workers.policy.example.toml).
 
 ## Implementing another inference protocol
 

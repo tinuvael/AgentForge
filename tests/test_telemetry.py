@@ -523,7 +523,7 @@ def test_running_cancellation_retains_observations(setup, telemetry, mode):
     assert provider.cleaned == 1
 
 
-def test_restart_unknown_runtime_and_refresh_pending_target(setup, telemetry):
+def test_restart_preserves_binding_and_denies_changed_pending_target(setup, telemetry):
     initial, _, _ = setup.build()
     orphan = setup.submit(initial)
     pending = setup.submit(initial)
@@ -533,14 +533,14 @@ def test_restart_unknown_runtime_and_refresh_pending_target(setup, telemetry):
     new_workers = WorkersConfig(
         workers=[setup.workers.workers[1].model_copy(update={"model": "new-model"})]
     )
-    replacement, _, _ = setup.build(workers=new_workers)
+    replacement, _, provider = setup.build(workers=new_workers)
     execute(replacement, pending)
     row = telemetry.get_for_task(orphan.task_id)
     assert (
         row.state == "failed"
         and row.reason == row.error_category == "execution_interrupted"
     )
-    assert row.model == "old-model" and row.queue_duration_seconds == 2
+    assert row.model == "model" and row.queue_duration_seconds == 2
     for field in (
         "execution_duration_seconds",
         "total_duration_seconds",
@@ -553,7 +553,9 @@ def test_restart_unknown_runtime_and_refresh_pending_target(setup, telemetry):
     ):
         assert getattr(row, field) is None
     resumed = telemetry.get_for_task(pending.task_id)
-    assert resumed.model == "new-model" and resumed.queue_duration_seconds is None
+    assert resumed.model == "model" and resumed.queue_duration_seconds is None
+    assert resumed.reason == "invalid_configuration"
+    assert resumed.model_call_count == 0 and not provider.workers
     assert (
         resumed.total_duration_seconds is None
         and resumed.execution_duration_seconds >= 0
@@ -603,9 +605,7 @@ def test_distinct_workers_providers_models_no_endpoint_storage_or_routing(
         assert telemetry.compare(group_by=field, limit=1, offset=2) == [groups[2]]
 
 
-def test_missing_worker_after_submit_is_not_replaced_and_comparison_stays_unknown(
-    setup, telemetry
-):
+def test_missing_worker_after_submit_preserves_known_binding(setup, telemetry):
     initial, _, _ = setup.build()
     task = setup.submit(initial, worker_id="home-i5")
     workers = WorkersConfig(workers=[setup.workers.workers[0]])
@@ -613,10 +613,12 @@ def test_missing_worker_after_submit_is_not_replaced_and_comparison_stays_unknow
     final = execute(engine, task)
     row = telemetry.get_for_task(task.task_id)
     assert final.reason == row.reason == "invalid_configuration"
-    assert row.worker_id == "home-i5" and row.provider is row.model is None
+    assert (
+        row.worker_id == "home-i5" and row.provider == "fake" and row.model == "model"
+    )
     assert row.model_call_count == 0 and not provider.workers
     group = telemetry.compare(group_by="provider")[0]
-    assert group.value is None and group.execution_count == group.failed_count == 1
+    assert group.value == "fake" and group.execution_count == group.failed_count == 1
     assert (
         group.observed_prompt_tokens
         is group.observed_completion_tokens
@@ -820,3 +822,20 @@ def test_safe_query_storage_failure(setup, telemetry):
         TelemetryUnavailable, match="Could not access telemetry storage"
     ):
         telemetry.list_telemetry()
+
+
+def test_legacy_unknown_target_stays_unknown_when_worker_is_missing(setup, telemetry):
+    task = setup.repository.add(
+        project_id=setup.project.id,
+        agent_id=setup.agent.id,
+        worker_id="removed-worker",
+        request="Legacy request",
+    )
+    engine, _, provider = setup.build()
+    final = execute(engine, task)
+    row = telemetry.get_for_task(task.task_id)
+    assert final.reason == row.reason == "invalid_configuration"
+    assert row.provider is row.model is None and row.worker_id == "removed-worker"
+    assert row.model_call_count == 0 and not provider.workers
+    group = telemetry.compare(group_by="provider")[0]
+    assert group.value is None and group.execution_count == group.failed_count == 1

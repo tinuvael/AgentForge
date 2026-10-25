@@ -35,6 +35,7 @@ class CouncilParticipant(BaseModel):
     worker_id: str
     task_id: UUID
     state: TaskState
+    provider_connection: str | None = None
     provider: str | None
     model: str | None
     final_answer: str | None

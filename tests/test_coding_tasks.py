@@ -470,3 +470,46 @@ def test_dashboard_coding_escaping_and_confirmed_csrf_cleanup(coding, database):
             assert app.get_coding_workspace(task_id=task.task_id).state == "removed"
 
     asyncio.run(execute())
+
+
+def test_local_project_denies_cloud_coder_before_workspace_or_provider(
+    coding, database
+):
+    from agentforge.core.policy import PolicyDenied
+
+    provider = Provider()
+    app = Application(
+        create_database_engine(database[1]),
+        WorkersConfig(
+            workers=[
+                Worker(
+                    id="cloud",
+                    provider="fake",
+                    model="offline",
+                    endpoint="https://cloud.invalid",
+                    trust="cloud",
+                    supports_tools=True,
+                )
+            ]
+        ),
+        providers={"fake": provider},
+        coding_config=coding.config,
+    )
+    before = primary_state(coding.root)
+
+    async def execute():
+        await app.start()
+        try:
+            with pytest.raises(PolicyDenied, match="egress_denied"):
+                app.delegate_task(
+                    project_id=coding.project.id,
+                    agent_id="coder",
+                    worker_id="cloud",
+                    task="Edit private files",
+                )
+            assert not provider.requests and app.tasks.list_tasks() == []
+            assert primary_state(coding.root) == before
+        finally:
+            await app.close()
+
+    asyncio.run(execute())

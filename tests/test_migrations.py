@@ -44,7 +44,7 @@ def configuration():
 def assert_schema(connection):
     assert (
         MigrationContext.configure(connection).get_current_revision()
-        == "0002_gateway_client"
+        == "0003_capability_policy"
     )
     config = configuration()
     config.attributes["connection"] = connection
@@ -107,6 +107,10 @@ def populate(engine, tmp_path):
         identities={},
         observations={},
     )
+    from agentforge.core.policy import ResourceBudget
+    from agentforge.db.resources import ResourceRepository
+
+    ResourceRepository(sessions).admit("migration-fixture", ResourceBudget())
     from agentforge.core.worker import Worker
     from agentforge.db.diagnostics import DiagnosticsRepository
     from agentforge.workers.config import WorkersConfig
@@ -141,18 +145,19 @@ def populate(engine, tmp_path):
 def test_linear_gateway_migration_preserves_initial_revision():
     scripts = ScriptDirectory.from_config(configuration())
     revisions = list(scripts.walk_revisions())
-    assert scripts.get_heads() == ["0002_gateway_client"]
+    assert scripts.get_heads() == ["0003_capability_policy"]
     assert scripts.get_bases() == ["0001_initial"]
-    assert len(revisions) == 2
-    assert revisions[0].down_revision == "0001_initial"
-    assert revisions[1].down_revision is None
+    assert len(revisions) == 3
+    assert revisions[0].down_revision == "0002_gateway_client"
+    assert revisions[1].down_revision == "0001_initial"
+    assert revisions[2].down_revision is None
     assert {
         path.name
         for path in Path(migrate.__file__)
         .with_name("migrations")
         .joinpath("versions")
         .glob("*.py")
-    } == {"0001_initial.py", "0002_gateway_client.py"}
+    } == {"0001_initial.py", "0002_gateway_client.py", "0003_capability_policy.py"}
 
 
 def test_fresh_initial_upgrade_includes_diagnostic_contract(tmp_path):
@@ -325,5 +330,40 @@ def test_baseline_upgrade_retains_history_with_no_inferred_client(tmp_path):
         task = TaskRepository(create_session_factory(engine)).get(identity)
         assert task.request == "Legacy private request" and task.client_id is None
         assert task.project_id == project and task.state == "queued"
+    finally:
+        engine.dispose()
+
+
+def test_prepolicy_project_upgrades_to_local_only_without_inferred_connections(
+    tmp_path,
+):
+    from agentforge.projects.backends import select_backend
+
+    root = tmp_path / "legacy-project"
+    root.mkdir()
+    identity = uuid4()
+    engine = create_database_engine(
+        "sqlite:///" + (tmp_path / "prepolicy.db").as_posix()
+    )
+    config = configuration()
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0002_gateway_client")
+            connection.execute(
+                ProjectRecord.__table__.insert().values(
+                    id=identity,
+                    name="Legacy",
+                    root_path=str(root.resolve()),
+                    created_at=datetime.now(UTC),
+                    root_identity=select_backend()
+                    .observe_root(root.resolve())
+                    .as_json(),
+                )
+            )
+            command.upgrade(config, "head")
+        project = ProjectRepository(create_session_factory(engine)).get(identity)
+        assert project.id == identity and project.egress_policy.mode == "local_only"
+        assert project.egress_policy.allowed_connections == ()
     finally:
         engine.dispose()

@@ -21,6 +21,12 @@ from agentforge.agents.models import (
 from agentforge.agents.tools import Tool, json_text, trace_arguments
 from agentforge.coding.models import CodingError, CodingLimit, EditConflict
 from agentforge.core.inference import GenerationRequest, Message, Provider, TokenUsage
+from agentforge.core.policy import (
+    DEFAULT_TASK_POLICY,
+    PolicyDenied,
+    PolicyStorageError,
+    TaskPolicy,
+)
 from agentforge.core.provider_errors import ProviderTimeout
 from agentforge.index.models import SymbolNotFound
 from agentforge.projects.errors import ProjectError, UnsafeProjectPath
@@ -37,6 +43,7 @@ from agentforge.tools.errors import (
     UnsupportedTextFile,
 )
 from agentforge.workers.config import WorkersConfig
+from agentforge.workers.policy import WorkerPolicy
 
 # Exact public types, fixed safe codes. Never serialize exception messages/repr.
 _RECOVERABLE = {
@@ -72,7 +79,9 @@ class AgentRuntime:
         tools: Mapping[str, Tool],
         clock: Callable[[], float] = monotonic,
         coding_tools: Mapping[str, Tool] | None = None,
+        worker_policy: WorkerPolicy | None = None,
     ):
+        self.worker_policy = worker_policy or WorkerPolicy(workers, projects)
         self._projects = projects
         self._workers = {worker.id: worker for worker in workers.workers}
         self._agents = {agent.id: agent for agent in agents}
@@ -91,6 +100,12 @@ class AgentRuntime:
         """Configured target only, without probing or selecting another Worker."""
         worker = self._workers.get(worker_id)
         return (worker.provider, worker.model) if worker else (None, None)
+
+    def policy_binding(self, worker_id):
+        return self.worker_policy.binding(self._workers[worker_id])
+
+    def check_policy(self, project_id, worker_id, task_policy=DEFAULT_TASK_POLICY):
+        self.worker_policy.check(project_id, self._workers[worker_id], task_policy)
 
     def validate_binding(
         self, *, project_id: UUID | str, agent_id: str, worker_id: str, task: str
@@ -127,7 +142,9 @@ class AgentRuntime:
         ):
             raise ValueError("Invalid execution binding")
         try:
-            return self._projects.get_project(project_id).id
+            identity = self._projects.get_project(project_id).id
+            self.worker_policy.authorize(identity, worker)
+            return identity
         except ProjectError:
             raise ValueError("Invalid execution binding") from None
 
@@ -142,6 +159,9 @@ class AgentRuntime:
         cancellation: CancellationToken | None = None,
         observations: ExecutionObservations | None = None,
         coding_session=None,
+        task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
+        expected_binding: dict | None = None,
+        expected_target: tuple | None = None,
     ) -> ExecutionResult:
         """No default Worker, health-based selection, fallback or persistent Task.
 
@@ -202,6 +222,17 @@ class AgentRuntime:
                 )
             except ValueError:
                 raise _Stop("invalid_configuration") from None
+            if expected_target and any(
+                old is not None and old != current
+                for old, current in zip(
+                    expected_target, self.execution_target(worker_id), strict=True
+                )
+            ):
+                raise _Stop("invalid_configuration")
+            if expected_binding and self.policy_binding(worker_id) != expected_binding:
+                raise _Stop("invalid_configuration")
+            self.check_policy(project_id, worker_id, task_policy)
+            resource_usage = {"requests": 0, "tokens": 0, "unknown": False}
             agent = self._agents[agent_id]
             worker = self._workers[worker_id]
             provider = self._providers[worker.provider_connection or worker.provider]
@@ -272,13 +303,33 @@ class AgentRuntime:
                 request = GenerationRequest(
                     messages=messages, tools=definitions, timeout_seconds=model_timeout
                 )
-                event("model_request", size_bytes=context_size())
                 model_started = self._clock()
+                admitted = False
+
+                def request_started():
+                    nonlocal admitted, model_started
+                    admitted = True
+                    model_started = self._clock()
+                    event("model_request", size_bytes=context_size())
+
                 response = None
                 try:
                     # The runtime also bounds providers that do not honor overrides.
                     async with asyncio.timeout(model_timeout):
-                        response = await provider.generate(worker, request)
+                        response = await self.worker_policy.generate(
+                            project_id,
+                            worker,
+                            provider,
+                            request,
+                            task_policy,
+                            resource_usage,
+                            on_admitted=request_started,
+                        )
+                except PolicyStorageError:
+                    raise
+                except PolicyDenied as error:
+                    event("model_response", success=False, error_code=error.code)
+                    raise _Stop("policy_denied") from None
                 except ProviderTimeout:
                     event(
                         "model_response", success=False, error_code="provider_timeout"
@@ -299,17 +350,18 @@ class AgentRuntime:
                     event("model_response", success=False, error_code="provider_error")
                     raise _Stop("provider_error") from None
                 finally:
-                    observations.model_turns.append(
-                        ModelTurnObservation(
-                            request_duration_seconds=max(
-                                0, self._clock() - model_started
-                            ),
-                            token_usage=response.token_usage if response else None,
-                            generation_timing=response.generation_timing
-                            if response
-                            else None,
+                    if admitted:
+                        observations.model_turns.append(
+                            ModelTurnObservation(
+                                request_duration_seconds=max(
+                                    0, self._clock() - model_started
+                                ),
+                                token_usage=response.token_usage if response else None,
+                                generation_timing=response.generation_timing
+                                if response
+                                else None,
+                            )
                         )
-                    )
                 check()
                 usage.append(response.token_usage)
                 messages.append(
@@ -449,6 +501,11 @@ class AgentRuntime:
                     check_context()
                     check()
             raise _Stop("max_steps")
+        except PolicyStorageError:
+            raise
+        except PolicyDenied as error:
+            event("termination", error_code=error.code, reason="policy_denied")
+            return result("policy_denied")
         except _Stop as stop:
             return result(stop.reason)
         except UnsafeProjectPath:

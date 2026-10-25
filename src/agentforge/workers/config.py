@@ -8,6 +8,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
+from agentforge.core.policy import ResourceBudget
 from agentforge.core.worker import NonBlank, Worker
 
 
@@ -24,11 +25,15 @@ class ProviderConnection(BaseModel):
     type: Literal["ollama", "openai_compatible"]
     base_url: HttpUrl = Field(repr=False)
     api_key_env: NonBlank | None = Field(default=None, repr=False)
+    trust: Literal["local", "cloud", "unknown"] = "unknown"
+    budget: ResourceBudget = Field(default_factory=ResourceBudget)
     # Opt in only on compatible servers accepting stream_options.include_usage.
     stream_usage: bool = False
 
     @model_validator(mode="after")
     def safe_connection(self) -> Self:
+        if self.id.startswith("inline:"):
+            raise ValueError("Provider ID prefix is reserved for inline Workers")
         Worker.endpoint_without_secrets(self.base_url)
         if self.api_key_env is not None and self.base_url.scheme != "https":
             host = self.base_url.host

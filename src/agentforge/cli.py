@@ -15,6 +15,7 @@ from agentforge.codex_integration import IntegrationError
 from agentforge.coding.config import load_coding
 from agentforge.coding.inspection import check_coding_host
 from agentforge.coding.service import CodingWorkspaceManager
+from agentforge.core.policy import EgressPolicy, PolicyDenied, PolicyStorageError
 from agentforge.db.coding import WorkspaceRepository
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.diagnostics import DiagnosticsRepository
@@ -107,6 +108,16 @@ def parser():
     add.add_argument("path", help="Operator-authorized existing local directory")
     add.add_argument("--name", required=True, help="Project display name")
     database(add)
+    policy = project.add_parser(
+        "egress",
+        help="Operator-only Project egress authorization; stop executors first",
+    )
+    policy.add_argument("project_id", type=UUID)
+    policy.add_argument(
+        "--mode", required=True, choices=("local_only", "cloud_allowed")
+    )
+    policy.add_argument("--allow-connection", action="append", default=[])
+    database(policy)
     listing = project.add_parser(
         "list", help="Bounded cached metadata; no Project source/Git I/O"
     )
@@ -238,7 +249,20 @@ def database_command(args):
 
 def project_command(args):
     with project_services(args.database_url) as (registry, index, _):
-        if args.operation == "add":
+        if args.operation == "egress":
+            project = registry.set_egress_policy(
+                args.project_id,
+                EgressPolicy(
+                    mode=args.mode, allowed_connections=tuple(args.allow_connection)
+                ),
+            )
+            emit(
+                {
+                    "registration": registration(project),
+                    "egress_policy": project.egress_policy.model_dump(mode="json"),
+                }
+            )
+        elif args.operation == "add":
             project = registry.register_project(args.name, args.path)
             emit({"registration": registration(project)})
         elif args.operation == "list":
@@ -583,6 +607,8 @@ def main(argv=None) -> int:
         SQLAlchemyError,
         ProjectStorageError,
         IndexStorageError,
+        PolicyDenied,
+        PolicyStorageError,
         DiagnosticsUnavailable,
     ):
         code, message, result = (

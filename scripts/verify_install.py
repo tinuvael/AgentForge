@@ -61,6 +61,7 @@ def package_checks():
         "db/migrations/script.py.mako",
         "db/migrations/versions/0001_initial.py",
         "db/migrations/versions/0002_gateway_client.py",
+        "db/migrations/versions/0003_capability_policy.py",
         "web/templates/base.html",
         "web/templates/companion_base.html",
         "web/templates/companion_home.html",
@@ -106,7 +107,7 @@ def package_checks():
         file.name
         for file in root.joinpath("db/migrations/versions").iterdir()
         if file.name.endswith(".py")
-    } == {"0001_initial.py", "0002_gateway_client.py"}
+    } == {"0001_initial.py", "0002_gateway_client.py", "0003_capability_policy.py"}
     for module in ("db.migrate", "mcp.server", "web.server"):
         result = subprocess.run(
             [sys.executable, "-m", "agentforge." + module, "--help"],
@@ -222,7 +223,7 @@ async def smoke():
             with engine.connect() as connection:
                 assert (
                     MigrationContext.configure(connection).get_current_revision()
-                    == "0002_gateway_client"
+                    == "0003_capability_policy"
                 )
                 assert set(inspect(connection).get_table_names()) == {
                     *Base.metadata.tables,
@@ -264,7 +265,7 @@ async def smoke():
         config = root / "workers.toml"
         config.write_text(
             '[[workers]]\nid = "offline"\nprovider = "ollama"\n'
-            'endpoint = "http://worker.invalid"\nmodel = "offline"\n'
+            'endpoint = "http://worker.invalid"\ntrust = "local"\nmodel = "offline"\n'
             "supports_tools = true\n"
         )
         # Only a disposable global home; never inherit the operator's real home.
@@ -414,6 +415,7 @@ async def smoke():
                     id="offline",
                     provider="ollama",
                     endpoint="http://worker.invalid",
+                    trust="local",
                     model="offline",
                     supports_tools=True,
                 )

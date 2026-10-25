@@ -31,13 +31,16 @@ from agentforge.application.errors import ServiceError
 from agentforge.coding.config import load_coding
 from agentforge.coding.service import CodingWorkspaceManager
 from agentforge.coding.tools import coding_toolset
+from agentforge.core.capabilities import describe
 from agentforge.core.inference import Provider
+from agentforge.core.policy import DEFAULT_TASK_POLICY, TaskPolicy
 from agentforge.db.coding import WorkspaceRepository
 from agentforge.db.councils import CouncilRepository
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.diagnostics import DiagnosticsRepository
 from agentforge.db.index import IndexRepository
 from agentforge.db.projects import ProjectRepository
+from agentforge.db.resources import ResourceRepository
 from agentforge.db.tasks import TaskRepository
 from agentforge.db.telemetry import TelemetryRepository
 from agentforge.index.service import ProjectIndex
@@ -50,6 +53,7 @@ from agentforge.telemetry.service import TelemetryService
 from agentforge.tools.service import RepositoryTools
 from agentforge.workers.config import WorkersConfig, load_workers
 from agentforge.workers.diagnostic_service import WorkerDiagnosticsService
+from agentforge.workers.policy import WorkerPolicy
 
 
 def snapshot(task: Task) -> TaskSnapshot:
@@ -108,18 +112,6 @@ class Application:
         # Discovery and execution consume the same definitions, not MCP copies.
         self._workers = {w.id: w for w in workers.workers}
         self._agents = {a.id: a for a in agents}
-        self._worker_info = tuple(
-            WorkerInfo(
-                worker_id=w.id,
-                provider=w.provider,
-                model=w.model,
-                context_window=w.context_window,
-                supports_tools=w.supports_tools,
-                supports_streaming=w.supports_streaming,
-                deployment_label=w.deployment_label,
-            )
-            for w in sorted(workers.workers, key=lambda w: w.id)
-        )
         self._agent_info = tuple(
             AgentInfo(
                 agent_id=a.id,
@@ -139,7 +131,29 @@ class Application:
             providers if providers is not None else self._owned_providers,
             DiagnosticsRepository(sessions),
         )
+        self.worker_policy = WorkerPolicy(
+            workers,
+            self.projects,
+            ResourceRepository(sessions),
+            self.worker_diagnostics,
+        )
+        self._worker_info = tuple(
+            WorkerInfo(
+                worker_id=w.id,
+                provider=w.provider,
+                model=w.model,
+                context_window=w.context_window,
+                supports_tools=w.supports_tools,
+                supports_streaming=w.supports_streaming,
+                deployment_label=w.deployment_label,
+                capabilities=describe(w),
+                trust=self.worker_policy.trust(w),
+                provider_connection=w.provider_connection or "inline:" + w.id,
+            )
+            for w in sorted(workers.workers, key=lambda w: w.id)
+        )
         runtime = AgentRuntime(
+            worker_policy=self.worker_policy,
             projects=self.projects,
             workers=workers,
             agents=agents,
@@ -304,6 +318,11 @@ class Application:
             next_offset=offset + limit if len(values) > offset + limit else None,
         )
 
+    def suggest_workers(self, *, authorized_ids=None, **arguments):
+        from agentforge.application.selection import suggest
+
+        return suggest(self, authorized_ids=authorized_ids, **arguments)
+
     def list_agents(
         self, *, limit: int = 100, offset: int = 0, authorized_ids=None
     ) -> AgentsPage:
@@ -334,6 +353,7 @@ class Application:
         worker_id: str,
         task: str,
         client_id: str | None = None,
+        task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
     ) -> TaskSnapshot:
         if not self.tasks.available:
             raise ServiceError("service_unavailable")
@@ -349,6 +369,7 @@ class Application:
                 agent_id=agent_id,
                 worker_id=worker_id,
                 task=task,
+                task_policy=task_policy,
                 client_id=client_id,
             )
         )

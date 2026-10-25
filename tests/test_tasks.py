@@ -14,6 +14,7 @@ from sqlalchemy import select, text, update
 
 from agentforge.agents import Agent, AgentRuntime, ExecutionResult, repository_toolset
 from agentforge.core.inference import GenerationResult, TokenUsage, ToolCall
+from agentforge.core.policy import EgressPolicy
 from agentforge.core.provider_errors import BackendUnavailable, ProviderTimeout
 from agentforge.core.worker import Worker
 from agentforge.db.database import create_database_engine, create_session_factory
@@ -103,6 +104,12 @@ def setup(registry, database, tmp_path):
         id="general", name="General", description="Text", system_prompt="Read."
     )
     other_agent = agent.model_copy(update={"id": "other-agent"})
+    project = registry.set_egress_policy(
+        project.id,
+        EgressPolicy(
+            mode="cloud_allowed", allowed_connections=("inline:cloud-worker",)
+        ),
+    )
     workers = WorkersConfig(
         workers=[
             Worker(
@@ -110,6 +117,7 @@ def setup(registry, database, tmp_path):
                 provider="fake",
                 model="model",
                 endpoint=endpoint,
+                trust="cloud" if identity == "cloud-worker" else "local",
                 supports_tools=True,
             )
             for identity, endpoint in (

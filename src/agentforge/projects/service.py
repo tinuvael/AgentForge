@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from agentforge.core.policy import EgressPolicy
 from agentforge.db.projects import ProjectRepository
 from agentforge.projects.backends import SafeFilesystemBackend, select_backend
 from agentforge.projects.errors import (
@@ -55,6 +56,18 @@ class ProjectRegistry:
                 observed,
             )
         )
+
+    def set_egress_policy(
+        self, project_id: UUID | str, policy: EgressPolicy
+    ) -> Project:
+        """Trusted operator API only; never exposed to model tools or remote clients.
+
+        Stop executors before administrative changes, as with registration.
+        """
+        policy = EgressPolicy.model_validate(policy.model_dump())
+        if not self._repository.set_egress(self._id(project_id), policy):
+            raise ProjectNotFound("Project ID is not registered")
+        return self.get_project(project_id)
 
     def count_projects(self) -> int:
         return self._repository.count()

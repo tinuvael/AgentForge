@@ -166,3 +166,13 @@ Offline tests cover adapters via MockTransport, synthetic Providers, HTTP closur
 timeouts/cancellation, checkpoints/restart/configuration replacement, JSON/exit
 codes and dashboard rendering. Native Windows/Ollama/GPU acceptance, Companion,
 Director live progress, general Agents and routing/ranking are outside this change.
+
+## Policy consumption (#51)
+
+[Worker policy](worker-policy.md) keeps declarations separate from these scoped
+synthetic observations. Positive probes never establish universal model support
+or quality. Suggestions expose timestamps and limitations, excluding observed
+unavailability without implicit requests. Explicit synthetic inference probes
+share durable connection budgets with Task inference; health checks do not consume
+inference budgets. A valid 429 cooldown can deny further probes/Tasks, without
+retrying or replacing the Worker. Unknown usage blocks token-budgeted admission.

@@ -105,3 +105,14 @@ requests approvals for write tools and disables destructive workspace cleanup.
 No unattended coding, automatic paid use or cloud source disclosure is authorized
 by global discovery. Director/client approval and explicit operator authorization
 remain necessary; global guidance is not an enforcement or OS sandbox mechanism.
+
+
+Project data egress is default-deny for cloud: legacy/new Projects default to
+`local_only`. Only literal loopback retains implicit local compatibility; LAN
+connections require operator-declared local trust, cloud connections require an
+explicit Project allowlist. Task restrictions and Gateway grants cannot expand it.
+The shared TaskEngine/AgentRuntime boundary checks every Council participant before
+submission and authorizes every inference turn, including coding. No automatic
+fallback or retry is implemented. Local trust is an operator assertion about the
+entire backend/network, not a DNS/service attestation. See the
+[policy threat boundary and migration](docs/worker-policy.md).

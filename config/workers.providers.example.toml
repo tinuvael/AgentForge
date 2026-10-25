@@ -14,12 +14,14 @@ base_url = "http://127.0.0.1:8000/v1"
 [[providers]]
 id = "lan-compatible"
 type = "openai_compatible"
+trust = "local" # Verify LAN processing before declaring trust.
 base_url = "http://ai395.local:8000/v1"
 
 # To add an authenticated remote connection, uncomment and configure it:
 # [[providers]]
 # id = "remote-compatible"
 # type = "openai_compatible"
+# trust = "cloud"
 # base_url = "https://example-compatible-provider.invalid/v1"
 # api_key_env = "AGENTFORGE_REMOTE_API_KEY"
 # stream_usage = true # Only if the server accepts stream_options.include_usage.

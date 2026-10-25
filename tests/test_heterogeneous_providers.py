@@ -11,6 +11,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from sqlalchemy import select
 
 from agentforge.application.service import Application
+from agentforge.core.policy import EgressPolicy
 from agentforge.db.database import create_session_factory
 from agentforge.db.models import CouncilRecord, TaskRecord, TaskTelemetryRecord
 from agentforge.mcp.server import create_server
@@ -32,16 +33,30 @@ def setup(database, registry, tmp_path, monkeypatch):
     root.mkdir()
     (root / "source.py").write_text("def evidence():\n    pass\n", newline="\n")
     project = registry.register_project("Evidence", root)
+    project = registry.set_egress_policy(
+        project.id,
+        EgressPolicy(
+            mode="cloud_allowed",
+            allowed_connections=(
+                "remote-connection",
+                "other-compatible",
+                "service-a",
+                "service-b",
+            ),
+        ),
+    )
     monkeypatch.setenv("AGENTFORGE_TEST_TOKEN", SECRET)
     path = tmp_path / "workers.toml"
     path.write_text("""[[providers]]
 id = "local-connection"
 type = "ollama"
+trust = "local"
 base_url = "http://ollama.invalid:11434"
 
 [[providers]]
 id = "remote-connection"
 type = "openai_compatible"
+trust = "cloud"
 base_url = "https://gateway.invalid/v1"
 api_key_env = "AGENTFORGE_TEST_TOKEN"
 
@@ -502,6 +517,7 @@ def test_two_compatible_connections_dispatch_by_reference_not_type(setup, monkey
         + """\n[[providers]]
 id="other-compatible"
 type="openai_compatible"
+trust="cloud"
 base_url="http://other-gateway.invalid/custom/"
 
 [[workers]]
@@ -576,6 +592,18 @@ def test_universal_onboarding_mcp_council_identity_and_credential_isolation(
     root = tmp_path / "evidence"
     root.mkdir()
     project = registry.register_project("Evidence", root)
+    project = registry.set_egress_policy(
+        project.id,
+        EgressPolicy(
+            mode="cloud_allowed",
+            allowed_connections=(
+                "remote-connection",
+                "other-compatible",
+                "service-a",
+                "service-b",
+            ),
+        ),
+    )
     monkeypatch.setenv("AGENTFORGE_SERVICE_A_KEY", "SYNTHETIC_A")
     monkeypatch.setenv("AGENTFORGE_SERVICE_B_KEY", "SYNTHETIC_B")
     path = Path(__file__).parents[1] / "config/workers.universal.example.toml"

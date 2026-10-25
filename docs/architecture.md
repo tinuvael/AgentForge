@@ -350,3 +350,18 @@ Forwarded headers never supply identity or authorization. Dashboard operator rou
 are absent from MCP ingress. Remote Task submission still selects an exact
 Project/Agent/Worker; per-Project Worker grants also make inference egress explicit.
 No Mac-local repository access, cloud fallback or Director logic is added.
+
+## Capability and policy boundary (#51)
+
+The existing Worker/ProviderConnection configuration is the capability registry.
+`core.policy` contains typed operator/Task restrictions; `workers.policy` applies
+Project authorization and persistent connection admission around inference.
+`db.resources` uses short atomic SQLite transactions, never inference-spanning
+transactions or retry scheduling. Application/TaskEngine validates all bindings
+before queueing a Council; AgentRuntime rechecks egress before every Provider turn,
+including coding workspaces. Transport adapters cannot bypass these checks.
+Gateway client grants further restrict the same shared behavior, with evidence
+filtered before pagination. `application.selection` only projects advisory evidence;
+the Director retains exact selection. New Task connection/fingerprint snapshots
+prevent queued-target rebinding; historical identities remain unchanged.
+See [policy design, migration and operator trust assumptions](worker-policy.md).

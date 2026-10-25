@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from agentforge.application.contracts import (
     AgentsPage,
+    CandidateSuggestions,
     Capabilities,
     CleanupCodingArguments,
     CouncilArguments,
@@ -27,6 +28,7 @@ from agentforge.application.contracts import (
     ProjectsPage,
     SafeError,
     Status,
+    SuggestArguments,
     TaskArguments,
     TaskProgress,
     TaskSnapshot,
@@ -34,6 +36,7 @@ from agentforge.application.contracts import (
 )
 from agentforge.application.service import Application, ServiceError
 from agentforge.coding.models import CodingDiff, CodingError, CodingResult
+from agentforge.core.policy import PolicyDenied, PolicyStorageError
 from agentforge.councils.models import CouncilNotFound, CouncilSnapshot, InvalidCouncil
 from agentforge.db.ownership import ExecutorOwnershipError
 from agentforge.projects.errors import ProjectNotFound, ProjectStorageError
@@ -41,6 +44,10 @@ from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidati
 from agentforge.web.combined import CompanionConfig, companion_http
 
 _MESSAGES = {
+    "policy_denied": (
+        "Worker admission denied by egress, cooldown or budget policy; "
+        "inspect suggest_workers."
+    ),
     "access_denied": "This client is not authorized for the operation.",
     "resource_limit": "Service capacity reached; wait before retrying.",
     "invalid_arguments": "Supply arguments matching the tool schema.",
@@ -69,7 +76,9 @@ _MESSAGES = {
 def safe_error(error: Exception) -> SafeError:
     if isinstance(error, ExecutorOwnershipError):
         return SafeError(code="storage_unavailable", message=str(error))
-    if isinstance(error, ServiceError):
+    if isinstance(error, PolicyDenied):
+        code = "policy_denied"
+    elif isinstance(error, ServiceError):
         code = error.code
     elif isinstance(error, CodingError):
         code = "coding_unavailable"
@@ -81,7 +90,10 @@ def safe_error(error: Exception) -> SafeError:
         code = "council_not_found"
     elif isinstance(error, InvalidCouncil):
         code = "invalid_council"
-    elif isinstance(error, (ProjectStorageError, TaskStorageError, SQLAlchemyError)):
+    elif isinstance(
+        error,
+        (ProjectStorageError, TaskStorageError, PolicyStorageError, SQLAlchemyError),
+    ):
         code = "storage_unavailable"
     elif isinstance(error, TaskValidationError):
         code = "invalid_execution_binding"
@@ -101,6 +113,16 @@ class ToolContract:
 
 
 TOOL_CONTRACTS = (
+    ToolContract(
+        "suggest_workers",
+        "suggest_workers",
+        (
+            "Advisory eligible Workers and scoped capability/policy evidence for one "
+            "Project and Agent; no inference, ranking, reservation or selection."
+        ),
+        SuggestArguments,
+        CandidateSuggestions,
+    ),
     ToolContract(
         "get_coding_workspace",
         "get_coding_workspace",

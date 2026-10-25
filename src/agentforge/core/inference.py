@@ -35,6 +35,13 @@ class TokenUsage(BaseModel):
     output_tokens: int | None = Field(default=None, ge=0)
     total_tokens: int | None = Field(default=None, ge=0)
 
+    @property
+    def accounted_total(self) -> int | None:
+        totals = [self.total_tokens] if self.total_tokens is not None else []
+        if self.input_tokens is not None and self.output_tokens is not None:
+            totals.append(self.input_tokens + self.output_tokens)
+        return max(totals) if totals else None
+
 
 class GenerationTiming(BaseModel):
     """Backend-observed durations in seconds; output excludes prompt evaluation.
