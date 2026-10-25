@@ -236,6 +236,7 @@ async def smoke():
                     "root_path",
                     "created_at",
                     "root_identity",
+                    "egress_policy",
                 }
                 assert any(
                     column["name"] == "root_identity" and not column["nullable"]
@@ -497,7 +498,7 @@ async def smoke():
             assert {t.name for t in discovered.tools} == {
                 t.name for t in TOOL_CONTRACTS
             }
-            assert len(discovered.tools) == 15
+            assert len(discovered.tools) == 16
             watch_contract = next(t for t in discovered.tools if t.name == "watch_task")
             assert watch_contract.inputSchema["required"] == ["task_id"]
             assert "timeline" in watch_contract.outputSchema["properties"]
@@ -525,6 +526,21 @@ async def smoke():
             )
             before = {path.name: path.read_bytes() for path in project_root.iterdir()}
             project = app.projects.register_project("Synthetic", project_root)
+            assert project.egress_policy.mode == "local_only"
+            suggested = await client.call_tool(
+                "suggest_workers",
+                {
+                    "project_id": str(project.id),
+                    "agent_id": "general_agent",
+                    "require_tools": True,
+                },
+            )
+            assert not suggested.isError and not requests
+            candidate = suggested.structuredContent["candidates"][0]
+            assert (
+                candidate["eligible"] and candidate["worker"]["worker_id"] == "offline"
+            )
+            assert candidate["worker"]["capabilities"]["coding"]["support"] == "unknown"
             result = await client.call_tool(
                 "delegate_task",
                 {

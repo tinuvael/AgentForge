@@ -696,9 +696,16 @@ def test_legacy_worker_config_and_conflicting_declaration_validation(
             supports_tools=False,
             capabilities={"tool_calling": True},
         )
+    named = ProviderConnection(
+        id="inline:reserved", type="ollama", base_url="http://localhost"
+    )
+    assert (
+        WorkersConfig(providers=[named], workers=[]).providers[0].id
+        == "inline:reserved"
+    )
     with pytest.raises(ValidationError):
-        ProviderConnection(
-            id="inline:reserved", type="ollama", base_url="http://localhost"
+        WorkersConfig(
+            providers=[named], workers=[worker.model_copy(update={"id": "reserved"})]
         )
     run(policy_setup.app.close())
 

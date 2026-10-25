@@ -32,8 +32,6 @@ class ProviderConnection(BaseModel):
 
     @model_validator(mode="after")
     def safe_connection(self) -> Self:
-        if self.id.startswith("inline:"):
-            raise ValueError("Provider ID prefix is reserved for inline Workers")
         Worker.endpoint_without_secrets(self.base_url)
         if self.api_key_env is not None and self.base_url.scheme != "https":
             host = self.base_url.host
@@ -77,6 +75,9 @@ class WorkersConfig(BaseModel):
         connections = {connection.id: connection for connection in self.providers}
         if len(connections) != len(self.providers):
             raise ValueError("Provider IDs must be unique")
+        inline_ids = {"inline:" + w.id for w in self.workers if w.endpoint is not None}
+        if inline_ids.intersection(connections):
+            raise ValueError("Provider identity conflicts with an inline Worker")
         for worker in self.workers:
             if worker.provider_connection is not None:
                 connection = connections.get(worker.provider_connection)

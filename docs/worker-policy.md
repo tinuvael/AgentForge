@@ -78,8 +78,8 @@ benchmarking or automatic expiry/reset of evidence is implemented.
 
 Named connections accept `trust = "local"`, `"cloud"` or `"unknown"` (default).
 Inline legacy Ollama accepts the same field on its Worker and uses stable identity
-`inline:<worker-id>`; that ID prefix is reserved. Named connections own their
-trust, not individual Workers.
+`inline:<worker-id>`; named connection IDs must not collide with an inline
+Worker identity. Named connections own their trust, not individual Workers.
 Only literal loopback IP addresses and exact `localhost` retain an implicit local
 compatibility classification. Protocol type and names such as `local`, `.local`
 or `ollama` do not establish trust. Unknown non-loopback destinations fail closed,
