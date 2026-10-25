@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -117,10 +117,12 @@ class TaskRepository:
         request: str,
         provider: str | None = None,
         model: str | None = None,
+        client_id: str | None = None,
         now: datetime,
     ) -> TaskRecord:
         return TaskRecord(
             task_id=uuid4(),
+            client_id=client_id,
             project_id=project_id,
             agent_id=agent_id,
             worker_id=worker_id,
@@ -141,6 +143,7 @@ class TaskRepository:
         request: str,
         provider: str | None = None,
         model: str | None = None,
+        client_id: str | None = None,
     ) -> Task:
         with self._session() as session:
             record = self._queued_record(
@@ -151,6 +154,7 @@ class TaskRepository:
                 request=request,
                 provider=provider,
                 model=model,
+                client_id=client_id,
             )
             session.add(record)
             session.flush()
@@ -165,6 +169,7 @@ class TaskRepository:
         agent_id: str,
         request: str,
         targets: tuple[tuple[str, str | None, str | None], ...],
+        client_id: str | None = None,
     ) -> tuple[Council, tuple[Task, ...]]:
         """All bindings must be validated before entry. One short transaction.
 
@@ -189,6 +194,7 @@ class TaskRepository:
                     worker_id=worker,
                     provider=provider,
                     model=model,
+                    client_id=client_id,
                     now=now,
                 )
                 for worker, provider, model in targets
@@ -268,6 +274,24 @@ class TaskRepository:
                     .group_by(TaskRecord.state)
                 ).all()
             )
+
+    def visible_active_counts(self, *, project_workers, agents, client_id):
+        row = TaskRecord
+        query = select(row.state, func.count()).where(
+            row.state.in_(("queued", "running")),
+            row.agent_id.in_(agents),
+            or_(
+                False,
+                *(
+                    and_(row.project_id == project, row.worker_id.in_(workers))
+                    for project, workers in project_workers
+                ),
+            ),
+        )
+        if client_id is not None:
+            query = query.where(row.client_id == client_id)
+        with self._session() as session:
+            return dict(session.execute(query.group_by(row.state)).all())
 
     def state_counts(self) -> dict[TaskState, int]:
         with self._session() as session:

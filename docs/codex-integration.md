@@ -27,7 +27,15 @@ cleanup is disabled in this integration. Do not relax client approvals for
 unattended coding or paid use. Explicit `--coding` loads the existing coding
 configuration; it does not authorize any coding Task by itself.
 
-**Only one active Codex session per database: CLI OR IDE, not both.** Close other
+For shared Windows/MacBook use, follow the [persistent Gateway guide](gateway.md).
+`agentforge codex install --url <existing-/mcp-url> --bearer-token-env-var <NAME>`
+replaces the managed stdio block with an authenticated HTTP client registration,
+without requiring local database/Worker/executable paths. It preserves the same
+backups, instructions and reversible removal. HTTP enable needs no single-client
+acknowledgment. On MacBook use the official `codex mcp add --url ...
+--bearer-token-env-var ...`; no AgentForge package is needed.
+
+**Standalone stdio only: one active Codex session per database (CLI OR IDE).** Close other
 sessions before starting a new one, even in another repository. Each session can
 launch an independent stdio process. No other standalone MCP, web server, smoke
 script, or client may execute against that database concurrently. Stop executors
@@ -40,10 +48,9 @@ configuration, including relative-path aliases. This is a limited configuration
 safeguard. Runtime [kernel ownership](executor-ownership.md) now rejects a second
 executor on supported local SQLite storage before recovery (#44), including another
 Codex stdio child. The first service remains active; stop it or select another DB.
-Authenticated shared Streamable HTTP and the Windows-to-Mac
-service are Issue #46. There is no HTTP transport option or new listener here.
-Transport-specific generation is isolated so a future authenticated transport can
-be added without changing instruction ownership or application composition.
+Authenticated HTTP connects to an already-running Gateway and starts no executor.
+Switch every client for that deployment to HTTP; never leave a competing stdio
+registration enabled. The kernel lock still protects against forgotten entries.
 
 ## Prepare explicit local paths
 

@@ -185,6 +185,9 @@ def parser():
     from agentforge.codex_integration import add_parser
 
     add_parser(groups)
+    from agentforge.gateway.server import add_parser as add_gateway_parser
+
+    add_gateway_parser(groups)
 
     # Reuse the supported service parsers and lifecycle/security implementations.
     from agentforge.mcp import server as mcp
@@ -488,6 +491,12 @@ def config_command(args):
 
 
 def main(argv=None) -> int:
+    from agentforge.gateway.auth import (
+        CredentialCleanupFailed,
+        PolicyPersistenceUncertain,
+        PolicyUpdateConflict,
+    )
+
     try:
         args = parser().parse_args(argv)
         if args.group == "codex":
@@ -495,6 +504,10 @@ def main(argv=None) -> int:
 
             emit(execute(args))
             return 0
+        if args.group == "gateway":
+            from agentforge.gateway.server import run
+
+            return run(args)
         if args.group in {"mcp", "web"}:
             return args.service_run(args)
         return {
@@ -504,6 +517,26 @@ def main(argv=None) -> int:
             "agent": config_command,
             "coding": config_command,
         }[args.group](args)
+    except PolicyUpdateConflict:
+        code, message, result = (
+            "policy_update_conflict",
+            "Policy changed or another update is in progress; reload and retry.",
+            7,
+        )
+    except CredentialCleanupFailed:
+        code, message, result = (
+            "credential_cleanup_failed",
+            "Policy update failed; inactive new credential output could not be "
+            "removed. Quarantine that output before retrying.",
+            3,
+        )
+    except PolicyPersistenceUncertain:
+        code, message, result = (
+            "policy_persistence_uncertain",
+            "Policy publication succeeded but durability is unconfirmed. "
+            "Retain any new credential output; inspect policy before retrying.",
+            3,
+        )
     except IntegrationError as error:
         code, message, result = "codex_setup_failed", str(error), 2
     except OperatorError as error:

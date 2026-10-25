@@ -195,3 +195,11 @@ repositories and validators, plus real combined stdio/loopback startup/shutdown
 via `scripts/verify_companion.py`. The clean installed-wheel smoke in
 [development](development.md) runs that same combined-process check and checks
 packaged Companion templates/assets alongside retained MCP/dashboard modes.
+
+## Persistent Gateway
+
+`agentforge gateway serve ... --companion` shares one persistent Application with
+all authenticated MCP clients. Companion remains a trusted loopback-only operator
+surface on port 8765; MCP ingress on port 8766 contains no Dashboard routes.
+Closing a Codex client does not stop the service or Tasks. See the
+[Gateway operator guide](gateway.md) for lifecycle, access grants and private TLS.

@@ -142,6 +142,7 @@ class TaskRecord(Base):
     )
 
     task_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    client_id: Mapped[str | None] = mapped_column(String(100))
     # Historical identity survives Project deregistration; intentionally no FK.
     project_id: Mapped[UUID] = mapped_column(Uuid)
     agent_id: Mapped[str] = mapped_column(String(100))

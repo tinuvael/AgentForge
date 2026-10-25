@@ -101,6 +101,20 @@ for an explicit small generation/tool/streaming probe and `worker diagnostics`
 for persisted evidence. The dashboard never probes on load. Remote probes send
 fixed synthetic data and can incur cost. See [Worker diagnostics](docs/worker-diagnostics.md).
 
+## Persistent Windows Gateway for multiple Codex clients
+
+Run one authenticated Streamable HTTP MCP service on the Windows workstation.
+Windows Codex connects through loopback; MacBook Codex connects to the same service
+through private HTTPS with its own credential and explicit Project/Worker/tool
+grants. Clients share durable Tasks and configured inference Workers without
+starting another executor. Companion remains on a separate loopback listener.
+
+Follow the [Windows/MacBook operator guide](docs/gateway.md) for installation,
+Tailscale TLS, provisioning/rotation, reversible Codex setup and remaining physical
+acceptance. The MacBook needs no AgentForge installation; Mac-local uncommitted
+files are not visible to Windows. Hosted scripted integration is distinct from
+physical GPU, Tailscale, Codex and Xcode verification.
+
 ## Install and quick start
 
 Requires Python 3.12+ and a reachable, operator-configured inference endpoint with

@@ -60,6 +60,9 @@ could create a second inode and defeat pathname-only locking.
 - Native Windows: `msvcrt.locking(LK_NBLCK, 1)` locks byte zero of the sidecar,
   including an empty file, without timed CRT retries. Win32 handles pin database,
   lock and parent ancestry; sharing allows SQLite read/write but denies deletion.
+  Ownership directory pins allow WRITE sharing for legitimate sibling policy
+  publication but still deny DELETE. DB/lock file pins and identity checks retain
+  their protections; repository/coding filesystem sharing is unchanged.
   Handles and CRT descriptors are non-inheritable. Locks disappear on process death.
 - The process-local registry remains for independently composed engines and
   in-memory SQLite. A losing owner never reaches schema/recovery or executor launch.
@@ -93,9 +96,10 @@ case aliases through NTFS, rejects alternate streams, device/UNC paths,
 reparse ancestry and aliases not matching the resolved final handle path. Case-sensitive Windows directories are unsupported.
 
 Database and sidecar must be regular files with exactly one hardlink. This is
-checked at acquisition and before every SQL statement while owned. Linux rejects
-SQL after a new hardlink is created; native Windows sharing denies creation of
-the new hardlink itself while the owner holds its handles. Linux retains descriptors and rechecks inode,
+checked at acquisition and before every SQL statement while owned. A new hardlink
+makes both live SQL and alias acquisition fail closed on Linux and Windows.
+Some Windows handle/directory configurations deny link creation earlier; the
+ownership guarantee does not depend on that incidental denial. Linux retains descriptors and rechecks inode,
 parent and pathname identity before SQL: replacement/deletion fails closed; a
 contender at the original path still encounters the permanent sidecar. Windows
 handles prevent replacement for their lifetime. Never replace, rename, chmod or

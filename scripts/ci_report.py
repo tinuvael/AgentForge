@@ -53,6 +53,24 @@ def summary():
                 }
             )
         lines += ["", f"Pytest: {dict(counts)}. Exact skip reasons are in pytest.xml."]
+        gateway = next(
+            (
+                case
+                for case in ElementTree.parse(path).getroot().iter("testcase")
+                if case.get("name")
+                == "test_real_multiclient_streamable_http_acceptance"
+            ),
+            None,
+        )
+        gateway_passed = gateway is not None and not any(
+            gateway.find(tag) is not None for tag in ("failure", "error", "skipped")
+        )
+        lines += [
+            "",
+            "Real multi-client HTTP MCP acceptance (#46): "
+            + ("passed" if gateway_passed else "not verified")
+            + ".",
+        ]
     else:
         lines += ["", "Pytest report unavailable; no regression success claim."]
     wheel = REPORTS / "wheel.json"

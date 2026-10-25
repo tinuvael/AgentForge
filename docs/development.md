@@ -35,9 +35,10 @@ Their databases are not an upgrade source. Preserve/export any development histo
 and uncommitted workspaces you need, then select a fresh database and register roots
 explicitly. No command wipes, stamps or silently adopts an old database.
 
-The current head remains `0001_initial`, including bounded operator diagnostic
-checkpoints. Diagnostics were folded into this clean first-release baseline before
-any supported deployment; internal development schemas are not an upgrade source.
+The current head is `0002_gateway_client`, adding nullable durable Task client
+ownership. `0001_initial` is unchanged. Upgrading an existing baseline retains its
+history with null client ownership, requiring an explicit shared-history grant for
+Gateway access. Stop executors and back up private storage before upgrading.
 
 Migrations live under `src/agentforge/db/migrations/` and ship in the wheel. Root
 `alembic.ini` selects those same files. After this baseline is released, add new
@@ -87,8 +88,8 @@ alembic -c alembic.ini check
 
 For another URL, set `sqlalchemy.url` in a local config beside the root config, or
 supply a Connection through `Config.attributes["connection"]` as tests do. Do not
-casually modify released revisions. `tests/test_migrations.py` checks the single
-initial revision, empty upgrades, idempotency with populated storage, and populated
+casually modify released revisions. `tests/test_migrations.py` checks the linear revision chain, baseline history
+preservation, empty upgrades, idempotency with populated storage, and populated
 head → base → head against ORM types, defaults, FKs, indexes and CHECK constraints.
 Registry/index/Task/telemetry/Council tests additionally check identity, historical
 retention, foreign keys and lifecycle behavior. Downgrades remove schema/data;
@@ -181,3 +182,21 @@ The installed-wheel Companion smoke also checks separate MCP/web startup rejecti
 while the shared MCP/Companion remains available, then legitimate EOF restart.
 Physical device acceptance, live Providers and real Codex model tool selection
 remain pending under #31; hosted NTFS evidence is recorded separately.
+
+## Persistent Gateway acceptance (#46)
+
+`tests/test_gateway.py::test_real_multiclient_streamable_http_acceptance` runs
+`scripts/verify_gateway.py` with real loopback TCP and independent SDK clients.
+It runs in the ordinary regression suite on **every Ubuntu 24.04 / Windows 2025,
+Python 3.12, 3.13 and 3.14 job**. No live inference credentials, workstation or
+GPU are required. The network guard in the main pytest process remains unchanged;
+the isolated helper permits only its own controlled loopback services.
+
+The installed-wheel smoke repeats the multi-client acceptance with wheel imports,
+then launches the packaged CLI Gateway against a loopback scripted Ollama server,
+verifies discovery/authenticated analysis, stops it through SIGINT and reads the
+same result after restart. Existing migration, ownership, stdio, coding and
+Companion checks remain required. MacOS is not a supported persistent host; do not
+bypass storage checks to claim macOS or Windows acceptance. The optional in-memory
+helper diagnostic establishes transport behavior only. See [Gateway design](gateway-design.md)
+and the [operator/physical acceptance guide](gateway.md).

@@ -43,7 +43,8 @@ def configuration():
 
 def assert_schema(connection):
     assert (
-        MigrationContext.configure(connection).get_current_revision() == "0001_initial"
+        MigrationContext.configure(connection).get_current_revision()
+        == "0002_gateway_client"
     )
     config = configuration()
     config.attributes["connection"] = connection
@@ -137,19 +138,21 @@ def populate(engine, tmp_path):
     return project
 
 
-def test_single_initial_revision():
+def test_linear_gateway_migration_preserves_initial_revision():
     scripts = ScriptDirectory.from_config(configuration())
     revisions = list(scripts.walk_revisions())
-    assert scripts.get_heads() == ["0001_initial"]
+    assert scripts.get_heads() == ["0002_gateway_client"]
     assert scripts.get_bases() == ["0001_initial"]
-    assert len(revisions) == 1 and revisions[0].down_revision is None
+    assert len(revisions) == 2
+    assert revisions[0].down_revision == "0001_initial"
+    assert revisions[1].down_revision is None
     assert {
         path.name
         for path in Path(migrate.__file__)
         .with_name("migrations")
         .joinpath("versions")
         .glob("*.py")
-    } == {"0001_initial.py"}
+    } == {"0001_initial.py", "0002_gateway_client.py"}
 
 
 def test_fresh_initial_upgrade_includes_diagnostic_contract(tmp_path):
@@ -160,6 +163,14 @@ def test_fresh_initial_upgrade_includes_diagnostic_contract(tmp_path):
             config.attributes["connection"] = connection
             assert inspect(connection).get_table_names() == []
             command.upgrade(config, "0001_initial")
+            assert (
+                MigrationContext.configure(connection).get_current_revision()
+                == "0001_initial"
+            )
+            assert "client_id" not in {
+                c["name"] for c in inspect(connection).get_columns("tasks")
+            }
+            command.upgrade(config, "head")
             assert_schema(connection)
             inspector = inspect(connection)
             table = "worker_diagnostic_observations"
@@ -202,7 +213,7 @@ def test_source_alembic_online_and_offline_entrypoints(tmp_path):
     for table in Base.metadata.tables:
         assert f"CREATE TABLE {table}" in sql
     assert "0001_initial" in sql
-    assert "ALTER TABLE" not in sql
+    assert "ALTER TABLE tasks ADD COLUMN client_id" in sql
 
 
 def counts(connection):
@@ -283,3 +294,36 @@ def test_required_identity_and_lifecycle_checks_reject_invalid_writes(
         connection.execute(update(table).values({field: value}))
     with engine.begin() as connection:
         assert_schema(connection)
+
+
+def test_baseline_upgrade_retains_history_with_no_inferred_client(tmp_path):
+    engine = create_database_engine("sqlite:///" + (tmp_path / "legacy.db").as_posix())
+    identity, project = uuid4(), uuid4()
+    config = configuration()
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0001_initial")
+            connection.execute(
+                TaskRecord.__table__.insert().values(
+                    task_id=identity,
+                    project_id=project,
+                    agent_id="general_agent",
+                    worker_id="local",
+                    request="Legacy private request",
+                    state="queued",
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            assert migrate.connection_status(connection) == "out_of_date"
+            assert not migrate.schema_is_current(connection)
+            command.upgrade(config, "head")
+            assert migrate.connection_status(connection) == "current"
+            assert migrate.schema_is_current(connection)
+            assert_schema(connection)
+        task = TaskRepository(create_session_factory(engine)).get(identity)
+        assert task.request == "Legacy private request" and task.client_id is None
+        assert task.project_id == project and task.state == "queued"
+    finally:
+        engine.dispose()

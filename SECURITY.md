@@ -20,9 +20,15 @@ run any explicitly configured validation commands.
   Workers or projected to MCP/dashboard. Adapters reject redirects and ignore
   ambient netrc credentials and environment proxy/CA configuration. Error bodies
   remain unread; only bounded standard Retry-After is normalized, never raw headers.
-- Use exactly one executor process per database. Ownership is checked only within
-  a process; AgentForge does not enforce this across OS processes. A second owner
-  can start and recovery can interrupt live Tasks and affect coding workspaces.
+- Use exactly one executor per database. The supported local SQLite kernel lock
+  rejects competing processes before recovery. The persistent Gateway shares that
+  single owner across authenticated MCP clients; sessions never start executors.
+- Authenticate every Gateway client with separately provisioned opaque bearer
+  credentials over loopback HTTP or protected private HTTPS. Private policy grants
+  Project/Worker pairs, Agents and exact tools; Task ownership defaults to the
+  submitting identity. Shared reads, cancellation and coding are separate explicit
+  grants. Token hashes are stored outside Git; rotation/revocation reload live.
+  VPN membership alone grants nothing. Follow the [Gateway guide](docs/gateway.md).
 - Treat MCP stdio clients as trusted local Directors. Dashboard CSRF, Host checks,
   escaped output and loopback defaults do not provide authentication. Protect
   intentional LAN exposure with a trusted network/VPN or authenticated proxy.
@@ -85,7 +91,8 @@ platform validation.
 The [global setup adapter](docs/codex-integration.md) changes only owned regions
 in a private Codex home, with backups; it never authorizes the open repository.
 Treat installation, Worker/coding files and Codex home as trusted operator inputs.
-Use one CLI or IDE session per database. Setup cannot detect all independent
+Use one CLI or IDE session for standalone stdio; multiple authenticated HTTP
+clients connect to one persistent Gateway. Setup cannot detect all independent
 processes/profiles; runtime [kernel ownership](docs/executor-ownership.md) now
 enforces exclusive execution on supported local SQLite storage (#44).
 Generated configuration

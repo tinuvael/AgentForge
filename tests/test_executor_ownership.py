@@ -449,26 +449,43 @@ def test_hardlink_change_during_ownership_is_rejected(database, tmp_path):
     owner.acquire()
     alias = tmp_path / "new-hardlink.sqlite"
     try:
-        if os.name == "nt":
-            # Native NTFS rejects CreateHardLink itself while DELETE sharing is
-            # denied. This is kernel denial, not a skipped identity check.
-            with pytest.raises(PermissionError) as error:
-                os.link(database[1].database, alias)
-            assert error.value.winerror == 32  # ERROR_SHARING_VIOLATION
-            assert not alias.exists()
-            with database[0].connect() as connection:
-                assert connection.execute(text("SELECT 1")).scalar_one() == 1
-        else:
+        with database[0].begin() as connection:
+            connection.execute(text("CREATE TABLE ownership_probe (value INTEGER)"))
+            connection.execute(text("INSERT INTO ownership_probe VALUES (1)"))
+        try:
             os.link(database[1].database, alias)
+        except PermissionError as error:
+            assert os.name == "nt" and error.winerror == 32
+            assert not alias.exists()
+        else:
+            # Directory WRITE sharing permits legitimate policy publication and
+            # may also permit new links. Link-count validation must then deny
+            # BOTH live SQL mutation and acquisition via the alias, before recovery.
             with pytest.raises(ExecutorOwnershipError):
-                with database[0].connect() as connection:
-                    connection.execute(text("SELECT 1"))
+                with database[0].begin() as connection:
+                    connection.execute(text("UPDATE ownership_probe SET value = 2"))
+            contender = create_database_engine("sqlite:///" + alias.as_posix())
+            try:
+                with pytest.raises(ExecutorOwnershipError):
+                    DatabaseOwnership(contender).acquire()
+            finally:
+                contender.dispose()
+
     finally:
         # NTFS delete sharing applies to every hardlink of the pinned DB file.
         owner.release()
         alias.unlink(missing_ok=True)
     owner.acquire()
-    owner.release()
+    try:
+        with database[0].connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT value FROM ownership_probe")
+                ).scalar_one()
+                == 1
+            )
+    finally:
+        owner.release()
 
 
 @pytest.mark.posix

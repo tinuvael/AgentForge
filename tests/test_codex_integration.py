@@ -458,3 +458,57 @@ def test_unrelated_mcp_database_syntax_is_preserved(setup, capsys):
     invoke(command, capsys)
     invoke(["codex", "uninstall"], capsys)
     assert (home / "config.toml").read_bytes() == original
+
+
+def test_http_setup_preserves_settings_without_local_installation(
+    tmp_path, monkeypatch, capsys
+):
+    home = tmp_path / ".codex"
+    home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    (home / "config.toml").write_bytes(COMPLEX)
+    command = [
+        "codex",
+        "install",
+        "--url",
+        "https://workstation.example.ts.net/mcp",
+        "--bearer-token-env-var",
+        "AGENTFORGE_MCP_TOKEN",
+        "--instructions",
+    ]
+    invoke(command, capsys)
+    raw = (home / "config.toml").read_bytes()
+    entry = tomllib.loads(raw.decode())["mcp_servers"]["agentforge"]
+    assert (
+        entry["url"] == command[3]
+        and entry["bearer_token_env_var"] == "AGENTFORGE_MCP_TOKEN"
+    )
+    assert "command" not in entry and "args" not in entry and "env" not in entry
+    assert raw.startswith(COMPLEX)
+    assert invoke(command, capsys)["changed_files"] == []
+    invoke(["codex", "disable"], capsys)
+    invoke(["codex", "enable"], capsys)  # No single-client acknowledgment for HTTP.
+    assert "HTTP client" in invoke(["codex", "inspect"], capsys)["warning"]
+    invoke(["codex", "uninstall"], capsys)
+    assert (home / "config.toml").read_bytes() == COMPLEX
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://private.example/mcp",
+        "https://user:secret@host/mcp",
+        "https://host/mcp?token=secret",
+        "https://host/mcp#secret",
+        "https://host/other",
+    ],
+)
+def test_http_setup_rejects_insecure_or_secret_urls(tmp_path, monkeypatch, capsys, url):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+    result = invoke(
+        ["codex", "install", "--url", url, "--bearer-token-env-var", "TOKEN"],
+        capsys,
+        code=2,
+    )
+    assert "secret" not in result
+    assert not (tmp_path / ".codex").exists()

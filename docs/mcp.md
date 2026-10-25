@@ -1,3 +1,8 @@
+> For persistent multi-client operation, use the authenticated
+> [Gateway](gateway.md). The tool schemas and handlers below are shared by stdio
+> and Streamable HTTP; HTTP adds server-enforced per-client access grants.
+> Local stdio remains a trusted exclusive executor, never a second Gateway client.
+
 # MCP for external directors
 
 AgentForge is the execution/control plane. A trusted local MCP director (Codex,

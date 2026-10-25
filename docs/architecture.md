@@ -216,7 +216,14 @@ limit accidental effects and leaks. Validation programs can execute model-edited
 repository code and access the host/network, including the primary checkout.
 Enable them only where that execution is trusted.
 
-MCP is trusted local stdio. Combined MCP HTTP accepts loopback IP binds only.
+MCP supports trusted local stdio and a persistent authenticated Streamable HTTP
+Gateway. Gateway sessions borrow one outer-lifespan Application/TaskEngine.
+`application.access.ClientApplication` enforces current Project/Worker, Agent,
+tool, owner/shared and coding permissions over shared operations. Atomic Task
+submission persists stable client identity through `0002_gateway_client`; sessions
+never own Task state. Auth policy is host-controlled and reloads on every request
+and operation. See [Gateway security/transport decision](gateway-design.md).
+Combined stdio/Gateway Companion HTTP accepts loopback IP binds only.
 Standalone web binds loopback by default and can be intentionally LAN-bound by
 the operator. Both serve the full dashboard/Companion routes and trusted local
 operator controls with CSRF, Host and output-escaping protections, but no
@@ -232,7 +239,7 @@ authentication layer. See [SECURITY.md](../SECURITY.md).
 | `projects`, `index`, `tools` | Root authorization, Python structure and read-only evidence. |
 | `coding` | Isolated worktrees, controlled writes, validation and cleanup. |
 | `db`, `telemetry` | Persistence, packaged migrations and observation queries. |
-| `mcp`, `web` | SDK stdio and server-rendered dashboard adapters. |
+| `mcp`, `gateway`, `web` | Shared SDK tools, authenticated HTTP service and server-rendered dashboard adapters. |
 
 Transport adapters depend on Application; they do not import concrete Providers.
 Runtime consumes the Provider protocol. Concrete protocol handling belongs only
@@ -255,7 +262,7 @@ normalization and offline tests, without a dynamic plugin framework. Custom Agen
 are supplied programmatically with explicit tools and limits; no TOML Agent loader
 ships. The Python Index is conservative AST navigation, not type inference,
 runtime dispatch proof or an architecture summarizer. There is no general REST
-API, scheduler, autonomous planning, quality benchmark/ranking engine or remote MCP server.
+API, scheduler, autonomous planning, quality benchmark/ranking engine or automatic remote filesystem synchronization.
 
 Specialist references: [Providers](providers.md), [MCP](mcp.md),
 [dashboard](dashboard.md), [Council](councils.md), [coding](coding.md),
@@ -312,6 +319,24 @@ regions in global Codex TOML/instructions and validates explicit local paths wit
 no TaskEngine startup, recovery, registration, inference or automatic selection.
 Codex launches the existing stdio composition; no parallel runtime is introduced.
 Single-client acknowledgment and duplicate configuration checks cannot enforce
-cross-process database ownership; the runtime kernel lock now enforces it (#44). Shared authenticated transport remains
-#46. Director policy cannot grant repository/data-egress permissions or guarantee
+cross-process database ownership; the runtime kernel lock now enforces it (#44). Shared authenticated HTTP connects to the persistent Gateway without constructing
+another Application. Windows and MacBook clients retain independent sessions. Director policy cannot grant repository/data-egress permissions or guarantee
 model tool selection. See [global setup](codex-integration.md).
+
+## Persistent transport ownership
+
+The Gateway's ASGI lifespan starts one Application and the existing exclusive
+SQLite owner before SDK sessions can execute operations. SDK 1.x session lifespans
+borrow it without start/close/recovery. A separate loopback Companion borrows that
+same object. Client DELETE/disconnect/expiry releases only transport/observers;
+only process shutdown closes execution and releases the lock. Existing graceful
+`executor_cancelled`, orphan `execution_interrupted`, queued continuation and
+workspace recovery semantics are unchanged. Running work is never replayed.
+
+Gateway defaults bind loopback; remote private listeners need TLS, and reverse
+proxy TLS termination requires an explicit trusted loopback upstream. Host/Origin
+allowlists, body/connection/session/work admission and watch bounds are enforced.
+Forwarded headers never supply identity or authorization. Dashboard operator routes
+are absent from MCP ingress. Remote Task submission still selects an exact
+Project/Agent/Worker; per-Project Worker grants also make inference egress explicit.
+No Mac-local repository access, cloud fallback or Director logic is added.
