@@ -153,6 +153,9 @@ at its pinned administrative directory; file comparison uses authorized reads
 against immutable Git blobs. Git metadata and executable installation are trusted,
 as for the existing Linux backend. New files use
 `renameatx_np(RENAME_EXCL)`; edits/deletes retain the existing hash/conflict checks.
+Darwin process-group termination is serialized across output readers and the
+owner, and becomes complete only after a successful signal or an absent group.
+This avoids repeated-kill EPERM races while preserving real permission failures.
 Trusted executable pins permit Apple's system executable hardlinks only at those
 operator-configured executable call sites, never for repository data.
 
@@ -168,8 +171,8 @@ The ordinary full suite and installed-wheel smoke run on hosted `macos-15` for
 Python 3.12, 3.13 and 3.14 alongside the existing Ubuntu/Windows matrix. Environment
 artifacts record actual macOS, filesystem, Python/SQLite, Git and dependencies.
 Preflight requires actual local APFS for checkout and temporary storage. Native
-CI also mounts a disposable case-sensitive APFS disk image, verifies its actual
-case behavior, repeats security/coding/ownership tests there and detaches it.
+CI also mounts separate disposable case-sensitive and case-insensitive APFS images,
+verifies actual case behavior, repeats security/coding/ownership tests and detaches them.
 Image/mount failures fail that step; no emulated APFS acceptance is substituted.
 Tests include independent replacement processes, SQLite contention/kill/restart,
 transaction-lock coexistence, dirty Swift, indexing and the full coder/MCP suites.

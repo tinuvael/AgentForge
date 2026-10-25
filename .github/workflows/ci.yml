@@ -78,7 +78,7 @@ jobs:
         run: python scripts/ci_report.py environment
       - name: Regression suite (includes native platform and multi-client HTTP MCP)
         run: python -m pytest -ra --tb=short --junitxml=reports/pytest.xml
-      - name: Native case-sensitive APFS security and coding acceptance
+      - name: Native APFS case variants, security and coding acceptance
         if: ${{ !cancelled() && runner.os == 'macOS' }}
         run: python scripts/ci_macos_apfs.py
       - name: Lint

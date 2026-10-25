@@ -154,9 +154,17 @@ async def validation_process(
             if resume(int(process._handle)) != 0:
                 raise OSError("Validation could not resume safely")
 
+        stop_group = None
+        if sys.platform == "darwin":
+            from agentforge.projects.descriptor_process import group_stopper
+
+            stop_group = group_stopper(process)
+
         def stop():
             if job:
                 job.stop()
+            elif stop_group:
+                stop_group()
             else:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)

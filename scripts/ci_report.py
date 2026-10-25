@@ -90,13 +90,14 @@ def summary():
     else:
         lines += ["", "Pytest report unavailable; no regression success claim."]
     if sys.platform == "darwin":
-        image_result = REPORTS / "apfs-case-sensitive.json"
-        lines += [
-            "",
-            "Native case-sensitive APFS image acceptance: "
-            + ("passed" if image_result.exists() else "not verified")
-            + ".",
-        ]
+        for label in ("case-sensitive", "case-insensitive"):
+            image_result = REPORTS / f"apfs-{label}.json"
+            lines += [
+                "",
+                f"Native {label} APFS image acceptance: "
+                + ("passed" if image_result.exists() else "not verified")
+                + ".",
+            ]
     wheel = REPORTS / "wheel.json"
     lines += [
         "",

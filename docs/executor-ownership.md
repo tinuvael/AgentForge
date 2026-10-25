@@ -74,6 +74,8 @@ could create a second inode and defeat pathname-only locking.
   descriptor could drop SQLite's process-scoped transaction locks. Sidecar cold
   creation retries one identical no-follow open after APFS concurrent-create
   ENOENT, with no lock waiting or stale-file removal. Missing APIs fail closed.
+  CPython builds that omit the OFD constant call the identical native Darwin
+  command 90 from the public ABI; unsupported kernels/filesystems still refuse it.
 - The process-local registry remains for independently composed engines and
   in-memory SQLite. A losing owner never reaches schema/recovery or executor launch.
 

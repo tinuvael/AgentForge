@@ -101,9 +101,11 @@ def _darwin_database_lock(fd):
         ]
 
     value = Flock(0, 1, 0, fcntl.F_WRLCK, os.SEEK_SET)
-    operation = getattr(fcntl, "F_OFD_SETLK", None)
-    if operation is None:
-        raise ExecutorOwnershipError(UNSAFE_MESSAGE)
+    # Public Darwin ABI from sys/fcntl.h. Some supported CPython builds (notably
+    # the hosted 3.12 binary) omit this constant despite a capable native kernel.
+    # Calling the same syscall by number preserves OFD semantics; an unsupported
+    # kernel/filesystem still fails closed through its actual errno below.
+    operation = 90  # F_OFD_SETLK, not Linux's numerically different command.
     try:
         fcntl.fcntl(fd, operation, bytes(value))
     except OSError as error:

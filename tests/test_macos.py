@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
@@ -72,6 +73,38 @@ def test_native_apfs_descriptor_identity(tmp_path):
         assert local_apfs(fd)
         assert descriptor_path(fd) == str(tmp_path)
         assert os.fstat(fd).st_ino == tmp_path.stat().st_ino
+
+
+def test_concurrent_native_group_cleanup_is_idempotent():
+    from agentforge.projects.descriptor_process import group_stopper
+
+    for _ in range(25):
+        process = subprocess.Popen(["/usr/bin/true"], start_new_session=True)
+        stop = group_stopper(process)
+        errors = []
+
+        def finish(stop, errors):
+            try:
+                stop()
+            except BaseException as error:
+                errors.append(error)
+
+        readers = [
+            threading.Thread(target=finish, args=(stop, errors)) for _ in range(2)
+        ]
+        try:
+            for reader in readers:
+                reader.start()
+            for reader in readers:
+                reader.join(timeout=5)
+                assert not reader.is_alive()
+            assert process.wait(timeout=5) in (0, -9)
+            stop()
+            assert not errors
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
 
 
 def test_dirty_swift_git_and_python_index(coding):

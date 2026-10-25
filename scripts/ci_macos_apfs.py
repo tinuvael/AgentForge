@@ -1,4 +1,4 @@
-"""Run native security/coder checks on a disposable case-sensitive APFS image."""
+"""Run native security/coder checks on both disposable APFS case variants."""
 
 import json
 import os
@@ -16,9 +16,10 @@ def run(*argv):
     subprocess.run(argv, check=True, timeout=90)
 
 
-def main():
-    if sys.platform != "darwin":
-        raise RuntimeError("Native Darwin is required, never emulated")
+def acceptance(*, case_sensitive):
+    label = "case-sensitive" if case_sensitive else "case-insensitive"
+    result = ROOT / f"reports/apfs-{label}.json"
+    result.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(prefix="agentforge-apfs-") as temporary:
         directory = Path(temporary).resolve()
         image, mount = directory / "acceptance.sparseimage", directory / "mount"
@@ -31,7 +32,7 @@ def main():
             "-type",
             "SPARSE",
             "-fs",
-            "Case-sensitive APFS",
+            "Case-sensitive APFS" if case_sensitive else "APFS",
             "-volname",
             "AgentForgeAcceptance",
             str(image),
@@ -52,8 +53,8 @@ def main():
                 local_apfs(fd)
             finally:
                 os.close(fd)
-            (mount / "CaseProbe").write_text("native case-sensitive APFS")
-            assert not (mount / "caseprobe").exists(), "APFS is not case-sensitive"
+            (mount / "CaseProbe").write_text("native APFS")
+            assert (not (mount / "caseprobe").exists()) == case_sensitive
             subprocess.run(
                 [
                     sys.executable,
@@ -63,7 +64,7 @@ def main():
                     "--tb=short",
                     "--basetemp",
                     str(mount / "pytest"),
-                    "--junitxml=reports/pytest-apfs-case-sensitive.xml",
+                    f"--junitxml=reports/pytest-apfs-{label}.xml",
                     "tests/test_macos.py",
                     "tests/test_coding_workspaces.py",
                     "tests/test_coding_validation.py",
@@ -73,9 +74,13 @@ def main():
                 check=True,
                 timeout=600,
             )
-            (ROOT / "reports/apfs-case-sensitive.json").write_text(
+            result.write_text(
                 json.dumps(
-                    {"native": True, "filesystem": "apfs", "case_sensitive": True}
+                    {
+                        "native": True,
+                        "filesystem": "apfs",
+                        "case_sensitive": case_sensitive,
+                    }
                 )
                 + "\n",
                 encoding="utf-8",
@@ -83,6 +88,13 @@ def main():
         finally:
             # Never force-detach an image still in use or report that as success.
             run("hdiutil", "detach", str(mount))
+
+
+def main():
+    if sys.platform != "darwin":
+        raise RuntimeError("Native Darwin is required, never emulated")
+    for case_sensitive in (True, False):
+        acceptance(case_sensitive=case_sensitive)
 
 
 if __name__ == "__main__":
