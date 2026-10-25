@@ -138,8 +138,9 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: var(--raised); }
 td strong { font-weight: 550; }
 .secondary { display: block; color: var(--muted); margin-top: 4px; font-size: 11px; }
-.task-history { min-width: 880px; }
+.task-history { min-width: 1100px; }
 .task-history td:first-child { width: 220px; }
+.task-history th:nth-child(2), .task-history td:nth-child(2) { min-width: 200px; }
 .task-history th:nth-child(3), .task-history td:nth-child(3) { min-width: 150px; }
 .task-link { display: block; text-decoration: none; margin-bottom: 8px; }
 .task-link code { font-size: 11px; }
