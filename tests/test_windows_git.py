@@ -67,6 +67,12 @@ def git_snapshot(database, tmp_path, monkeypatch):
                 "commit.gpgSign=false",
                 "-c",
                 "core.hooksPath=" + os.devnull,
+                # Import a stable synthetic .git into FakeWin32. Newer Git can
+                # detach maintenance after commit and race the snapshot loader.
+                "-c",
+                "maintenance.auto=false",
+                "-c",
+                "gc.auto=0",
                 "-C",
                 str(root),
                 *args,
