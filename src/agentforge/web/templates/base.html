@@ -1,3 +1,4 @@
+{% from "macros.html" import icon %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -9,12 +10,23 @@
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/dashboard.js" defer></script>
 </head>
-<body hx-history="false">
+<body class="dashboard" hx-history="false">
   <a class="skip" href="#main">Skip to content</a>
-  <header><a class="brand" href="/">AgentForge <span>operations</span></a>
-    <nav aria-label="Primary"><a href="/">Overview</a><a href="/workers">Workers</a><a href="/projects">Projects</a><a href="/tasks">Tasks</a><a href="/councils">Councils</a><a href="/director">Local Director</a></nav>
-  </header>
-  <main id="main"><div id="notice" role="alert"></div>{% block content %}{% endblock %}</main>
-  <footer>Trusted operator surface · explicit Worker selection · health is not probed</footer>
+  <aside class="app-sidebar" aria-label="Application">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{ icon('forge') }}</span><span>AgentForge<small>ORCHESTRATION</small></span></a>
+    <div class="nav-label">Workspace</div>
+    <nav aria-label="Primary">
+      {% for path, label, symbol in [('/', 'Overview', 'overview'),('/director', 'Local Director', 'director'),('/projects', 'Projects', 'projects'),('/workers', 'Workers', 'workers'),('/tasks', 'Tasks', 'tasks'),('/councils', 'Councils', 'councils')] %}
+      {% set active = request.url.path == path if path == '/' else request.url.path == path or request.url.path.startswith(path + '/') %}
+      <a href="{{ path }}"{% if active %} aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span>{% if active %}<span class="nav-current" aria-hidden="true"></span>{% endif %}</a>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-note">{{ icon('shield') }}<div><strong>Operator workspace</strong><small>Explicit Workers. Inspectable evidence.</small></div></div>
+  </aside>
+  <div class="app-body">
+    <div class="topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>{% block location %}Operations{% endblock %}</strong></span><span class="topbar-boundary">{{ icon('shield') }} Trusted operator surface</span></div>
+    <main id="main" tabindex="-1"><div id="notice" role="alert"></div>{% block content %}{% endblock %}</main>
+    <footer>AgentForge <span aria-hidden="true">/</span> Explicit Worker selection <span aria-hidden="true">·</span> Health is not probed on page load</footer>
+  </div>
 </body>
 </html>

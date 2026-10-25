@@ -1,15 +1,19 @@
-{% extends "base.html" %}{% from "macros.html" import history %}
+{% extends "base.html" %}{% from "macros.html" import history, page_header, icon %}
 {% block title %}Overview · AgentForge{% endblock %}
+{% block location %}Overview{% endblock %}
 {% block content %}
-<h1>Overview</h1><p>Version {{ status.version }} · TaskEngine {{ 'available' if status.task_engine_available else 'unavailable' }} · database queried successfully</p>
-<section class="stats" aria-label="Current counts">
-  <article><span>Projects</span><strong>{{ status.project_count }}</strong></article>
-  <article><span>Configured Workers</span><strong>{{ status.worker_count }}</strong></article>
-  <article><span>Configured Agents</span><strong>{{ status.agent_count }}</strong></article>
-  {% for state in ['queued','running','completed','failed','cancelled'] %}<article><span>{{ state }}</span><strong>{{ counts.get(state, 0) }}</strong></article>{% endfor %}
+{% call page_header('Overview', 'Your execution workspace, at a glance.', 'Control center') %}<a class="button primary" href="/director">Open Local Director {{ icon('arrow') }}</a>{% endcall %}
+<section class="system-strip" aria-label="System availability">
+  <div class="engine-status"><span class="status-dot {{ 'available' if status.task_engine_available else 'unavailable' }}" aria-hidden="true"></span><div><strong>TaskEngine {{ 'available' if status.task_engine_available else 'unavailable' }}</strong><span>Database queried successfully · v{{ status.version }}</span></div></div>
+  <div class="inventory"><a href="/projects"><strong>{{ status.project_count }}</strong> Projects</a><a href="/workers"><strong>{{ status.worker_count }}</strong> configured Workers</a><span class="inventory-agent"><span>Configured Agents</span><strong>{{ status.agent_count }}</strong></span></div>
 </section>
-<h2>Recent Tasks</h2><p>Latest 10 submissions. State counts above cover durable history.</p>{{ history(tasks) }}
-<h2>Observed telemetry by Worker</h2><p>Up to 20 Worker groups in identifier order, over terminal telemetry records. Unknown metrics are —. Observed tokens can be partial.</p>
-<div class="scroll"><table><thead><tr><th scope="col">Worker</th><th scope="col">Observed Tasks / outcomes</th><th scope="col">Average execution runtime / coverage</th><th scope="col">Observed prompt / completion tokens</th><th scope="col">Complete token accounting</th><th scope="col">Observed throughput / coverage</th></tr></thead>
-<tbody>{% for item in comparisons %}<tr><td>{{ item.value|known }}</td><td>{{ item.execution_count }} total<br>{{ item.completed_count }} completed · {{ item.failed_count }} failed · {{ item.cancelled_count }} cancelled</td><td>{{ item.average_execution_duration_seconds|seconds }}<br>{{ item.runtime_observation_count }} / {{ item.execution_count }} Tasks</td><td>{{ item.observed_prompt_tokens|known }} / {{ item.observed_completion_tokens|known }}<br>Observed sums; may be partial</td><td>{{ item.token_complete_execution_count }} / {{ item.execution_count }} Tasks</td><td>{{ item.tokens_per_second|known }} tokens/s<br>{{ item.throughput_execution_count }} / {{ item.execution_count }} Tasks</td></tr>{% else %}<tr><td colspan="6">No terminal telemetry recorded.</td></tr>{% endfor %}</tbody></table></div>
+<section class="stats" aria-label="Current counts">
+  {% for state in ['running','queued','completed','failed','cancelled'] %}<article class="stat {{ state }}"><a href="/tasks?state={{ state }}"><span>{{ state }}</span><strong>{{ counts.get(state, 0) }}</strong><small>{{ 'Active executions' if state == 'running' else 'Awaiting execution' if state == 'queued' else 'Durable history' }}</small></a></article>{% endfor %}
+</section>
+{% if counts.get('failed', 0) %}<div class="attention">{{ icon('info') }}<span><strong>{{ counts.get('failed') }} failed Tasks in history.</strong> Inspect termination categories and returned evidence.</span><a href="/tasks?state=failed">Review failures {{ icon('arrow') }}</a></div>{% endif %}
+<section class="panel"><div class="section-heading"><div><h2>Recent execution activity</h2><p>Latest 10 submissions with current lifecycle. Counts above cover all history.</p></div><a href="/tasks">All Tasks {{ icon('arrow') }}</a></div>{{ history(tasks) }}</section>
+<section class="panel"><div class="section-heading"><div><h2>Observed telemetry by Worker</h2><p>Terminal records · up to 20 groups in identifier order · — means unknown</p></div><a href="/workers">Workers {{ icon('arrow') }}</a></div>
+<div class="scroll" role="region" aria-label="Worker telemetry table" tabindex="0"><table><thead><tr><th scope="col">Worker / outcomes</th><th scope="col">Execution runtime</th><th scope="col">Prompt / completion tokens</th><th scope="col">Complete accounting</th><th scope="col">Throughput</th></tr></thead>
+<tbody>{% for item in comparisons %}<tr><td><strong>{{ item.value|known }}</strong><span class="secondary">{{ item.execution_count }} total · {{ item.completed_count }} completed · {{ item.failed_count }} failed · {{ item.cancelled_count }} cancelled</span></td><td>{{ item.average_execution_duration_seconds|seconds }}<span class="secondary">{{ item.runtime_observation_count }} / {{ item.execution_count }} Tasks observed</span></td><td>{{ item.observed_prompt_tokens|known }} / {{ item.observed_completion_tokens|known }}<span class="secondary">Observed sums; may be partial</span></td><td>{{ item.token_complete_execution_count }} / {{ item.execution_count }} Tasks</td><td>{{ item.tokens_per_second|known }} tokens/s<span class="secondary">{{ item.throughput_execution_count }} / {{ item.execution_count }} Tasks</span></td></tr>{% else %}<tr><td colspan="5" class="empty-cell"><strong>No terminal telemetry recorded.</strong><p>Recorded metrics will appear after Tasks finish.</p></td></tr>{% endfor %}</tbody></table></div>
+</section>
 {% endblock %}
