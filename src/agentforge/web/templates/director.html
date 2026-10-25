@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Local Director · AgentForge{% endblock %}
+{% block content %}
+<div class="director-heading"><div><h1>Local Director</h1><p>Local model · authorized work · evidence you can inspect</p></div><span class="director-model">{{ model }}</span></div>
+<div class="director-layout">
+  <aside class="director-sidebar" aria-label="Conversations">
+    <form method="post" action="/director/new"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">+ New conversation</button></form>
+    <h2>Conversations</h2>
+    {% for entry in conversations %}<a class="director-conversation{% if conversation and conversation.id == entry.id %} selected{% endif %}" href="/director/{{ entry.id }}">{{ entry.title }}<small>{{ entry.state }}</small></a>{% else %}<p>Your conversations will appear here.</p>{% endfor %}
+    <p class="director-hint">Private to this browser session. History is stored on the operator host.</p>
+  </aside>
+  <div class="director-content">
+  {% if conversation %}{% include "director_fragment.html" %}{% else %}
+    <section class="director-empty"><h2>What would you like to investigate?</h2><p>Start a conversation to select an authorized Project and Worker, ask a question, and follow real AgentForge Tasks.</p><p>For example: “Check the project for serious bugs using local models.”</p><p>Isolated coding and Task cancellation ask for your approval.</p></section>
+  {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -199,6 +199,9 @@ def parser():
     from agentforge.gateway.server import add_parser as add_gateway_parser
 
     add_gateway_parser(groups)
+    from agentforge.director.cli import add_parser as add_director_parser
+
+    add_director_parser(groups)
 
     # Reuse the supported service parsers and lifecycle/security implementations.
     from agentforge.mcp import server as mcp
@@ -523,6 +526,10 @@ def main(argv=None) -> int:
 
     try:
         args = parser().parse_args(argv)
+        if args.group == "director":
+            from agentforge.director.cli import run
+
+            return run(args)
         if args.group == "codex":
             from agentforge.codex_integration import execute
 

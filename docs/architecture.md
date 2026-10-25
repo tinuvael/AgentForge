@@ -5,6 +5,18 @@ Projects, Agents and Workers, evaluates evidence and decides the next action.
 AgentForge supplies bounded execution, repository tools and durable history. It
 has no automatic routing, replacement, ranking or local answer synthesis.
 
+The optional [Local Director](local-director.md) is a separate bounded client of
+the authenticated Gateway, reusing shipped inference protocols. It selects
+explicit bindings and synthesizes observed results outside the executor. Its
+private JSON journal is not a second task database. CLI and optional dashboard
+chat share that same core; see the [design/security plan](local-director-design.md).
+The typed tool catalog lives in `application.tool_contracts`; Director imports
+that catalog without importing server/executor composition. Web Chat connects
+through real authenticated MCP, with conversation ownership as an additional
+boundary. Only Gateway's loopback Companion can opt in. HTMX polls bounded saved
+snapshots; browser disconnect does not own or close the Gateway. See the operator
+guide for scoped credentials, one-use approvals and authenticated SSH forwarding.
+
 ## Responsibilities and composition
 
 | Component | Responsibility |
