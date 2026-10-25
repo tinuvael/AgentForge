@@ -43,6 +43,26 @@ class WorkerDiagnosticRecord(Base):
     last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ConnectionResourceRecord(Base):
+    """Lifetime admission counters and latest body-free connection failure."""
+
+    __tablename__ = "connection_resource_observations"
+    __table_args__ = (
+        CheckConstraint(
+            "requests_used >= 0 AND tokens_used >= 0 AND in_flight >= 0",
+            name="ck_connection_resources_nonnegative",
+        ),
+    )
+    connection_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    requests_used: Mapped[int] = mapped_column(Integer, server_default="0")
+    tokens_used: Mapped[int] = mapped_column(Integer, server_default="0")
+    usage_unknown: Mapped[bool] = mapped_column(Boolean, server_default="0")
+    in_flight: Mapped[int] = mapped_column(Integer, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(String(40))
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ProjectRecord(Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("root_path", name="uq_projects_root_path"),)
@@ -52,6 +72,9 @@ class ProjectRecord(Base):
     root_path: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     root_identity: Mapped[dict] = mapped_column(JSON(none_as_null=True))
+    egress_policy: Mapped[dict] = mapped_column(
+        JSON(), server_default='{"mode":"local_only","allowed_connections":[]}'
+    )
 
 
 class IndexStateRecord(Base):
@@ -143,6 +166,9 @@ class TaskRecord(Base):
 
     task_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     client_id: Mapped[str | None] = mapped_column(String(100))
+    provider_connection: Mapped[str | None] = mapped_column(Text)
+    target_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    task_policy: Mapped[dict] = mapped_column(JSON(), server_default="{}")
     # Historical identity survives Project deregistration; intentionally no FK.
     project_id: Mapped[UUID] = mapped_column(Uuid)
     agent_id: Mapped[str] = mapped_column(String(100))

@@ -5,12 +5,14 @@
 [[providers]]
 id = "service-a"
 type = "openai_compatible"
+trust = "cloud"
 base_url = "https://inference-a.invalid/v1"
 api_key_env = "AGENTFORGE_SERVICE_A_KEY"
 
 [[providers]]
 id = "service-b"
 type = "openai_compatible"
+trust = "cloud"
 base_url = "https://inference-b.invalid/api"
 api_key_env = "AGENTFORGE_SERVICE_B_KEY"
 # stream_usage = true # Only when the endpoint accepts include_usage.

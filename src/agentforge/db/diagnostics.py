@@ -8,6 +8,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from agentforge.db.models import WorkerDiagnosticRecord
+from agentforge.db.resources import ResourceRepository
 from agentforge.workers.diagnostics import (
     DiagnosticHistory,
     DiagnosticObservation,
@@ -22,6 +23,7 @@ def utc(value):
 class DiagnosticsRepository:
     def __init__(self, sessions):
         self._sessions = sessions
+        self.resources = ResourceRepository(sessions)
 
     def histories(self, worker_id, fingerprint) -> dict[str, DiagnosticHistory]:
         try:

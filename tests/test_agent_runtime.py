@@ -102,6 +102,7 @@ def setup(registry, database, tmp_path):
         provider="fake",
         model="fake-model",
         endpoint="http://never.invalid",
+        trust="local",
         supports_tools=True,
     )
     other = worker.model_copy(update={"id": "other", "model": "other-model"})

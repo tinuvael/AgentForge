@@ -61,6 +61,7 @@ def package_checks():
         "db/migrations/script.py.mako",
         "db/migrations/versions/0001_initial.py",
         "db/migrations/versions/0002_gateway_client.py",
+        "db/migrations/versions/0003_capability_policy.py",
         "web/templates/base.html",
         "web/templates/companion_base.html",
         "web/templates/companion_home.html",
@@ -106,7 +107,7 @@ def package_checks():
         file.name
         for file in root.joinpath("db/migrations/versions").iterdir()
         if file.name.endswith(".py")
-    } == {"0001_initial.py", "0002_gateway_client.py"}
+    } == {"0001_initial.py", "0002_gateway_client.py", "0003_capability_policy.py"}
     for module in ("db.migrate", "mcp.server", "web.server"):
         result = subprocess.run(
             [sys.executable, "-m", "agentforge." + module, "--help"],
@@ -222,7 +223,7 @@ async def smoke():
             with engine.connect() as connection:
                 assert (
                     MigrationContext.configure(connection).get_current_revision()
-                    == "0002_gateway_client"
+                    == "0003_capability_policy"
                 )
                 assert set(inspect(connection).get_table_names()) == {
                     *Base.metadata.tables,
@@ -235,6 +236,7 @@ async def smoke():
                     "root_path",
                     "created_at",
                     "root_identity",
+                    "egress_policy",
                 }
                 assert any(
                     column["name"] == "root_identity" and not column["nullable"]
@@ -264,7 +266,7 @@ async def smoke():
         config = root / "workers.toml"
         config.write_text(
             '[[workers]]\nid = "offline"\nprovider = "ollama"\n'
-            'endpoint = "http://worker.invalid"\nmodel = "offline"\n'
+            'endpoint = "http://worker.invalid"\ntrust = "local"\nmodel = "offline"\n'
             "supports_tools = true\n"
         )
         # Only a disposable global home; never inherit the operator's real home.
@@ -414,6 +416,7 @@ async def smoke():
                     id="offline",
                     provider="ollama",
                     endpoint="http://worker.invalid",
+                    trust="local",
                     model="offline",
                     supports_tools=True,
                 )
@@ -495,7 +498,7 @@ async def smoke():
             assert {t.name for t in discovered.tools} == {
                 t.name for t in TOOL_CONTRACTS
             }
-            assert len(discovered.tools) == 15
+            assert len(discovered.tools) == 16
             watch_contract = next(t for t in discovered.tools if t.name == "watch_task")
             assert watch_contract.inputSchema["required"] == ["task_id"]
             assert "timeline" in watch_contract.outputSchema["properties"]
@@ -523,6 +526,21 @@ async def smoke():
             )
             before = {path.name: path.read_bytes() for path in project_root.iterdir()}
             project = app.projects.register_project("Synthetic", project_root)
+            assert project.egress_policy.mode == "local_only"
+            suggested = await client.call_tool(
+                "suggest_workers",
+                {
+                    "project_id": str(project.id),
+                    "agent_id": "general_agent",
+                    "require_tools": True,
+                },
+            )
+            assert not suggested.isError and not requests
+            candidate = suggested.structuredContent["candidates"][0]
+            assert (
+                candidate["eligible"] and candidate["worker"]["worker_id"] == "offline"
+            )
+            assert candidate["worker"]["capabilities"]["coding"]["support"] == "unknown"
             result = await client.call_tool(
                 "delegate_task",
                 {

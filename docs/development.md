@@ -35,8 +35,10 @@ Their databases are not an upgrade source. Preserve/export any development histo
 and uncommitted workspaces you need, then select a fresh database and register roots
 explicitly. No command wipes, stamps or silently adopts an old database.
 
-The current head is `0002_gateway_client`, adding nullable durable Task client
-ownership. `0001_initial` is unchanged. Upgrading an existing baseline retains its
+The current head is `0003_capability_policy`, adding default-local Project egress,
+Task connection/policy snapshots and bounded connection resource evidence.
+`0002_gateway_client` adds nullable durable Task client ownership. The released
+revisions are unchanged. Upgrading an existing baseline retains its
 history with null client ownership, requiring an explicit shared-history grant for
 Gateway access. Stop executors and back up private storage before upgrading.
 
@@ -203,3 +205,8 @@ Companion checks remain required. macOS has a separate optional local APFS host;
 bypass storage checks to claim macOS or Windows acceptance. The optional in-memory
 helper diagnostic establishes transport behavior only. See [Gateway design](gateway-design.md)
 and the [operator/physical acceptance guide](gateway.md).
+
+
+The existing nine-job acceptance matrix also runs on `codex/**` branch pushes,
+so a dedicated task branch can be validated before opening its review PR.
+PR validation and the native APFS acceptance step remain unchanged.

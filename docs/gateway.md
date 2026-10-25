@@ -44,8 +44,10 @@ icacls C:\AgentForgeState /inheritance:r /grant:r "${afAccount}:(OI)(CI)F"
 ```
 
 Existing installations must stop executors and back up the database/workspaces
-before upgrading to `0002_gateway_client`. It adds a nullable submitting-client
-identity without changing old Tasks. Existing operator/stdio history has no client
+before upgrading to `0003_capability_policy`. It adds default-local Project egress,
+Task policy/connection snapshots and resource evidence; the earlier
+`0002_gateway_client` adds nullable submitting-client identity without changing old
+Tasks. Existing operator/stdio history has no client
 owner and requires an explicit shared-history grant for HTTP access. Never infer
 an owner from Task text. Migrations are explicit and never run on connection.
 
@@ -65,8 +67,9 @@ deployment_label = "Windows RTX 4080"
 
 Add LAN/cloud connections through [Provider configuration](providers.md). Keep API
 keys in the Gateway account's secret environment; never send those keys to Codex
-clients. Every Project-to-Worker grant below explicitly permits that destination
-to receive the Project's Task context and tool results. Adding a cloud Worker to
+clients. Every Project-to-Worker client grant below is an additional access restriction.
+The Project must separately authorize cloud connection IDs through its operator
+egress policy; see [Worker policy](worker-policy.md). Adding a cloud Worker to
 configuration alone grants no HTTP client access. No probing, fallback, paid use
 or source export happens automatically.
 
@@ -108,7 +111,7 @@ the UUID):
 {
   "tools": [
     "agentforge_status", "describe_capabilities", "list_projects", "list_workers",
-    "list_agents", "delegate_task", "get_task", "watch_task", "cancel_task",
+    "list_agents", "suggest_workers", "delegate_task", "get_task", "watch_task", "cancel_task",
     "delegate_council", "get_council", "cancel_council"
   ],
   "projects": [{"project_id": "<project-uuid>", "workers": ["local-4080"]}],

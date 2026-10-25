@@ -58,6 +58,7 @@ async def main():
                     provider="scripted",
                     model="offline",
                     endpoint="http://offline.invalid",
+                    trust="local",
                 )
                 for name in ("one", "two")
             ]

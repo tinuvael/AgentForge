@@ -45,7 +45,7 @@ def cloud(request, coding, database, tmp_path, monkeypatch):
     workers = tmp_path / "workers.toml"
     workers.write_text(
         f'[[providers]]\nid="synthetic"\ntype="{protocol}"\n'
-        'base_url="http://synthetic.invalid"\n'
+        'base_url="http://synthetic.invalid"\ntrust="local"\n'
         '[[workers]]\nid="selected"\nprovider="synthetic"\nmodel="synthetic"\n'
         "supports_tools=true\ntimeout_seconds=5\n"
     )

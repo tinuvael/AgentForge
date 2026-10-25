@@ -1,0 +1,75 @@
+# Hypothetical operator template. Replace all models/endpoints and validate trust.
+# No hardware, capability, availability, quality, pricing or quota has been measured.
+# Include the future Worker only after its inference service is configured.
+[[providers]]
+id = "windows-inference"
+type = "ollama"
+base_url = "http://192.168.50.10:11434"
+trust = "local" # Explicit trusted LAN processing, after operator verification.
+
+[[providers]]
+id = "i5-inference"
+type = "openai_compatible"
+base_url = "http://192.168.50.12:8000/v1"
+trust = "local"
+
+[[providers]]
+id = "future-ai395"
+type = "openai_compatible"
+base_url = "https://future-inference.example.invalid/v1"
+trust = "unknown" # Unusable until the operator verifies and classifies it.
+
+[[providers]]
+id = "cloud-a"
+type = "openai_compatible"
+base_url = "https://inference-a.example.invalid/v1"
+trust = "cloud"
+api_key_env = "AGENTFORGE_SERVICE_A_KEY"
+[providers.budget]
+max_requests = 10
+max_tokens = 50000 # Operator ceiling, NOT an observed provider quota.
+
+[[providers]]
+id = "cloud-b"
+type = "openai_compatible"
+base_url = "https://inference-b.example.invalid/v1"
+trust = "cloud"
+api_key_env = "AGENTFORGE_SERVICE_B_KEY"
+[providers.budget]
+max_requests = 10
+max_tokens = 50000
+
+[[workers]]
+id = "windows-4080"
+provider = "windows-inference"
+model = "<operator-windows-model-id>"
+deployment_label = "Windows RTX 4080 (hypothetical)"
+# Illustrative declarations only; replace with actual operator decisions.
+supports_tools = true
+context_window = 32768
+[workers.capabilities]
+coding = true
+reasoning = true
+
+[[workers]]
+id = "lan-i5"
+provider = "i5-inference"
+model = "<operator-i5-model-id>"
+deployment_label = "LAN Intel i5 (hypothetical)"
+# Capabilities/context intentionally unknown until configured.
+
+[[workers]]
+id = "future-ai395-model"
+provider = "future-ai395"
+model = "<future-operator-model-id>"
+deployment_label = "Future AI 395 Max (not observed)"
+
+[[workers]]
+id = "cloud-a-model"
+provider = "cloud-a"
+model = "<operator-cloud-a-model-id>"
+
+[[workers]]
+id = "cloud-b-model"
+provider = "cloud-b"
+model = "<operator-cloud-b-model-id>"

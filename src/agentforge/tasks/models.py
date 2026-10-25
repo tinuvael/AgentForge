@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from agentforge.agents.models import ExecutionResult, TerminationReason
+from agentforge.core.policy import TaskPolicy
 
 TaskState = Literal["queued", "running", "completed", "failed", "cancelled"]
 TaskReason = (
@@ -59,6 +60,9 @@ class Task(BaseModel):
 
     task_id: UUID
     client_id: str | None = None
+    provider_connection: str | None = None
+    target_fingerprint: str | None = None
+    task_policy: TaskPolicy = TaskPolicy()
     project_id: UUID
     agent_id: str
     worker_id: str

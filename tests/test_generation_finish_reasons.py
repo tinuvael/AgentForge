@@ -59,7 +59,10 @@ def test_wire_finish_reason_controls_durable_task(
         return httpx.Response(200, json=wire)
 
     connection = ProviderConnection(
-        id="selected", type=protocol, base_url="http://backend.invalid/v1"
+        id="selected",
+        trust="local",
+        type=protocol,
+        base_url="http://backend.invalid/v1",
     )
     provider = (
         OllamaProvider(connection, transport=httpx.MockTransport(handler))

@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from agentforge.agents.models import ExecutionObservations, ExecutionResult, TraceEvent
+from agentforge.core.policy import DEFAULT_TASK_POLICY, TaskPolicy
 from agentforge.councils.models import Council
 from agentforge.db.migrate import schema_is_current
 from agentforge.db.models import (
@@ -118,11 +119,17 @@ class TaskRepository:
         provider: str | None = None,
         model: str | None = None,
         client_id: str | None = None,
+        provider_connection: str | None = None,
+        target_fingerprint: str | None = None,
+        task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
         now: datetime,
     ) -> TaskRecord:
         return TaskRecord(
             task_id=uuid4(),
             client_id=client_id,
+            provider_connection=provider_connection,
+            target_fingerprint=target_fingerprint,
+            task_policy=task_policy.model_dump(mode="json"),
             project_id=project_id,
             agent_id=agent_id,
             worker_id=worker_id,
@@ -144,10 +151,16 @@ class TaskRepository:
         provider: str | None = None,
         model: str | None = None,
         client_id: str | None = None,
+        provider_connection: str | None = None,
+        target_fingerprint: str | None = None,
+        task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
     ) -> Task:
         with self._session() as session:
             record = self._queued_record(
                 now=datetime.now(UTC),
+                provider_connection=provider_connection,
+                target_fingerprint=target_fingerprint,
+                task_policy=task_policy,
                 project_id=project_id,
                 agent_id=agent_id,
                 worker_id=worker_id,
@@ -169,6 +182,8 @@ class TaskRepository:
         agent_id: str,
         request: str,
         targets: tuple[tuple[str, str | None, str | None], ...],
+        bindings: dict | None = None,
+        task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
         client_id: str | None = None,
     ) -> tuple[Council, tuple[Task, ...]]:
         """All bindings must be validated before entry. One short transaction.
@@ -192,6 +207,8 @@ class TaskRepository:
                     agent_id=agent_id,
                     request=request,
                     worker_id=worker,
+                    task_policy=task_policy,
+                    **((bindings or {}).get(worker, {})),
                     provider=provider,
                     model=model,
                     client_id=client_id,
@@ -385,7 +402,10 @@ class TaskRepository:
                 started_at=datetime.now(UTC),
                 queue_duration_seconds=queue_duration_seconds,
                 **(
-                    {"provider": target[0], "model": target[1]}
+                    {
+                        "provider": func.coalesce(TaskRecord.provider, target[0]),
+                        "model": func.coalesce(TaskRecord.model, target[1]),
+                    }
                     if target is not None
                     else {}
                 ),

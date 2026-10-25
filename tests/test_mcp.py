@@ -14,6 +14,7 @@ from sqlalchemy import update
 from agentforge.agents import GENERAL_AGENT, REPO_EXPLORER
 from agentforge.application.service import Application
 from agentforge.core.inference import GenerationResult, ToolCall
+from agentforge.core.policy import EgressPolicy
 from agentforge.core.worker import Worker
 from agentforge.db.database import create_database_engine, create_session_factory
 from agentforge.db.models import TaskRecord
@@ -32,6 +33,7 @@ PUBLIC_TOOLS = {
     "describe_capabilities",
     "list_projects",
     "list_workers",
+    "suggest_workers",
     "list_agents",
     "delegate_task",
     "get_task",
@@ -96,6 +98,10 @@ def setup(database, registry, tmp_path):
     root.mkdir()
     (root / "source.py").write_text(f"def {PRIVATE}():\n    pass\n")
     project = registry.register_project("Registered", root)
+    project = registry.set_egress_policy(
+        project.id,
+        EgressPolicy(mode="cloud_allowed", allowed_connections=("inline:cloud",)),
+    )
     workers = WorkersConfig(
         workers=[
             Worker(
@@ -103,6 +109,7 @@ def setup(database, registry, tmp_path):
                 provider="fake",
                 model="configured-model",
                 endpoint=endpoint,
+                trust="cloud" if identity == "cloud" else "local",
                 supports_tools=True,
                 context_window=32768,
                 deployment_label=identity,

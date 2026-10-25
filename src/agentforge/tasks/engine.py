@@ -17,6 +17,7 @@ from agentforge.agents.models import (
     TraceEvent,
 )
 from agentforge.agents.runtime import AgentRuntime
+from agentforge.core.policy import DEFAULT_TASK_POLICY, PolicyStorageError, TaskPolicy
 from agentforge.councils.models import MAX_PARTICIPANTS, Council, InvalidCouncil
 from agentforge.db.ownership import DatabaseOwnership
 from agentforge.db.tasks import TaskRepository
@@ -114,6 +115,7 @@ class TaskEngine:
         worker_id: str,
         task: str,
         client_id: str | None = None,
+        task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
     ) -> Task:
         self._check_thread()
         if self._closed:
@@ -124,6 +126,8 @@ class TaskEngine:
             )
         except ValueError:
             raise TaskValidationError("Invalid execution binding") from None
+        task_policy = TaskPolicy.model_validate(task_policy)
+        self._runtime.check_policy(identity, worker_id, task_policy)
         provider, model = self._runtime.execution_target(worker_id)
         queued_at = self._clock()
         submitted = self._repository.add(
@@ -131,6 +135,8 @@ class TaskEngine:
             agent_id=agent_id,
             worker_id=worker_id,
             request=task,
+            task_policy=task_policy,
+            **self._runtime.policy_binding(worker_id),
             provider=provider,
             model=model,
             client_id=client_id,
@@ -159,6 +165,7 @@ class TaskEngine:
         worker_ids: tuple[str, ...],
         task: str,
         client_id: str | None = None,
+        task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
     ) -> tuple[Council, tuple[Task, ...]]:
         self._check_thread()
         if self._closed:
@@ -169,6 +176,7 @@ class TaskEngine:
             raise InvalidCouncil("Supply 2 to 16 distinct Workers")
         if self._runtime.workspace_mode(agent_id) == "isolated_write":
             raise InvalidCouncil("Council requires a read-only Agent")
+        task_policy = TaskPolicy.model_validate(task_policy)
         # Validate every participant before any write, probe or inference.
         targets = []
         for worker_id in worker_ids:
@@ -181,6 +189,7 @@ class TaskEngine:
                 )
             except ValueError:
                 raise TaskValidationError("Invalid execution binding") from None
+            self._runtime.check_policy(identity, worker_id, task_policy)
             targets.append((worker_id, *self._runtime.execution_target(worker_id)))
         queued_at = self._clock()
         council, tasks = self._repository.add_council(
@@ -188,6 +197,8 @@ class TaskEngine:
             agent_id=agent_id,
             request=task,
             targets=tuple(targets),
+            task_policy=task_policy,
+            bindings={w: self._runtime.policy_binding(w) for w in worker_ids},
             client_id=client_id,
         )
         for participant in tasks:
@@ -398,6 +409,14 @@ class TaskEngine:
                         )
                     result = await self._runtime.run(
                         **arguments,
+                        task_policy=task.task_policy,
+                        expected_target=(task.provider, task.model),
+                        expected_binding={
+                            "provider_connection": task.provider_connection,
+                            "target_fingerprint": task.target_fingerprint,
+                        }
+                        if task.target_fingerprint
+                        else None,
                         project_id=task.project_id,
                         agent_id=task.agent_id,
                         worker_id=task.worker_id,
@@ -405,6 +424,10 @@ class TaskEngine:
                         cancellation=token,
                         observations=observations,
                     )
+                except PolicyStorageError:
+                    raise TaskStorageError(
+                        "Resource policy storage unavailable"
+                    ) from None
                 except asyncio.CancelledError:
                     finish(error_code="executor_cancelled")
                     raise

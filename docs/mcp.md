@@ -505,3 +505,12 @@ also serves Companion. See [Companion discovery, launch and limitations](compani
 The opt-in [Codex installer](codex-integration.md) uses this same stdio server,
 Application lifespan and typed tool contracts. It adds no runtime or Project
 authorization. One active Codex session per database remains mandatory.
+
+
+`suggest_workers` accepts a registered Project, Agent, bounded capability/context
+requirements and optional stricter Task policy. Its typed response separates
+eligibility exclusions, unknowns, declarations, scoped observations and preferences.
+It never sends inference or selects/submits a Worker. Task/Council arguments may
+include `task_policy`; existing required explicit IDs are unchanged. See
+[Worker policy examples](worker-policy.md). Gateway clients need a separate exact
+`suggest_workers` tool grant and Project/Agent/Worker grants.

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
+from agentforge.core.policy import EgressPolicy
 from agentforge.projects.identity import RootIdentity
 
 
@@ -16,6 +17,7 @@ class Project:
     root_path: Path
     created_at: datetime
     root_identity: RootIdentity
+    egress_policy: EgressPolicy = EgressPolicy()
 
 
 @dataclass(frozen=True)

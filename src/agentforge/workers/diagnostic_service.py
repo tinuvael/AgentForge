@@ -17,6 +17,7 @@ from agentforge.core.inference import (
     Provider,
     ToolDefinition,
 )
+from agentforge.core.policy import PolicyDenied, ResourceBudget
 from agentforge.core.provider_errors import InvalidProviderResponse, ProviderError
 from agentforge.db.diagnostics import DiagnosticsRepository
 from agentforge.workers.config import WorkersConfig
@@ -30,6 +31,7 @@ from agentforge.workers.diagnostics import (
     GenerationProbeKind,
     WorkerDiagnostics,
 )
+from agentforge.workers.policy import connection_id
 
 PROBE_TIMEOUT_SECONDS = 30.0
 MAX_OUTPUT_BYTES = 16_384
@@ -90,6 +92,8 @@ class WorkerDiagnosticsService:
         self._workers = {w.id: w for w in config.workers}
         self._providers = providers
         self._repository = repository
+        self._resources = repository.resources if repository else None
+        self._connections = {p.id: p for p in config.providers}
         self._active: dict[str, asyncio.Task] = {}
         self._closed = False
         connections = {p.id: p for p in config.providers}
@@ -193,6 +197,18 @@ class WorkerDiagnosticsService:
                     5.0 if kind == "health" else PROBE_TIMEOUT_SECONDS,
                     worker.timeout_seconds,
                 )
+                admitted = False
+                remaining_tokens = None
+                if kind != "health":
+                    connection = self._connections.get(worker.provider_connection)
+                    budget = connection.budget if connection else ResourceBudget()
+                    if self._resources:
+                        remaining_tokens = self._resources.admit(
+                            connection_id(worker), budget
+                        )
+                        admitted = True
+                    elif budget != ResourceBudget():
+                        raise PolicyDenied("resource_storage_required")
                 try:
                     async with asyncio.timeout(timeout):
                         if kind == "health":
@@ -221,7 +237,13 @@ class WorkerDiagnosticsService:
                                 )
                         else:
                             await self._generation(
-                                provider, worker, kind, timeout, started, values
+                                provider,
+                                worker,
+                                kind,
+                                timeout,
+                                started,
+                                values,
+                                remaining_tokens=remaining_tokens,
                             )
                 except TimeoutError:
                     values.update(status="failed", error_code="timeout")
@@ -237,6 +259,20 @@ class WorkerDiagnosticsService:
                         values["backend_reachable"] = True
                 except Exception:
                     values.update(status="failed", error_code="diagnostic_failed")
+                finally:
+                    if admitted:
+                        counts = values.get("token_usage")
+                        rate = values.get("rate_limits")
+                        failure = values.get("error_code")
+                        self._resources.finish(
+                            connection_id(worker),
+                            tokens=counts.accounted_total if counts else None,
+                            error_code=failure
+                            or ("request_interrupted" if not values else None),
+                            retry_after=rate.retry_after_seconds
+                            if rate and failure == "rate_limited"
+                            else None,
+                        )
                 # A portable health operation may deliberately make no request.
                 if values["status"] != "not_probed":
                     values["request_duration_seconds"] = max(0.0, monotonic() - started)
@@ -258,7 +294,9 @@ class WorkerDiagnosticsService:
         finally:
             self._active.pop(worker_id, None)
 
-    async def _generation(self, provider, worker, kind, timeout, started, values):
+    async def _generation(
+        self, provider, worker, kind, timeout, started, values, *, remaining_tokens=None
+    ):
         # Only synthetic messages/options. Configured stop strings or arbitrary
         # backend options cannot become diagnostic prompt data or evade its caps.
         target = worker.model_copy(update={"options": {}})
@@ -273,7 +311,11 @@ class WorkerDiagnosticsService:
             ],
             temperature=0.0,
             timeout_seconds=timeout,
-            max_output_tokens=64 if kind == "tools" else 32,
+            max_output_tokens=min(64 if kind == "tools" else 32, remaining_tokens)
+            if remaining_tokens is not None
+            else 64
+            if kind == "tools"
+            else 32,
             tools=[
                 ToolDefinition(
                     name="diagnostic_echo",

@@ -4,10 +4,11 @@ from datetime import UTC
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from agentforge.core.policy import EgressPolicy
 from agentforge.db.models import IndexStateRecord, ProjectRecord
 from agentforge.projects.errors import ProjectAlreadyRegistered, ProjectStorageError
 from agentforge.projects.identity import RootIdentity
@@ -25,6 +26,7 @@ def _project(record: ProjectRecord) -> Project:
         Path(record.root_path),
         created_at.astimezone(UTC),
         RootIdentity.from_json(record.root_identity),
+        EgressPolicy.model_validate(record.egress_policy),
     )
 
 
@@ -53,6 +55,7 @@ class ProjectRepository:
                         root_path=str(project.root_path),
                         created_at=project.created_at,
                         root_identity=project.root_identity.as_json(),
+                        egress_policy=project.egress_policy.model_dump(mode="json"),
                     )
                 )
                 self._commit(session)
@@ -130,6 +133,19 @@ class ProjectRepository:
                 return [_project(record) for record in records]
         except SQLAlchemyError:
             raise ProjectStorageError("Could not list projects") from None
+
+    def set_egress(self, project_id: UUID, policy: EgressPolicy) -> bool:
+        try:
+            with self._sessions() as session:
+                result = session.execute(
+                    update(ProjectRecord)
+                    .where(ProjectRecord.id == project_id)
+                    .values(egress_policy=policy.model_dump(mode="json"))
+                )
+                self._commit(session)
+                return result.rowcount > 0
+        except SQLAlchemyError:
+            raise ProjectStorageError("Could not update Project policy") from None
 
     def remove(self, project_id: UUID) -> bool:
         try:

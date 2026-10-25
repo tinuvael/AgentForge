@@ -8,6 +8,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
+from agentforge.core.policy import ResourceBudget
 from agentforge.core.worker import NonBlank, Worker
 
 
@@ -24,6 +25,8 @@ class ProviderConnection(BaseModel):
     type: Literal["ollama", "openai_compatible"]
     base_url: HttpUrl = Field(repr=False)
     api_key_env: NonBlank | None = Field(default=None, repr=False)
+    trust: Literal["local", "cloud", "unknown"] = "unknown"
+    budget: ResourceBudget = Field(default_factory=ResourceBudget)
     # Opt in only on compatible servers accepting stream_options.include_usage.
     stream_usage: bool = False
 
@@ -72,6 +75,9 @@ class WorkersConfig(BaseModel):
         connections = {connection.id: connection for connection in self.providers}
         if len(connections) != len(self.providers):
             raise ValueError("Provider IDs must be unique")
+        inline_ids = {"inline:" + w.id for w in self.workers if w.endpoint is not None}
+        if inline_ids.intersection(connections):
+            raise ValueError("Provider identity conflicts with an inline Worker")
         for worker in self.workers:
             if worker.provider_connection is not None:
                 connection = connections.get(worker.provider_connection)
