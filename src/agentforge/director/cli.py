@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 
 from agentforge.director.client import DirectorError
 from agentforge.director.config import load_config
@@ -44,6 +45,29 @@ def display(item):
     )
 
 
+async def read_line():
+    """Keep Ctrl-C responsive without waiting for an executor's blocked stdin."""
+    loop = asyncio.get_running_loop()
+    pending = loop.create_future()
+
+    def deliver(value):
+        if not pending.done():
+            pending.set_result(value)
+
+    def reading():
+        try:
+            value = input("> ")
+        except EOFError:
+            value = "/quit"
+        try:
+            loop.call_soon_threadsafe(deliver, value)
+        except RuntimeError:
+            pass  # The CLI exited while this daemon waited for operator input.
+
+    threading.Thread(target=reading, daemon=True, name="director-input").start()
+    return await pending
+
+
 async def execute(args):
     async with Director(load_config(args.config)) as director:
         item = (
@@ -76,7 +100,7 @@ async def execute(args):
             print("Local Director. /quit exits; approvals use director approve/reject.")
             print("Session: " + str(item.id))
             while True:
-                text = await asyncio.to_thread(input, "> ")
+                text = await read_line()
                 if text.strip() == "/quit":
                     return 0
                 item = await director.run(item.id, "cli", text)

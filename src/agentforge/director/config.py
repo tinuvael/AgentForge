@@ -27,7 +27,7 @@ class DirectorConfig(Record):
         if self.gateway_url.path != "/mcp":
             raise ValueError("Gateway URL must end at /mcp")
         try:
-            local = ipaddress.ip_address(self.gateway_url.host).is_loopback
+            local = ipaddress.ip_address(self.gateway_url.host.strip("[]")).is_loopback
         except ValueError:
             local = self.gateway_url.host == "localhost"
         if self.gateway_url.scheme != "https" and not local:

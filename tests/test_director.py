@@ -367,3 +367,55 @@ def test_council_keeps_independent_task_ids_and_results(setup, tmp_path):
             assert item.councils[0].task_ids == [t.task_id for t in item.tasks]
 
     asyncio.run(scenario())
+
+
+def test_ipv6_loopback_and_local_compatible_director_configuration(tmp_path):
+    from agentforge.workers.config import ProviderConnection
+
+    configured = config(tmp_path / "journal")
+    value = DirectorConfig.model_validate(
+        {
+            **configured.model_dump(),
+            "gateway_url": "http://[::1]:8766/mcp",
+            "inference": ProviderConnection(
+                id="compatible",
+                type="openai_compatible",
+                base_url="http://127.0.0.1:8080/v1",
+                trust="local",
+            ),
+        }
+    )
+    assert value.worker().provider == "openai_compatible"
+
+
+def test_interactive_input_eof_and_cancellation(monkeypatch):
+    import threading
+
+    from agentforge.director.cli import read_line
+
+    async def scenario():
+        def eof(_):
+            raise EOFError
+
+        monkeypatch.setattr("builtins.input", eof)
+        assert await read_line() == "/quit"
+        entered, release = threading.Event(), threading.Event()
+
+        def blocked(_):
+            entered.set()
+            release.wait(2)
+            return "late input"
+
+        monkeypatch.setattr("builtins.input", blocked)
+        pending = asyncio.create_task(read_line())
+        try:
+            async with asyncio.timeout(1):
+                while not entered.is_set():
+                    await asyncio.sleep(0.001)
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        finally:
+            release.set()
+
+    asyncio.run(scenario())
