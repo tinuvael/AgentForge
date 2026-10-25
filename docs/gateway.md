@@ -175,7 +175,10 @@ editors/File.Replace do not participate in this protocol and must not write the
 live file concurrently. No Gateway restart is needed for ordinary updates.
 
 Updates flush a private same-directory temporary file before atomic publication;
-POSIX additionally fsyncs the directory, and Windows uses write-through rename.
+POSIX additionally fsyncs the directory. Modern native NTFS uses handle-based
+`FileRenameInfoEx` with replace/POSIX semantics and `FlushFileBuffers` through a
+write-through handle; legacy MoveFileEx cannot reliably replace an open target.
+Unsupported rename semantics fail closed, without an in-place fallback.
 Windows readers permit DELETE sharing (but no WRITE sharing), so authentication
 does not prevent publication or observe in-place partial writes. Readers held
 across publication recheck file identity and retry at most four snapshots before

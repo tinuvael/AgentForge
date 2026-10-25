@@ -197,14 +197,55 @@ def _replace_policy(source, target):
     if os.name != "nt":
         os.replace(source, target)
         return
-    import ctypes
+    import ctypes as c
 
-    move = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
-    move.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
-    move.restype = ctypes.c_int
-    # Same-directory atomic replacement with write-through, never copy/delete.
-    if not move(str(source), str(target), 0x1 | 0x8):
-        raise ctypes.WinError(ctypes.get_last_error())
+    from agentforge.projects.win32 import DWORD, HANDLE, Win32
+
+    class RenameInfo(c.Structure):
+        _fields_ = [
+            ("flags", DWORD),
+            ("root", HANDLE),
+            ("length", DWORD),
+            ("name", c.c_wchar * 1),
+        ]
+
+    api = Win32()
+    rename = api.api.SetFileInformationByHandle
+    rename.argtypes = [HANDLE, c.c_int, c.c_void_p, DWORD]
+    rename.restype = c.c_int
+    flush = api.api.FlushFileBuffers
+    flush.argtypes = [HANDLE]
+    flush.restype = c.c_int
+    # MoveFileEx cannot replace an open destination reliably. Modern local NTFS
+    # explicitly supports replacement with old readers via FileRenameInfoEx.
+    name = str(target).encode("utf-16-le")
+    buffer = c.create_string_buffer(RenameInfo.name.offset + len(name) + 2)
+    info = RenameInfo.from_buffer(buffer)
+    info.flags = 0x1 | 0x2  # REPLACE_IF_EXISTS | POSIX_SEMANTICS
+    info.length = len(name)
+    c.memmove(c.addressof(buffer) + RenameInfo.name.offset, name, len(name))
+    handle = api.api.CreateFileW(
+        str(source), 0xC0010000, 1 | 2 | 4, None, 3, 0x80200000, None
+    )  # READ|WRITE|DELETE, WRITE_THROUGH|OPEN_REPARSE_POINT
+    if handle == c.c_void_p(-1).value:
+        api._error()
+    published = False
+    try:
+        try:
+            observed = api.info(handle)
+            if observed.directory or observed.reparse or observed.links != 1:
+                raise ValueError("Use a regular private policy file")
+            if not rename(handle, 22, buffer, len(buffer)):  # FileRenameInfoEx
+                api._error()
+            published = True
+            if not flush(handle):
+                api._error()
+        finally:
+            api.close(handle)
+    except BaseException:
+        if published:
+            raise PolicyPersistenceUncertain from None
+        raise
 
 
 def save_policies(path: Path, policies: Policies, *, expected: Policies | None):

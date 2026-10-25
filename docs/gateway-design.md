@@ -55,6 +55,11 @@ Policy readers use immutable file snapshots; native Windows opens with
 FILE_SHARE_READ | FILE_SHARE_DELETE and denies in-place WRITE access. Identity is
 rechecked after reading so a held old handle cannot authorize from stale policy
 after replacement; at most four raced snapshots are retried before default-deny.
+Modern native NTFS publication uses FileRenameInfoEx with REPLACE_IF_EXISTS and
+POSIX_SEMANTICS, which permits replacement while old readers retain their handles.
+MoveFileEx plus DELETE sharing alone does not provide this behavior. The already
+flushed temporary file is renamed and FlushFileBuffers confirms publication via
+its write-through handle. Unsupported platforms fail closed; no in-place fallback.
 This preserves live per-request/per-operation checks and stream revalidation.
 
 Administrative writes use a permanent OS-locked sidecar plus expected-snapshot
@@ -119,3 +124,7 @@ smoke additionally launches the real CLI against a loopback scripted HTTP Ollama
 server, checks authentication/discovery/analysis and graceful restart. Hosted
 Linux/Windows results are distinct from pending physical Windows/MacBook,
 Tailscale, GPU/Ollama and Xcode acceptance. Native macOS execution remains #45.
+
+Policy publication references: [FILE_RENAME_INFORMATION](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information),
+[SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)
+and [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).
