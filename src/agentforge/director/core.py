@@ -8,20 +8,32 @@ import hashlib
 import json
 import secrets
 from time import time
+from uuid import uuid4
 
 from pydantic import ValidationError
 
+from agentforge.application.tool_contracts import TOOL_CONTRACTS
 from agentforge.core.inference import GenerationRequest, Message, ToolDefinition
 from agentforge.core.provider_errors import ProviderError
 from agentforge.director.client import DirectorError, connect
 from agentforge.director.journal import Journal
-from agentforge.director.models import Action, TaskBinding, VisibleMessage
-from agentforge.mcp.server import TOOL_CONTRACTS
+from agentforge.director.models import (
+    Action,
+    CouncilBinding,
+    TaskBinding,
+    VisibleMessage,
+)
 from agentforge.providers.factory import PROVIDER_TYPES
 
 CONTRACTS = {t.name: t for t in TOOL_CONTRACTS}
-ALLOWED = frozenset(CONTRACTS) - {"delegate_council", "cancel_council"}
-WRITES = {"delegate_task", "cancel_task", "cleanup_coding_workspace"}
+ALLOWED = frozenset(CONTRACTS)
+WRITES = {
+    "delegate_task",
+    "delegate_council",
+    "cancel_task",
+    "cancel_council",
+    "cleanup_coding_workspace",
+}
 SOURCE_TOOLS = {"read_file", "search_code", "git_diff", "get_symbol", "search_symbols"}
 TERMINAL = {"completed", "failed", "cancelled", "interrupted"}
 PROMPT = """You are Local Director, an independent bounded MCP client.
@@ -38,6 +50,13 @@ client cannot independently read source. Cite real task IDs and source reference
 from results; qualify unsupported findings. Do not invent evidence or completion.
 Answer concisely; omit private reasoning. No Codex mode or cloud fallback exists.
 """
+
+
+def cancellation_checkpoint():
+    # Some SDK task-group exits consume an edge cancellation while finishing
+    # transport cleanup. Never continue into inference or another operation.
+    if asyncio.current_task().cancelling():
+        raise asyncio.CancelledError
 
 
 class Director:
@@ -112,6 +131,7 @@ class Director:
                 continue
             # Interpret results outside SDK task-group scopes so a known denial
             # cannot be mistaken for a transport failure or ambiguous submission.
+            cancellation_checkpoint()
             if result.isError:
                 from agentforge.application.contracts import SafeError
 
@@ -133,7 +153,18 @@ class Director:
             raise DirectorError("client_identity_changed")
         item.client_id = client_id
         self.journal.save(item)
+        if item.calls >= self.config.limits.calls:
+            raise DirectorError("tool_limit")
+        item.calls += 1
+        self.journal.save(item)
+        try:
+            async with self.connector(self.config) as client:
+                discovery = await client.list_tools()
+        except Exception:
+            raise DirectorError("gateway_unavailable") from None
+        cancellation_checkpoint()
         catalogs = {}
+        catalogs["tools"] = sorted(t.name for t in discovery.tools if t.name in ALLOWED)
         for name in ("projects", "agents", "workers"):
             catalogs[name] = (await self.rpc(item, "list_" + name, {}))[name]
         self.catalogs[item.id] = catalogs
@@ -189,6 +220,8 @@ class Director:
     async def perform(self, item, name, arguments, *, approved=False):
         if name not in ALLOWED:
             raise DirectorError("unknown_tool")
+        if name not in self.catalogs[item.id]["tools"]:
+            raise DirectorError("access_denied")
         try:
             arguments = (
                 CONTRACTS[name]
@@ -197,6 +230,55 @@ class Director:
             )
         except ValidationError:
             raise DirectorError("invalid_arguments") from None
+        if name == "delegate_council":
+            workers = arguments["worker_ids"]
+            if (
+                item.delegated + len(workers) > self.config.limits.tasks
+                or len(item.tasks) + len(workers) > 16
+            ):
+                raise DirectorError("task_limit")
+            for worker in workers:
+                agent = await self.binding(item, {**arguments, "worker_id": worker})
+                if agent["workspace_mode"] != "project_readonly":
+                    raise DirectorError("coding_council_denied")
+            item.delegated += len(workers)
+            item.submission = True
+            self.event(
+                item, "Submitting independent Council participants to AgentForge."
+            )
+            result = await self.rpc(item, name, arguments)
+            if (
+                result["project_id"] != arguments["project_id"]
+                or result["agent_id"] != arguments["agent_id"]
+                or {p["worker_id"] for p in result["participants"]} != set(workers)
+            ):
+                raise DirectorError("submission_ambiguous")
+            tasks = [
+                TaskBinding(
+                    task_id=p["task_id"],
+                    project_id=result["project_id"],
+                    agent_id=result["agent_id"],
+                    worker_id=p["worker_id"],
+                    state=p["state"],
+                )
+                for p in result["participants"]
+            ]
+            item.tasks.extend(tasks)
+            item.councils.append(
+                CouncilBinding(
+                    council_id=result["council_id"],
+                    project_id=result["project_id"],
+                    agent_id=result["agent_id"],
+                    task_ids=[t.task_id for t in tasks],
+                )
+            )
+            item.submission = False
+            self.event(
+                item,
+                f"Council {result['council_id']} submitted with exact participant IDs.",
+            )
+            results = [await self.observe(item, task) for task in tasks]
+            return {"council_id": result["council_id"], "independent_results": results}
         if name == "delegate_task":
             if item.delegated >= self.config.limits.tasks or len(item.tasks) >= 16:
                 raise DirectorError("task_limit")
@@ -244,11 +326,25 @@ class Director:
                     item, name, arguments, binding.project_id, binding.task_id
                 )
                 return None
-        # Councils can be read only when created outside this MVP and explicitly
-        # granted at Gateway; browser conversations never gain shared-history access.
-        if name == "get_council":
-            raise DirectorError("conversation_task_denied")
-        return await self.rpc(item, name, arguments)
+        if name in {"get_council", "cancel_council"}:
+            council = next(
+                (
+                    c
+                    for c in item.councils
+                    if str(c.council_id) == arguments["council_id"]
+                ),
+                None,
+            )
+            if council is None:
+                raise DirectorError("conversation_task_denied")
+            if name == "cancel_council" and not approved:
+                self.approval(item, name, arguments, council.project_id)
+                return None
+        result = await self.rpc(item, name, arguments)
+        if name in {"get_task", "cancel_task"}:
+            binding.state = result["state"]
+            self.journal.save(item)
+        return result
 
     async def observe(self, item, binding):
         previous = None
@@ -338,7 +434,7 @@ class Director:
                 parameters=t.arguments.model_json_schema(),
             )
             for t in TOOL_CONTRACTS
-            if t.name in ALLOWED and t.name != "get_council"
+            if t.name in discovery["tools"]
         ]
         while item.turns < self.config.limits.turns:
             request = GenerationRequest(
@@ -354,7 +450,9 @@ class Director:
                 raise DirectorError("context_limit")
             item.turns += 1
             self.event(item, "Director analyzing available information.")
+            cancellation_checkpoint()
             result = await self.provider.generate(self.config.worker(), request)
+            cancellation_checkpoint()
             if result.finish_reason == "length":
                 raise DirectorError("output_limit")
             if (
@@ -387,6 +485,7 @@ class Director:
                 Message(
                     role="assistant",
                     content=result.content,
+                    reasoning=result.reasoning,
                     tool_calls=result.tool_calls,
                 )
             )
@@ -447,6 +546,7 @@ class Director:
         if resume:
             item.calls = item.turns = 0
         item.state, item.error = "running", None
+        item.request_id = uuid4()
         self.journal.save(item)
         self.active.add(item.id)
         try:

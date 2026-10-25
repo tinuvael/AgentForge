@@ -198,6 +198,22 @@ def create_gateway(
     *,
     companion: CompanionConfig | None = None,
 ):
+    if companion and companion.director_config:
+        from agentforge.director.config import load_config
+
+        director = load_config(companion.director_config)
+        target = director.gateway_url
+        local_alias = target.host in {"localhost", "127.0.0.1", "[::1]", "::1"}
+        if (
+            target.port != config.port
+            or not (
+                target.host == config.host
+                or local_alias
+                and ipaddress.ip_address(config.host).is_loopback
+            )
+            or target.scheme != ("https" if config.tls_cert else "http")
+        ):
+            raise ValueError("Companion Director must target this same Gateway")
     runtime = {}
 
     def client_access(context):
@@ -276,6 +292,8 @@ def create_gateway(
 
 
 async def serve(args):
+    if args.director_config and not args.companion:
+        raise ValueError("Director chat requires --companion")
     config = GatewayConfig(
         host=args.host,
         port=args.port,
@@ -298,7 +316,9 @@ async def serve(args):
         ),
         CredentialStore(args.auth),
         config,
-        companion=CompanionConfig(args.companion_host, args.companion_port)
+        companion=CompanionConfig(
+            args.companion_host, args.companion_port, args.director_config
+        )
         if args.companion
         else None,
     )
@@ -390,3 +410,7 @@ def add_parser(groups):
     command.add_argument("--max-sessions", type=int, default=64)
     command.add_argument("--session-idle-seconds", type=float, default=300)
     command.add_argument("--max-pending-tasks", type=int, default=256)
+    command.add_argument(
+        "--director-config",
+        help="Private local Director TOML; requires loopback Companion",
+    )

@@ -39,7 +39,11 @@ class DirectorConfig(Record):
 
     def token(self):
         value = os.environ.get(self.token_env, "")
-        if not value or not value.isascii() or any(c.isspace() for c in value):
+        if (
+            not value
+            or not value.isascii()
+            or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value)
+        ):
             raise ValueError("Director Gateway credential unavailable")
         return value
 

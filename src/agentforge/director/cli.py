@@ -35,6 +35,7 @@ def display(item):
                 "error": item.error,
                 "messages": [m.model_dump() for m in item.messages],
                 "tasks": [t.model_dump(mode="json") for t in item.tasks],
+                "councils": [c.model_dump(mode="json") for c in item.councils],
                 "approval": item.pending.model_dump() if item.pending else None,
                 "progress": item.progress,
             },

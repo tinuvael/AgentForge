@@ -6,7 +6,7 @@ import hmac
 import logging
 import secrets
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode
 from uuid import UUID
@@ -103,10 +103,13 @@ def create_app(
     application_factory: Callable[[], Application] | None = None,
     *,
     shared_application: Application | None = None,
+    director_factory=None,
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "[::1]"),
 ) -> FastAPI:
     if (application_factory is None) == (shared_application is None):
         raise ValueError("Supply exactly one owned factory or borrowed Application")
+    if director_factory is not None and shared_application is None:
+        raise ValueError("Director chat requires the Gateway's borrowed Companion")
     templates = Jinja2Templates(directory=_ASSETS / "templates")
     templates.env.filters["known"] = lambda value: "—" if value is None else value
     templates.env.filters["seconds"] = lambda value: (
@@ -124,7 +127,18 @@ def create_app(
         if shared_application is not None:
             if not shared_application.status().available:
                 raise ServiceError("service_unavailable")
-            yield
+            async with AsyncExitStack() as stack:
+                if director_factory is not None:
+                    from agentforge.web.director import DirectorWeb
+
+                    director = await stack.enter_async_context(director_factory())
+                    web.state.director = DirectorWeb(director)
+                try:
+                    yield
+                finally:
+                    if director_factory is not None:
+                        await web.state.director.close()
+                        web.state.director = None
             return
         if application is not None:
             raise ServiceError("service_unavailable")
@@ -477,4 +491,7 @@ def create_app(
     from agentforge.web.companion import add_companion_routes
 
     add_companion_routes(web, core, render, check_cancellation, event_response)
+    from agentforge.web.director import add_director_routes
+
+    add_director_routes(web, render, valid_token)
     return web

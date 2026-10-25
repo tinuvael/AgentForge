@@ -339,3 +339,43 @@ button:hover {
     gap: 16px;
   }
 }
+
+/* Local Director uses the existing operator palette and native form controls. */
+.director-heading, .director-session-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.director-heading h1, .director-session-heading h2 { margin: 0; }
+.director-model { padding: 8px 12px; border: 1px solid var(--line); border-radius: 20px; color: var(--link); overflow-wrap: anywhere; }
+.director-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; margin-top: 20px; align-items: start; }
+.director-sidebar, #director-session, .director-empty { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+.director-sidebar h2 { font-size: 15px; }
+.director-conversation { display: block; padding: 12px; margin: 8px 0; border-radius: 6px; text-decoration: none; overflow-wrap: anywhere; }
+.director-conversation:hover, .director-conversation.selected { background: var(--bg); outline: 1px solid var(--line); }
+.director-conversation small { display: block; color: var(--muted); }
+.director-hint, .director-connection { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.director-messages { display: grid; gap: 16px; margin: 24px 0; }
+.director-message { padding: 18px; border-radius: 8px; background: var(--bg); border-left: 3px solid var(--link); min-width: 0; }
+.director-message.user { border-left-color: var(--muted); margin-left: 8%; }
+.director-message strong { display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.director-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.director-selection { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.director-compose { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 20px; }
+.director-compose label { display: block; font-weight: 600; margin: 8px 0; }
+.director-compose select, .director-compose textarea { width: 100%; max-width: 100%; background: var(--bg); color: var(--text); padding: 12px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.director-compose textarea { resize: vertical; min-height: 100px; margin: 8px 0; }
+.director-progress { padding: 12px 16px; background: var(--bg); border-radius: 6px; margin: 16px 0; font-size: 13px; }
+.director-progress ol { padding-left: 20px; max-height: 200px; overflow: auto; }
+.director-progress li { padding: 3px 0; color: var(--muted); overflow-wrap: anywhere; }
+.director-tasks article { border: 1px solid var(--line); border-radius: 6px; padding: 14px; margin: 10px 0; overflow-wrap: anywhere; }
+.director-tasks p { margin: 5px 0; font-size: 13px; }
+.director-approval, .director-alert { padding: 18px; border: 1px solid #b69a58; background: #29271f; border-radius: 8px; margin: 16px 0; }
+.director-approval dl { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 10px; }
+.director-approval dd { margin: 0; overflow-wrap: anywhere; }
+.director-approval button { margin: 8px 12px 0 0; }
+.director-loading { padding: 16px 0; color: var(--link); }
+.director-clear { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
+@media (max-width: 800px) {
+  .director-layout { grid-template-columns: 1fr; }
+  .director-heading, .director-session-heading { align-items: flex-start; flex-direction: column; }
+  .director-sidebar { max-height: 260px; overflow: auto; }
+  .director-selection { grid-template-columns: 1fr; gap: 0; }
+  .director-approval dl { grid-template-columns: 1fr; }
+}

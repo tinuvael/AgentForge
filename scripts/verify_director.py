@@ -4,10 +4,16 @@ import asyncio
 import json
 import logging
 import os
+import re
+import sys
+from contextlib import AsyncExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import httpx
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from verify_gateway import Inference, free_port, listener
 
 from agentforge.application.access import ClientPolicy, Policies, ProjectGrant
@@ -23,6 +29,7 @@ from agentforge.gateway.server import GatewayConfig, create_gateway
 from agentforge.mcp.server import TOOL_CONTRACTS, _SafeDiagnostics
 from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.ollama import OllamaProvider
+from agentforge.web.combined import CompanionConfig
 from agentforge.workers.config import WorkersConfig
 
 
@@ -56,7 +63,7 @@ class DirectorInference:
         )
 
 
-async def integration(root):
+async def integration(root, *, web_chat=False):
     from sqlalchemy.engine import URL
 
     url = URL.create("sqlite", database=str(root / "gateway.db"))
@@ -110,7 +117,7 @@ async def integration(root):
         return app
 
     auth = root / "clients.json"
-    tokens = ["test-" + letter * 48 for letter in ("d", "e")]
+    tokens = ["test-" + letter * 48 for letter in ("d", "e", "w")]
     clients = tuple(
         ClientPolicy(
             client_id=f"director-{i}",
@@ -123,8 +130,44 @@ async def integration(root):
     )
     save_policies(auth, Policies(clients=clients), expected=None)
     port = free_port()
-    gateway = create_gateway(factory, CredentialStore(auth), GatewayConfig(port=port))
-    async with listener(gateway, port=port) as base:
+    async with AsyncExitStack() as stack:
+        companion = None
+        if web_chat:
+            scripted_web = DirectorInference(binding)
+
+            async def inference_endpoint(request):
+                response = await scripted_web(
+                    httpx.Request(
+                        "POST",
+                        "http://127.0.0.1/api/chat",
+                        content=await request.body(),
+                    )
+                )
+                return JSONResponse(response.json())
+
+            inference_app = Starlette(
+                routes=[Route("/api/chat", inference_endpoint, methods=["POST"])]
+            )
+            inference_url = await stack.enter_async_context(listener(inference_app))
+            os.environ["AGENTFORGE_WEB_SMOKE_TOKEN"] = tokens[2]
+            settings = root / "director.toml"
+            settings.write_text(
+                f'gateway_url = "http://127.0.0.1:{port}/mcp"\n'
+                'token_env = "AGENTFORGE_WEB_SMOKE_TOKEN"\n'
+                f"journal = {json.dumps(str(root / 'web-history'))}\n"
+                'model = "director"\n[inference]\nid = "director"\n'
+                'type = "ollama"\ntrust = "local"\n'
+                f'base_url = "{inference_url}"\n',
+                encoding="utf-8",
+            )
+            companion = CompanionConfig(port=free_port(), director_config=str(settings))
+        gateway = create_gateway(
+            factory,
+            CredentialStore(auth),
+            GatewayConfig(port=port),
+            companion=companion,
+        )
+        base = await stack.enter_async_context(listener(gateway, port=port))
 
         async def run_one(i):
             env = f"AGENTFORGE_SMOKE_DIRECTOR_{i}"
@@ -157,23 +200,76 @@ async def integration(root):
                         and item.tasks[0].evidence == "source_tools_observed"
                     )
                     assert item.client_id == f"director-{i}"
-                    count = len(applications[0].tasks.history())
+                    known = item.tasks[0].task_id
                     item = await director.run(item.id, "cli", resume=True)
                     assert (
                         item.state == "completed"
-                        and len(applications[0].tasks.history()) == count
+                        and len(item.tasks) == 1
+                        and item.tasks[0].task_id == known
                     )
                     assert tokens[i] not in director.journal.path(item.id).read_text()
                     return item
             finally:
                 os.environ.pop(env)
 
-        items = await asyncio.gather(run_one(0), run_one(1))
+        if web_chat:
+
+            async def chat():
+                async with httpx.AsyncClient(
+                    base_url=f"http://127.0.0.1:{companion.port}",
+                    trust_env=False,
+                    timeout=20,
+                ) as browser:
+                    home = await browser.get("/director")
+                    assert home.status_code == 200, home.text
+                    csrf = browser.cookies.get("agentforge_csrf")
+                    response = await browser.post("/director/new", data={"csrf": csrf})
+                    path = response.headers["location"]
+                    page = await browser.get(path)
+                    revision = re.search(
+                        r'name="revision" value="(\d+)"', page.text
+                    ).group(1)
+                    response = await browser.post(
+                        path + "/send",
+                        data={
+                            "csrf": csrf,
+                            "revision": revision,
+                            "message": "Check the project using local models.",
+                        },
+                    )
+                    assert response.status_code == 303
+                    async with asyncio.timeout(20):
+                        while True:
+                            page = await browser.get(path + "/fragment")
+                            if 'class="badge">completed' in page.text:
+                                break
+                            assert 'class="badge">failed' not in page.text, page.text
+                            await asyncio.sleep(0.05)
+                    assert "source tools observed" in page.text
+                    task_id = re.search(r'href="/tasks/([a-f0-9-]+)"', page.text).group(
+                        1
+                    )
+                    assert (await browser.get(f"/tasks/{task_id}")).status_code == 200
+                    for _ in range(2):
+                        assert (await browser.get(path)).status_code == 200
+                    count = len(applications[0].tasks.history())
+                    assert len(applications) == len(starts) == 1
+                    assert applications[0].status().available
+                    print(
+                        "Browser HTTP chat -> native Ollama HTTP -> authenticated MCP "
+                        "-> existing TaskEngine; reload/no replay: OK"
+                    )
+                    return count
+
+            results = await asyncio.gather(run_one(0), run_one(1), chat())
+            items = results[:2]
+        else:
+            items = await asyncio.gather(run_one(0), run_one(1))
         assert items[0].tasks[0].task_id != items[1].tasks[0].task_id
         assert len(starts) == len(applications) == 1
         assert applications[0].status().available
         assert applications[0].tasks.observer.subscriber_count == 0
-        assert len(applications[0].tasks.history()) == 2
+        assert len(applications[0].tasks.history()) == (3 if web_chat else 2)
         print(
             "Two authenticated Directors; one executor; native Ollama tools; "
             "evidence; recovery: OK"
@@ -185,4 +281,6 @@ if __name__ == "__main__":
     handler.addFilter(_SafeDiagnostics())
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
     with TemporaryDirectory() as directory:
-        asyncio.run(integration(Path(directory).resolve()))
+        asyncio.run(
+            integration(Path(directory).resolve(), web_chat="--web" in sys.argv)
+        )

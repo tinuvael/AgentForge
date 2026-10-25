@@ -63,6 +63,8 @@ def package_checks():
         "db/migrations/versions/0002_gateway_client.py",
         "db/migrations/versions/0003_capability_policy.py",
         "web/templates/base.html",
+        "web/templates/director.html",
+        "web/templates/director_fragment.html",
         "web/templates/companion_base.html",
         "web/templates/companion_home.html",
         "web/templates/companion_home_fragment.html",
@@ -623,7 +625,9 @@ async def smoke():
         from verify_director import integration as director_integration
 
         with TemporaryDirectory() as director_directory:
-            await director_integration(Path(director_directory).resolve())
+            await director_integration(
+                Path(director_directory).resolve(), web_chat=True
+            )
 
 
 if __name__ == "__main__":

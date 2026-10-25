@@ -75,6 +75,14 @@
   };
   document.addEventListener('DOMContentLoaded', connect);
   document.addEventListener('htmx:afterSwap', connect);
+  const directorDisconnected = (event) => {
+    if (event.detail.elt && event.detail.elt.id === 'director-session') {
+      const node = document.querySelector('.director-connection');
+      if (node) node.textContent = 'Disconnected. Reload to restore the saved conversation; submitted Tasks remain at Gateway.';
+    }
+  };
+  document.addEventListener('htmx:sendError', directorDisconnected);
+  document.addEventListener('htmx:responseError', directorDisconnected);
   document.addEventListener('htmx:beforeSwap', (event) => {
     if (event.detail.xhr.status >= 400) {
       event.detail.shouldSwap = true;

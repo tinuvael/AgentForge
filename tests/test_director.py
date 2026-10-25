@@ -13,6 +13,7 @@ import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from agentforge.application.access import ClientApplication, ClientPolicy, ProjectGrant
+from agentforge.application.definitions import shipped_agents
 from agentforge.core.inference import GenerationResult, ToolCall
 from agentforge.core.provider_errors import BackendUnavailable, ProviderRejected
 from agentforge.director.client import DirectorError
@@ -52,7 +53,9 @@ def tool(name, arguments):
 
 
 @asynccontextmanager
-async def fixture(setup, tmp_path, *, limits=None, turns=None, agents=None):
+async def fixture(
+    setup, tmp_path, *, limits=None, turns=None, agents=None, coding_config=None
+):
     principal = ClientPolicy(
         client_id="local-director",
         token_sha256="a" * 64,
@@ -63,8 +66,11 @@ async def fixture(setup, tmp_path, *, limits=None, turns=None, agents=None):
         agents=("repo_explorer", "general_agent", "coder"),
         coding_submit=True,
     )
-    if agents:
-        setup.app = setup.build(agents=agents)
+    if agents or coding_config:
+        setup.app = setup.build(
+            agents=agents or shipped_agents(coding_enabled=True),
+            coding_config=coding_config,
+        )
     access = ClientApplication(setup.app, lambda: principal, GatewayConfig())
     server = create_server(
         lambda: setup.app, borrowed=True, client_access=lambda _: access
@@ -332,5 +338,32 @@ def test_reconnect_read_and_reject_recursive_recovery(setup, tmp_path):
             item = await f.director.run(item.id, "cli", resume=True)
             assert item.error == "recovery_read_only"
             assert len(setup.app.tasks.history()) == 1
+
+    asyncio.run(scenario())
+
+
+def test_council_keeps_independent_task_ids_and_results(setup, tmp_path):
+    async def scenario():
+        arguments = {k: v for k, v in setup.binding.items() if k != "worker_id"}
+        arguments["worker_ids"] = ["home-i5", "cloud"]
+        async with fixture(
+            setup,
+            tmp_path,
+            turns=[
+                tool("delegate_council", arguments),
+                GenerationResult(
+                    content="Both independent results reviewed.", model="director"
+                ),
+            ],
+        ) as f:
+            item = f.director.create("cli")
+            item = await f.director.run(
+                item.id, "cli", "Compare two independent analyses."
+            )
+            assert item.state == "completed", item.error
+            assert len(item.councils) == 1 and len(item.tasks) == 2
+            assert len({t.task_id for t in item.tasks}) == 2
+            assert {t.worker_id for t in item.tasks} == {"home-i5", "cloud"}
+            assert item.councils[0].task_ids == [t.task_id for t in item.tasks]
 
     asyncio.run(scenario())

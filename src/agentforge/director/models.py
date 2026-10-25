@@ -50,6 +50,13 @@ class TaskBinding(Record):
     )
 
 
+class CouncilBinding(Record):
+    council_id: UUID
+    project_id: UUID
+    agent_id: str
+    task_ids: list[UUID] = Field(max_length=8)
+
+
 class Conversation(Record):
     id: UUID = Field(default_factory=uuid4)
     owner: str
@@ -68,6 +75,7 @@ class Conversation(Record):
     ] = "idle"
     messages: list[VisibleMessage] = Field(default_factory=list, max_length=24)
     tasks: list[TaskBinding] = Field(default_factory=list, max_length=16)
+    councils: list[CouncilBinding] = Field(default_factory=list, max_length=8)
     project_id: UUID | None = None
     worker_id: str | None = None
     pending: Action | None = None
@@ -75,6 +83,7 @@ class Conversation(Record):
     progress: list[str] = Field(default_factory=list, max_length=32)
     error: str | None = None
     revision: int = 0
+    request_id: UUID | None = None
     turns: int = 0
     calls: int = 0
     delegated: int = 0

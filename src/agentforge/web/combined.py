@@ -18,6 +18,7 @@ from agentforge.web.app import create_app
 class CompanionConfig:
     host: str = "127.0.0.1"
     port: int = 8765
+    director_config: str | None = None
 
     def __post_init__(self):
         try:
@@ -37,9 +38,20 @@ class BorrowedServer(uvicorn.Server):
 
 @asynccontextmanager
 async def companion_http(application, config: CompanionConfig):
+    director_factory = None
+    if config.director_config:
+        from agentforge.director.config import load_config
+        from agentforge.director.core import Director
+
+        director_config = load_config(config.director_config)
+
+        def director_factory():
+            return Director(director_config)
+
     host = f"[{config.host}]" if ":" in config.host else config.host
     web = create_app(
         shared_application=application,
+        director_factory=director_factory,
         allowed_hosts=tuple(dict.fromkeys(("127.0.0.1", "localhost", "[::1]", host))),
     )
     server = BorrowedServer(

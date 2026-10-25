@@ -25,6 +25,8 @@ Use the existing private client policy procedure to grant only the required
 Project UUIDs, Worker IDs, Agents and tools. The initial credential has no grants.
 Typical tools: `agentforge_status`, `list_projects`, `list_agents`, `list_workers`,
 `suggest_workers`, `delegate_task`, `get_task`, `watch_task`, `cancel_task`.
+Optional Council tools are `delegate_council`, `get_council`, `cancel_council`;
+participants consume the same request Task budget and retain independent results.
 Coding additionally needs `coder`, `coding_submit = true` in JSON policy, and
 explicit coding inspection/cleanup tools if desired. Keep `read_shared` and
 `cancel_shared` false. Project egress policy independently limits every Worker;
@@ -94,6 +96,79 @@ Approvals name the operation, Project, Task (when one already exists), Worker an
 exact arguments. They expire after five minutes and are consumed before I/O.
 Models cannot approve themselves. No global approval exists. Workers never commit,
 push, open PRs or merge. Coding changes stay in isolated worktrees for review.
+
+## Dashboard Web Chat
+
+Provision a separate `web-director` credential using the procedure above. Copy
+the example TOML to `director-web.toml`, give it a distinct token environment
+variable and journal directory, and point it at the **same Gateway** being started.
+Gateway refuses a chat configuration targeting a different host/port. Start the
+existing Gateway with its loopback Companion and opt-in chat:
+
+```powershell
+$env:AGENTFORGE_WEB_DIRECTOR_TOKEN = (Get-Content C:/AgentForge/private/web-director.token -Raw).Trim()
+agentforge gateway serve --database-url sqlite:///C:/AgentForge/private/tasks.db --workers C:/AgentForge/private/workers.toml --auth C:/AgentForge/private/clients.json --companion --director-config C:/AgentForge/private/director-web.toml
+```
+
+Open `http://127.0.0.1:8765/director` on Windows, or click **Local Director** in
+the existing Dashboard. Click **New conversation**, select a Project and Worker
+or leave explicit selection to the Director, then send a natural-language request.
+Visible Worker choices are credential-scoped; candidate eligibility is checked for
+the actual Project/Agent immediately before delegation. Inspect execution activity,
+real Task links and evidence metadata. Worker execution and Director analysis are
+separate entries; there are no fabricated percentages or time estimates.
+Use a normal browser with a same-origin browsing context. Embedded browsers that
+send `Origin: null` on form submissions are deliberately rejected.
+
+Coding requests pause with the exact requested operation, Project and arguments.
+**Approve this action** submits it once; **Reject** does not submit it. Approval
+requires the browser's conversation cookie, a valid CSRF token, matching revision,
+nonce and unexpired stored arguments. A refresh cannot approve anything. Browser
+input cannot change pending action parameters. Coding also requires operator coding
+configuration on Gateway and an isolated workspace. No automatic commit exists.
+
+**Stop Director request** stops its inference/wait. Submitted Tasks continue; the
+Task evidence card offers a separate cancellation approval. **Restore known Task
+results** reads durable IDs without another delegation. Reopening a conversation
+or refreshing only reads its saved state. **Clear this conversation** explicitly
+removes its private transcript/pending approval, retaining Gateway history and
+workspaces. Resolve active/ambiguous work first. Expired unsubmitted approvals can
+be discarded by clearing the conversation. Browser identity lasts 30 days; clearing
+cookies loses access to its private conversations. CLI cannot adopt browser-owned
+transcripts. Keep host storage/backups private.
+
+Progress uses bounded HTMX snapshot polling every two seconds while active.
+There are no retained browser subscriptions/queues. Closing a tab releases HTTP
+resources while the bounded Director request continues. Reconnect reloads a
+replacement snapshot; it never replays a send. Each form has a revision guard to
+reject duplicate/stale submissions. Gateway or model errors appear as fixed safe
+codes; reload to reconnect, then restore known IDs. Plain text rendering escapes
+model HTML and scripts; Markdown is displayed as text.
+
+Chat is disabled without `--director-config`, unavailable in standalone `web`,
+and never enabled on its unauthenticated LAN listener. Credentials stay server-side.
+The full Dashboard remains a trusted operator interface, not a public multi-user
+service. Browser cookies separate chat conversations within that trust boundary;
+they do not make it suitable for public access. Keep each web credential narrowly
+scoped without shared-history/cancellation grants.
+
+## MacBook browser access
+
+Use authenticated SSH forwarding to the Windows **loopback Companion**, over an
+already trusted private transport. For example, after configuring and verifying
+Windows OpenSSH key authentication and its host key:
+
+```sh
+ssh -N -L 8765:127.0.0.1:8765 operator@windows-private-host
+```
+
+Then open `http://127.0.0.1:8765/director` on the MacBook. The SSH login authorizes
+access to this privileged operator UI. Tailscale membership alone is insufficient.
+Do not publish/forward the dashboard through an unauthenticated reverse proxy or
+public listener. Direct remote browser authentication is intentionally outside
+this release. MCP bearer authentication remains separate from browser cookies;
+never put the MCP token in browser JavaScript. Windows-hosted Projects and optional
+Mac-local AgentForge instances keep separate databases and histories.
 
 ## Recovery and evidence
 
