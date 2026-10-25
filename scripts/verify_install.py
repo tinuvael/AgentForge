@@ -620,6 +620,10 @@ async def smoke():
         with TemporaryDirectory() as gateway_directory:
             await integration(Path(gateway_directory).resolve())
         await installed_gateway()
+        from verify_director import integration as director_integration
+
+        with TemporaryDirectory() as director_directory:
+            await director_integration(Path(director_directory).resolve())
 
 
 if __name__ == "__main__":

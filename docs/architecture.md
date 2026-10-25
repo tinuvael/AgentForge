@@ -5,6 +5,12 @@ Projects, Agents and Workers, evaluates evidence and decides the next action.
 AgentForge supplies bounded execution, repository tools and durable history. It
 has no automatic routing, replacement, ranking or local answer synthesis.
 
+The optional [Local Director](local-director.md) is a separate bounded client of
+the authenticated Gateway, reusing shipped inference protocols. It selects
+explicit bindings and synthesizes observed results outside the executor. Its
+private JSON journal is not a second task database. CLI and optional dashboard
+chat share that same core; see the [design/security plan](local-director-design.md).
+
 ## Responsibilities and composition
 
 | Component | Responsibility |
