@@ -60,6 +60,9 @@ could create a second inode and defeat pathname-only locking.
 - Native Windows: `msvcrt.locking(LK_NBLCK, 1)` locks byte zero of the sidecar,
   including an empty file, without timed CRT retries. Win32 handles pin database,
   lock and parent ancestry; sharing allows SQLite read/write but denies deletion.
+  Ownership directory pins allow WRITE sharing for legitimate sibling policy
+  publication but still deny DELETE. DB/lock file pins and identity checks retain
+  their protections; repository/coding filesystem sharing is unchanged.
   Handles and CRT descriptors are non-inheritable. Locks disappear on process death.
 - The process-local registry remains for independently composed engines and
   in-memory SQLite. A losing owner never reaches schema/recovery or executor launch.

@@ -324,3 +324,31 @@ def test_credential_cleanup_failure_is_explicit_and_token_stays_inactive(
         assert pending_token not in error and str(output) not in error
     finally:
         original_unlink(output, missing_ok=True)
+
+
+@pytest.mark.windows
+def test_native_policy_update_beside_owned_database_keeps_ownership_pins(
+    database, tmp_path
+):
+    import os
+
+    from agentforge.db.ownership import DatabaseOwnership
+
+    path, _, token = seeded(tmp_path)
+    owner = DatabaseOwnership(database[0])
+    owner.acquire()
+    try:
+        assert invoke(path, "client-revoke") == 0
+        assert not authorized(path, token)
+        # Allow sibling file publication, never replacement of pinned ownership.
+        for pinned in (
+            Path(database[1].database),
+            Path(database[1].database + ".agentforge.lock"),
+            tmp_path,
+        ):
+            with pytest.raises(PermissionError) as error:
+                os.replace(pinned, pinned.with_name(pinned.name + ".moved"))
+            assert error.value.winerror == 32
+        owner.verify()
+    finally:
+        owner.release()

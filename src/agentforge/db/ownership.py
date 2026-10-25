@@ -204,6 +204,7 @@ class DatabaseOwnership:
     def _windows(self, resources):
         import msvcrt
 
+        from agentforge.projects.win32 import Win32
         from agentforge.projects.windows import (
             WindowsSafeFilesystemBackend,
             drive_path,
@@ -214,7 +215,20 @@ class DatabaseOwnership:
         # Reject alternate namespaces/streams/trailing-dot names before Win32 I/O.
         path = Path(drive_path(self.path))
         validate_windows_parts((path.name,))
-        backend = WindowsSafeFilesystemBackend()
+
+        class OwnershipDirectories(Win32):
+            def open(self, path):
+                # Publication of a sibling policy needs directory WRITE sharing.
+                # Keep DELETE denied so pinned ancestry cannot be renamed; DB
+                # and lock file handles below retain their original protections.
+                handle = self.api.CreateFileW(
+                    path, 0x80000000, 1 | 2, None, 3, 0x02200000, None
+                )
+                if handle == ctypes.c_void_p(-1).value:
+                    self._error()
+                return handle
+
+        backend = WindowsSafeFilesystemBackend(OwnershipDirectories())
         parent = resources.enter_context(backend.anchored_root(path.parent))
         api = backend.api
         handles = []

@@ -57,7 +57,11 @@ rechecked after reading so a held old handle cannot authorize from stale policy
 after replacement; at most four raced snapshots are retried before default-deny.
 Modern native NTFS publication uses FileRenameInfoEx with REPLACE_IF_EXISTS and
 POSIX_SEMANTICS, which permits replacement while old readers retain their handles.
-MoveFileEx plus DELETE sharing alone does not provide this behavior. The already
+MoveFileEx plus DELETE sharing alone does not provide this behavior. The database
+owner's directory pins allow WRITE sharing for child-file publication while still
+denying DELETE; DB/sidecar pins, identity checks and repository/coding handles
+retain their protections. This permits policy beside an owned DB without relaxing
+its replacement/ancestry boundary. The already
 flushed temporary file is renamed and FlushFileBuffers confirms publication via
 its write-through handle. Unsupported platforms fail closed; no in-place fallback.
 This preserves live per-request/per-operation checks and stream revalidation.
