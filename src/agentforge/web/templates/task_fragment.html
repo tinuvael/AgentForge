@@ -16,7 +16,7 @@
     <dt>Termination / error category</dt><dd>{{ task.reason|known }} / {{ task.error_code|known }}</dd>
   </dl>
   {% if task.state in ['queued','running'] %}
-  <form method="post" action="/tasks/{{ task.task_id }}/cancel" class="cancel" hx-post="/tasks/{{ task.task_id }}/cancel" hx-target="#task-detail" hx-swap="outerHTML">
+  <form method="post" action="/tasks/{{ task.task_id }}/cancel" class="cancel" hx-sync="this:drop" hx-disabled-elt="find button" hx-post="/tasks/{{ task.task_id }}/cancel" hx-target="#task-detail" hx-swap="outerHTML">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label><input type="checkbox" name="confirm" value="yes" required> I confirm cancellation of this Task.</label>
     <button type="submit">Request cancellation</button>
@@ -31,16 +31,16 @@
     <dt>Writes / bytes</dt><dd>{{ c.write_calls }} / {{ c.bytes_written }}</dd>
     <dt>Changed files</dt><dd>{{ c.changed_files|join(', ') }}</dd></dl>
   {% if not c.inspection_available %}<p>Live diff inspection unavailable. Retained observations may describe an earlier state.</p>{% endif %}
-  <h3>Diff stat</h3><pre>{{ c.diff_stat }}</pre>
-  {% if coding_diff %}<h3>Current diff</h3><pre>{{ coding_diff.content }}</pre>{% if coding_diff.truncated %}<p>Diff explicitly truncated.</p>{% endif %}{% endif %}
+  <h3>Diff stat</h3><pre tabindex="0">{{ c.diff_stat }}</pre>
+  {% if coding_diff %}<h3>Current diff</h3><pre tabindex="0">{{ coding_diff.content }}</pre>{% if coding_diff.truncated %}<p>Diff explicitly truncated.</p>{% endif %}{% endif %}
   <h3>Validation runs</h3>
   {% for run in c.validation_runs %}
     <p>{{ run.name }} · exit {{ run.exit_code|known }} · {{ run.duration_seconds|seconds }}{% if run.timed_out %} · timed out{% endif %}{% if run.cancelled %} · cancelled{% endif %}</p>
-    <pre>{{ run.stdout }}</pre><pre>{{ run.stderr }}</pre>
+    <pre tabindex="0">{{ run.stdout }}</pre><pre tabindex="0">{{ run.stderr }}</pre>
     {% if run.stdout_truncated or run.stderr_truncated %}<p>Captured output truncated.</p>{% endif %}
   {% else %}<p>No validation run recorded.</p>{% endfor %}
   {% if task.state in ['completed','failed','cancelled'] and c.state != 'removed' %}
-  <form method="post" action="/tasks/{{ task.task_id }}/workspace/remove">
+  <form method="post" action="/tasks/{{ task.task_id }}/workspace/remove" hx-post="/tasks/{{ task.task_id }}/workspace/remove" hx-sync="this:drop" hx-disabled-elt="find button">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label><input type="checkbox" name="confirm" value="yes" required> I confirm removal of this workspace and its uncommitted changes.</label>
     <button type="submit">Remove workspace</button><p>The task branch is retained. Export/review the diff before removal.</p>
@@ -65,9 +65,9 @@
     {% if task.finished_at %}<li>{{ task.state }} · {{ task.finished_at }}</li>{% endif %}
   </ol>
   {% if detail.timeline_truncated %}<p role="status">Showing the latest 100 execution events; earlier metadata omitted.</p>{% endif %}
-  <div class="scroll"><table><thead><tr><th scope="col">Step</th><th scope="col">Event</th><th scope="col">Tool</th><th scope="col">Outcome</th><th scope="col">Duration</th><th scope="col">Category</th></tr></thead>
+  <div class="scroll" role="region" aria-label="Execution metadata table" tabindex="0"><table><thead><tr><th scope="col">Step</th><th scope="col">Event</th><th scope="col">Tool</th><th scope="col">Outcome</th><th scope="col">Duration</th><th scope="col">Category</th></tr></thead>
   <tbody>{% for event in detail.timeline %}<tr><td>{{ event.step }}</td><td>{{ event.kind }}</td><td>{{ event.tool_name|known }}</td><td>{{ 'succeeded' if event.success == true else 'failed' if event.success == false else '—' }}</td><td>{{ event.duration_seconds|seconds }}</td><td>{{ event.error_code or event.reason or '—' }}</td></tr>{% else %}<tr><td colspan="6">No execution metadata observed.</td></tr>{% endfor %}</tbody></table></div>
-  <h2>Request</h2><pre>{{ detail.request }}</pre>
-  <h2>Final result</h2><pre>{{ detail.answer if detail.answer is not none else 'No final answer.' }}</pre>
+  <h2>Request</h2><pre tabindex="0">{{ detail.request }}</pre>
+  <h2>Final result</h2><pre tabindex="0">{{ detail.answer if detail.answer is not none else 'No final answer.' }}</pre>
   {% if detail.text_truncated %}<p>Long request/result text truncated for display.</p>{% endif %}
 </section>

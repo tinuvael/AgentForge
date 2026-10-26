@@ -1,17 +1,18 @@
-{% extends "base.html" %}
+{% extends "base.html" %}{% from "macros.html" import page_header, icon %}
 {% block title %}Local Director · AgentForge{% endblock %}
+{% block location %}Local Director{% endblock %}
 {% block content %}
-<div class="director-heading"><div><h1>Local Director</h1><p>Local model · authorized work · evidence you can inspect</p></div><span class="director-model">{{ model }}</span></div>
+{% call page_header('Local Director', 'Investigate, delegate and review. Stay close to the evidence.', 'Orchestration workspace') %}<div class="director-model">{{ icon('director') }}<span><small>DIRECTOR MODEL</small>{{ model }}</span></div>{% endcall %}
 <div class="director-layout">
   <aside class="director-sidebar" aria-label="Conversations">
-    <form method="post" action="/director/new"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">+ New conversation</button></form>
-    <h2>Conversations</h2>
-    {% for entry in conversations %}<a class="director-conversation{% if conversation and conversation.id == entry.id %} selected{% endif %}" href="/director/{{ entry.id }}">{{ entry.title }}<small>{{ entry.state }}</small></a>{% else %}<p>Your conversations will appear here.</p>{% endfor %}
-    <p class="director-hint">Private to this browser session. History is stored on the operator host.</p>
+    <form method="post" action="/director/new" hx-post="/director/new" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="new-conversation">{{ icon('plus') }} New conversation</button></form>
+    <details class="conversation-list" data-mobile-collapse open><summary>Conversations <span>{{ conversations|length }}</span></summary>
+    {% for entry in conversations %}<a class="director-conversation{% if conversation and conversation.id == entry.id %} selected{% endif %}"{% if conversation and conversation.id == entry.id %} aria-current="page"{% endif %} href="/director/{{ entry.id }}"><span>{{ entry.title }}</span><small>{{ entry.state }}</small></a>{% else %}<p class="director-hint">Your conversations will appear here.</p>{% endfor %}
+    </details><p class="director-hint sidebar-privacy">{{ icon('shield') }} Private to this browser session. History is stored on the operator host.</p>
   </aside>
   <div class="director-content">
   {% if conversation %}{% include "director_fragment.html" %}{% else %}
-    <section class="director-empty"><h2>What would you like to investigate?</h2><p>Start a conversation to select an authorized Project and Worker, ask a question, and follow real AgentForge Tasks.</p><p>For example: “Check the project for serious bugs using local models.”</p><p>Isolated coding and Task cancellation ask for your approval.</p></section>
+    <section class="director-empty"><span class="empty-symbol">{{ icon('director') }}</span><p class="eyebrow">A clear path from request to evidence</p><h2>What would you like to investigate?</h2><p>Start a conversation to select an authorized Project and Worker, ask a question, and follow real AgentForge Tasks.</p><div class="example-request">“Review this project for serious bugs. Use local models and cite source evidence.”</div><p class="director-hint">Isolated coding and Task cancellation ask for your approval.</p><form method="post" action="/director/new" hx-post="/director/new" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="primary" type="submit">Start a conversation {{ icon('arrow') }}</button></form></section>
   {% endif %}
   </div>
 </div>

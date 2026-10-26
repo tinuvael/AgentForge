@@ -1,21 +1,40 @@
-{% macro badge(state) %}<span class="badge {{ state }}">{{ state }}</span>{% endmacro %}
+{% macro icon(name) -%}
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+{% if name == 'forge' %}<path d="m12 3 9 5-9 5-9-5 9-5Z M3 12l9 5 9-5 M3 16l9 5 9-5"/>
+{% elif name == 'overview' %}<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+{% elif name == 'director' %}<path d="m4 6 5 6-5 6 M12 18h8"/>
+{% elif name == 'projects' %}<path d="M3 7V5h6l2 2h10v13H3V7Z M3 10h18"/>
+{% elif name == 'workers' %}<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4 M15 1v4 M9 19v4 M15 19v4 M1 9h4 M1 15h4 M19 9h4 M19 15h4 M9 9h6v6H9Z"/>
+{% elif name == 'tasks' %}<path d="m3 6 2 2 3-4 M11 6h10 M3 13h4 M11 13h10 M3 20h4 M11 20h10"/>
+{% elif name == 'councils' %}<circle cx="12" cy="5" r="3"/><circle cx="5" cy="18" r="3"/><circle cx="19" cy="18" r="3"/><path d="m10 8-4 7 M14 8l4 7 M8 18h8"/>
+{% elif name == 'shield' %}<path d="m12 3 8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6l8-3Z m-4 9 3 3 5-6"/>
+{% elif name == 'arrow' %}<path d="M5 12h14 m-5-5 5 5-5 5"/>
+{% elif name == 'plus' %}<path d="M12 5v14 M5 12h14"/>
+{% else %}<circle cx="12" cy="12" r="8"/><path d="M12 8v5 M12 16h.01"/>{% endif %}
+</svg>
+{%- endmacro %}
+{% macro page_header(title, description, eyebrow='Operations') %}
+<div class="page-heading"><div><p class="eyebrow">{{ eyebrow }}</p><h1>{{ title }}</h1><p>{{ description }}</p></div>{% if caller is defined %}<div class="heading-action">{{ caller() }}</div>{% endif %}</div>
+{% endmacro %}
+{% macro badge(state, label=none) %}<span class="badge {{ state }}">{{ label if label is not none else state }}</span>{% endmacro %}
+{% macro timestamp(value) %}{% if value %}<time datetime="{{ value.isoformat() }}" title="{{ value }}">{{ value.strftime('%d %b %Y · %H:%M:%S') }}</time>{% else %}—{% endif %}{% endmacro %}
 {% macro pager(previous, next, offset, htmx=false) %}
 <nav class="pager" aria-label="Pagination">
-  {% if previous %}<a href="{{ previous }}" {% if htmx %}hx-get="{{ previous }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Previous page</a>{% endif %}
+  {% if previous %}<a class="button" href="{{ previous }}" {% if htmx %}hx-get="{{ previous }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Previous page</a>{% endif %}
   <span>Offset {{ offset }}</span>
-  {% if next %}<a href="{{ next }}" {% if htmx %}hx-get="{{ next }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Next page</a>{% endif %}
+  {% if next %}<a class="button" href="{{ next }}" {% if htmx %}hx-get="{{ next }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Next page</a>{% endif %}
 </nav>
 {% endmacro %}
 {% macro history(tasks) %}
-<div class="scroll"><table>
+<div class="scroll" role="region" aria-label="Task history table" tabindex="0"><table class="task-history">
   <caption class="sr-only">Task history</caption>
   <thead><tr><th scope="col">Task / state</th><th scope="col">Project</th><th scope="col">Agent / Worker</th><th scope="col">Created / started / finished (UTC)</th><th scope="col">Execution runtime</th><th scope="col">Error</th></tr></thead>
   <tbody>{% for task in tasks %}<tr>
-    <td><a href="/tasks/{{ task.task_id }}"><code>{{ task.task_id }}</code></a><br>{{ badge(task.state) }}</td>
-    <td>{{ task.project_name|known }}<br><code>{{ task.project_id }}</code></td>
-    <td>{{ task.agent_id }}<br>{{ task.worker_id }}</td>
-    <td>{{ task.created_at }}<br>{{ task.started_at|known }}<br>{{ task.finished_at|known }}</td>
-    <td>{{ task.execution_duration_seconds|seconds }}</td><td>{{ task.error_code|known }}</td>
-  </tr>{% else %}<tr><td colspan="6">No Tasks in this view.</td></tr>{% endfor %}</tbody>
+    <td><a class="task-link" href="/tasks/{{ task.task_id }}"><code>{{ task.task_id }}</code></a>{{ badge(task.state) }}</td>
+    <td><strong>{{ task.project_name|known }}</strong><code class="secondary">{{ task.project_id }}</code></td>
+    <td><span>{{ task.agent_id }}</span><span class="secondary">{{ task.worker_id }}</span></td>
+    <td class="dates">{{ timestamp(task.created_at) }}<span class="secondary">{{ timestamp(task.started_at) }}</span><span class="secondary">{{ timestamp(task.finished_at) }}</span></td>
+    <td class="numeric">{{ task.execution_duration_seconds|seconds }}</td><td{% if task.error_code %} class="error-code"{% endif %}>{{ task.error_code|known }}</td>
+  </tr>{% else %}<tr><td colspan="6" class="empty-cell"><strong>No Tasks in this view.</strong><p>Try different filters, or submit work through a configured Director.</p></td></tr>{% endfor %}</tbody>
 </table></div>
 {% endmacro %}

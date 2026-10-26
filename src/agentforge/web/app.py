@@ -7,6 +7,7 @@ import logging
 import secrets
 from collections.abc import Callable
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode
 from uuid import UUID
@@ -111,6 +112,9 @@ def create_app(
     if director_factory is not None and shared_application is None:
         raise ValueError("Director chat requires the Gateway's borrowed Companion")
     templates = Jinja2Templates(directory=_ASSETS / "templates")
+    templates.env.filters["utc_epoch"] = lambda value: datetime.fromtimestamp(
+        value, UTC
+    ).strftime("%d %b %Y · %H:%M:%S UTC")
     templates.env.filters["known"] = lambda value: "—" if value is None else value
     templates.env.filters["seconds"] = lambda value: (
         "—" if value is None else f"{value:.3f} s"
@@ -394,6 +398,8 @@ def create_app(
         core().cleanup_coding_workspace(
             task_id=task_id, workspace_id=workspace.workspace_id
         )
+        if request.headers.get("HX-Request") == "true":
+            return HTMLResponse(headers={"HX-Redirect": f"/tasks/{task_id}"})
         return RedirectResponse(f"/tasks/{task_id}", status_code=303)
 
     def event_response(subscription, is_terminal):

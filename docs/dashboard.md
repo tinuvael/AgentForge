@@ -259,3 +259,22 @@ standalone `agentforge web`, it inherits that dashboard's explicitly configured
 bind and security boundary, including an intentional LAN bind. The route itself
 is not restricted to loopback independently of its hosting mode. See
 [Companion](companion.md); do not start a separate executor against its database.
+
+## Interface and visual review
+
+The dashboard shares a responsive sidebar, local design tokens and semantic
+status patterns. Local Director has persistent conversation navigation, a message
+workspace and an execution/evidence rail. Narrow screens stack these areas and
+use a compact six-route navigation. Large messages and Worker diagnostics use
+native disclosures; all original engineering detail remains available.
+
+Task refresh defers while controls are focused or a cancellation confirmation is
+checked. Director polling defers while controls are focused. Expanded disclosures
+and output scroll positions survive fragment updates. Director and workspace
+cleanup forms use HTMX and a full GET redirect, preserving Origin checks under
+the existing no-referrer policy. Stop Director leaves
+Gateway Tasks running; Task cancellation is a separate approval/control.
+
+See the [design decisions, before/after screenshots and reproducible offline
+review](ui/README.md), [shared design system](../design-system/agentforge/MASTER.md)
+and [validation record](ui/validation.md). Physical acceptance remains in #31.

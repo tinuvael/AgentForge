@@ -1,5 +1,5 @@
-{% extends "base.html" %}
+{% extends "base.html" %}{% from "macros.html" import page_header, icon %}
 {% block title %}Local Director · configuration required{% endblock %}
 {% block content %}
-<h1>Local Director is not configured</h1><p>Enable the Local Director in the persistent Gateway’s loopback Companion using a private Director configuration and a separately scoped Gateway credential.</p><p>Start Gateway with <code>--companion --director-config PATH</code>. The server holds the credentials and model endpoint. Standalone or LAN-bound dashboards do not expose chat operations.</p><p>See the packaged operator guide <code>docs/local-director.md</code> for setup, limits and authenticated MacBook forwarding.</p>
+{{ page_header("Local Director is not configured", "Connect a local model to your authorized Gateway workspace.", "Orchestration workspace") }}<div class="help-panel"><p>Enable the Local Director in the persistent Gateway’s loopback Companion using a private Director configuration and a separately scoped Gateway credential.</p><p>Start Gateway with <code>--companion --director-config PATH</code>. The server holds the credentials and model endpoint. Standalone or LAN-bound dashboards do not expose chat operations.</p><p>See the packaged operator guide <code>docs/local-director.md</code> for setup, limits and authenticated MacBook forwarding.</p></div>
 {% endblock %}

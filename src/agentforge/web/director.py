@@ -12,7 +12,7 @@ from uuid import UUID
 import anyio
 from fastapi import Request
 from starlette.exceptions import HTTPException
-from starlette.responses import RedirectResponse
+from starlette.responses import HTMLResponse, RedirectResponse
 
 from agentforge.director.client import DirectorError
 from agentforge.director.core import TERMINAL
@@ -137,8 +137,13 @@ def add_director_routes(web, render, valid_csrf):
             raise HTTPException(403)
         return data
 
-    def redirect(item=None):
-        return RedirectResponse("/director" + (f"/{item.id}" if item else ""), 303)
+    def redirect(request, item=None):
+        target = "/director" + (f"/{item.id}" if item else "")
+        if request.headers.get("HX-Request") == "true":
+            # XHR keeps the real Origin under no-referrer. A full GET navigation
+            # restores fresh revisions without caching or nesting the page in a form.
+            return HTMLResponse(headers={"HX-Redirect": target})
+        return RedirectResponse(target, 303)
 
     def page(request, svc, item=None, *, fragment=False):
         return render(
@@ -175,7 +180,7 @@ def add_director_routes(web, render, valid_csrf):
             item = svc.director.create(request.state.director_owner)
         except ValueError:
             raise HTTPException(429) from None
-        return redirect(item)
+        return redirect(request, item)
 
     @web.get("/director/{identity}")
     async def conversation(request: Request, identity: UUID):
@@ -235,7 +240,7 @@ def add_director_routes(web, render, valid_csrf):
         svc.director.journal.save(item)
         svc.start(item, request.state.director_owner, text=text)
         await asyncio.sleep(0)
-        return redirect(item)
+        return redirect(request, item)
 
     @web.post("/director/{identity}/approval")
     async def approval(request: Request, identity: UUID):
@@ -257,7 +262,7 @@ def add_director_routes(web, render, valid_csrf):
             approve=data["decision"] == "approve",
         )
         await asyncio.sleep(0)
-        return redirect(item)
+        return redirect(request, item)
 
     @web.post("/director/{identity}/resume")
     async def resume(request: Request, identity: UUID):
@@ -266,7 +271,7 @@ def add_director_routes(web, render, valid_csrf):
             raise HTTPException(409)
         svc.start(item, request.state.director_owner, resume=True)
         await asyncio.sleep(0)
-        return redirect(item)
+        return redirect(request, item)
 
     @web.post("/director/{identity}/stop")
     async def stop(request: Request, identity: UUID):
@@ -278,7 +283,7 @@ def add_director_routes(web, render, valid_csrf):
         if job:
             job.cancel()
             await asyncio.gather(job, return_exceptions=True)
-        return redirect(item)
+        return redirect(request, item)
 
     @web.post("/director/{identity}/cancel-task")
     async def cancel_task(request: Request, identity: UUID):
@@ -293,7 +298,7 @@ def add_director_routes(web, render, valid_csrf):
             task.project_id,
             task.task_id,
         )
-        return redirect(item)
+        return redirect(request, item)
 
     @web.post("/director/{identity}/clear")
     async def clear(request: Request, identity: UUID):
@@ -306,4 +311,4 @@ def add_director_routes(web, render, valid_csrf):
             raise HTTPException(409)
         svc.director.journal.path(item.id).unlink()
         svc.catalogs.pop(item.id, None)
-        return redirect()
+        return redirect(request)
