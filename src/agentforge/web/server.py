@@ -27,6 +27,9 @@ def add_arguments(parser) -> None:
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--workers", required=True)
     parser.add_argument("--coding", help="Explicit trusted coding TOML configuration")
+    parser.add_argument(
+        "--specialists", help="Opt-in specialist tools and private artifact TOML"
+    )
     parser.add_argument("--concurrency", type=int, choices=range(1, 33), default=1)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -57,6 +60,7 @@ def run(args) -> int:
             database_url=args.database_url,
             workers_path=args.workers,
             coding_path=args.coding,
+            specialists_path=args.specialists,
             concurrency=args.concurrency,
         ),
         allowed_hosts=tuple(

@@ -313,6 +313,7 @@ async def serve(args):
             workers_path=args.workers,
             concurrency=args.concurrency,
             coding_path=args.coding,
+            specialists_path=args.specialists,
         ),
         CredentialStore(args.auth),
         config,

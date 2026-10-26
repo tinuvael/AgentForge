@@ -514,3 +514,13 @@ It never sends inference or selects/submits a Worker. Task/Council arguments may
 include `task_policy`; existing required explicit IDs are unchanged. See
 [Worker policy examples](worker-policy.md). Gateway clients need a separate exact
 `suggest_workers` tool grant and Project/Agent/Worker grants.
+
+## Specialist ToolJobs and artifacts (#52 Phase A)
+
+The shared catalog adds `list_specialist_tools`, `submit_tool_job`, `get_tool_job`,
+`cancel_tool_job`, `list_artifacts`, `inspect_artifact` and `retrieve_artifact`.
+Existing tools retain their contracts. Specialist tools require explicit opt-in
+configuration and Gateway Project grants; inference Worker grants do not apply.
+Only deterministic fake adapters are shipped. Binary retrieval is explicit,
+Project/client authorized and capped at 49152 bytes per base64 chunk; keep these
+bytes out of model prompts. See [contracts, demo and security](specialists.md).

@@ -1,0 +1,39 @@
+# Copy outside repositories. Create this PRIVATE directory before starting.
+# POSIX: mkdir -m 700 /absolute/private/agentforge-artifacts
+# Windows: use an absolute local NTFS directory with a private operator ACL.
+artifact_directory = "/absolute/private/agentforge-artifacts"
+max_storage_bytes = 67108864
+max_artifacts = 10000
+retention_seconds = 604800
+
+[[tools]]
+tool_id = "fake-image"
+kind = "comfyui_image"
+adapter = "fake_comfyui"
+connection_id = "fake-image-host"
+authorized_host = "in_process_fake"
+trust = "local"
+enabled = false
+capabilities = ["image"]
+input_formats = []
+output_formats = ["png"]
+[tools.limits]
+runtime_seconds = 30
+max_output_bytes = 1048576
+max_requests = 1000
+
+[[tools]]
+tool_id = "fake-blender"
+kind = "blender_scene"
+adapter = "fake_blender"
+connection_id = "fake-blender-host"
+authorized_host = "in_process_fake"
+trust = "local"
+enabled = false
+capabilities = ["3d"]
+input_formats = ["png"]
+output_formats = ["gltf"]
+[tools.limits]
+runtime_seconds = 30
+max_output_bytes = 1048576
+max_requests = 1000

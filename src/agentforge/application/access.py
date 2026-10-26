@@ -18,6 +18,7 @@ from agentforge.application.contracts import ProjectInfo, ProjectsPage
 from agentforge.application.errors import ServiceError
 from agentforge.councils.models import CouncilNotFound
 from agentforge.projects.errors import ProjectNotFound
+from agentforge.specialists.models import SpecialistError
 from agentforge.tasks.models import TaskNotFound
 
 Name = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")]
@@ -38,6 +39,13 @@ Tool = Literal[
     "get_coding_workspace",
     "get_coding_diff",
     "cleanup_coding_workspace",
+    "list_specialist_tools",
+    "submit_tool_job",
+    "get_tool_job",
+    "cancel_tool_job",
+    "list_artifacts",
+    "inspect_artifact",
+    "retrieve_artifact",
 ]
 
 
@@ -52,6 +60,7 @@ class ProjectGrant(PolicyModel):
     # Additional restriction; Project policy independently authorizes egress.
     # Empty grants allow no Worker.
     workers: tuple[Name, ...] = Field(default=(), max_length=256)
+    specialists: tuple[Name, ...] = Field(default=(), max_length=128)
 
 
 class ClientPolicy(PolicyModel):
@@ -59,7 +68,7 @@ class ClientPolicy(PolicyModel):
     token_sha256: str = Field(pattern=r"^[a-f0-9]{64}$", repr=False)
     enabled: bool = True
     expires_at: int | None = Field(default=None, ge=1)
-    tools: tuple[Tool, ...] = Field(default=(), max_length=16)
+    tools: tuple[Tool, ...] = Field(default=(), max_length=32)
     projects: tuple[ProjectGrant, ...] = Field(default=(), max_length=256)
     agents: tuple[Name, ...] = Field(default=(), max_length=256)
     read_shared: bool = False
@@ -246,6 +255,7 @@ class ClientApplication:
                     "advisory_operations",
                     "council_operations",
                     "coding_operations",
+                    "specialist_operations",
                 )
             }
         )
@@ -374,3 +384,82 @@ class ClientApplication:
         return self.app.cleanup_coding_workspace(
             task_id=task_id, workspace_id=workspace_id
         )
+
+    def specialist_grant(self, operation, project_id, tool_id=None):
+        client = self.require(operation)
+        grant = next((p for p in client.projects if p.project_id == project_id), None)
+        if grant is None or (tool_id is not None and tool_id not in grant.specialists):
+            raise ServiceError("access_denied")
+        return client, grant
+
+    def specialist_job(self, operation, tool_job_id):
+        self.require(operation)
+        try:
+            job = self.app.specialist_service().repository.get(tool_job_id)
+        except SpecialistError:
+            raise ServiceError("access_denied") from None
+        client, _ = self.specialist_grant(operation, job.project_id, job.tool_id)
+        if job.client_id != client.client_id and (
+            not client.read_shared
+            or operation == "cancel_tool_job"
+            and not client.cancel_shared
+        ):
+            raise ServiceError("access_denied")
+        return job
+
+    def specialist_artifact(self, operation, project_id, artifact_id):
+        self.specialist_grant(operation, project_id)
+        try:
+            artifact = self.app.specialist_service().repository.artifact(
+                project_id, artifact_id
+            )
+        except SpecialistError:
+            raise ServiceError("access_denied") from None
+        self.specialist_job(operation, artifact.tool_job_id)
+        return artifact
+
+    def list_specialist_tools(self, **fields):
+        _, grant = self.specialist_grant("list_specialist_tools", fields["project_id"])
+        return self.app.specialist_service().list_tools(
+            **fields, authorized_ids=grant.specialists
+        )
+
+    def submit_tool_job(self, **fields):
+        client, _ = self.specialist_grant(
+            "submit_tool_job", fields["project_id"], fields["tool_id"]
+        )
+        for artifact_id in fields.get("input_artifact_ids", ()):
+            self.specialist_artifact(
+                "submit_tool_job", fields["project_id"], artifact_id
+            )
+        if fields.get("task_id") is not None:
+            self.task("get_task", fields["task_id"])
+        return self.app.submit_tool_job(**fields, client_id=client.client_id)
+
+    def get_tool_job(self, *, tool_job_id):
+        self.specialist_job("get_tool_job", tool_job_id)
+        return self.app.get_tool_job(tool_job_id=tool_job_id)
+
+    def cancel_tool_job(self, *, tool_job_id):
+        self.specialist_job("cancel_tool_job", tool_job_id)
+        return self.app.cancel_tool_job(tool_job_id=tool_job_id)
+
+    def list_artifacts(self, **fields):
+        client, grant = self.specialist_grant("list_artifacts", fields["project_id"])
+        return self.app.specialist_service().artifacts(
+            **fields,
+            authorized_ids=grant.specialists,
+            client_id=None if client.read_shared else client.client_id,
+        )
+
+    def inspect_artifact(self, **fields):
+        self.specialist_artifact(
+            "inspect_artifact", fields["project_id"], fields["artifact_id"]
+        )
+        return self.app.inspect_artifact(**fields)
+
+    def retrieve_artifact(self, **fields):
+        self.specialist_artifact(
+            "retrieve_artifact", fields["project_id"], fields["artifact_id"]
+        )
+        return self.app.retrieve_artifact(**fields)

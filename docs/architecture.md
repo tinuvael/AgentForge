@@ -31,6 +31,8 @@ guide for scoped credentials, one-use approvals and authenticated SSH forwarding
 | Project | Registers an existing local root with stable UUID and observed filesystem identity. |
 | Task | Persists an explicit Project/Agent/Worker request and lifecycle. |
 | Council | Groups independent Tasks on explicitly selected Workers, preserving all outcomes. |
+| SpecialistTool | Explicit opt-in file-producing definition independent of inference Workers; Phase A ships fake ComfyUI/Blender only. |
+| ToolJob / Artifact | Durable specialist lifecycle and private file descriptors in the same database; execution shares TaskEngine slots and ownership. |
 | CodingWorkspaceManager | Owns creation, authorization, inspection and explicit cleanup of Task worktrees. |
 
 ```mermaid
@@ -62,6 +64,19 @@ lifespans use the same Application operations on its owning event loop; adapters
 have no separate execution policy. Shutdown first cancels/awaits executors and
 validation cleanup, then closes owned Providers and disposes the database. Cleanup
 is shielded from caller cancellation. Injected Providers remain caller-owned.
+
+Optional `--specialists` composes the [specialist/artifact service](specialists.md).
+TaskEngine alternates its existing slots between ordinary Tasks and ToolJobs;
+there is no independent scheduler or task database. ToolJobs capture immutable
+tool configuration fingerprints, client ownership and idempotency/correlation.
+Staged artifact rows reserve resources before atomic private-file publication;
+one transaction exposes all declared descriptors with completed job state.
+Interrupted jobs require reconciliation and are never blindly replayed. Gateway
+independently enforces Project specialist grants, owner/shared rights and egress.
+Only deterministic synthetic PNG/glTF operations are implemented. The local-only
+Director may discover those definitions; specialist writes/binary content are
+excluded from its inference loop. Native applications, mesh manufacturing checks,
+remote execution receipts and a workflow DAG remain separate later work.
 
 Use exactly one executor process per database. A nonblocking kernel ownership lock
 now rejects another OS process before schema checks or recovery on supported local
@@ -192,7 +207,8 @@ SQLite is the supported initial persistence backend. Repositories own short
 transactions; no transaction spans inference. Index refresh is transactional and
 retains prior valid structure for individual parse failures. Projects/Index may
 be removed without deleting historical Tasks/Councils/telemetry. Retention and
-history deletion are not implemented. Every explicit TaskRepository commit uses
+Task/Council history deletion are not implemented; specialist artifacts have
+explicit retention/cleanup without deleting provenance. Every explicit TaskRepository commit uses
 one small helper which invalidates the Session/connection on SQLAlchemy commit
 failure before mapping to TaskStorageError. Pending DBAPI work must never return
 to the pool and be committed by a later write. Council parents, memberships and

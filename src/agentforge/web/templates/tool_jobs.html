@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% from "macros.html" import page_header, badge, timestamp, pager %}
+{% block title %}ToolJobs · AgentForge{% endblock %}
+{% block location %}ToolJobs{% endblock %}
+{% block content %}
+{{ page_header("Specialist ToolJobs", "Inspect durable file-producing operations and artifact provenance.") }}
+<p class="director-hint">Phase A: simulated adapters only. Real ComfyUI and Blender execution is unavailable.</p>
+{% if not enabled %}<section class="panel"><h2>Specialist tools are disabled</h2><p>An operator must configure private artifact storage and explicitly enable a fake tool before submission.</p></section>{% endif %}
+<div class="scroll" role="region" aria-label="ToolJob history" tabindex="0"><table>
+<caption class="sr-only">Specialist ToolJobs</caption>
+<thead><tr><th scope="col">Job / state</th><th scope="col">Project / tool</th><th scope="col">Created / finished (UTC)</th><th scope="col">Outcome</th></tr></thead>
+<tbody>{% for job in jobs %}<tr>
+<td><a href="/tool-jobs/{{ job.tool_job_id }}"><code>{{ job.tool_job_id }}</code></a>{{ badge(job.state) }}</td>
+<td><code>{{ job.project_id }}</code><span class="secondary">{{ job.tool_id }}</span></td>
+<td>{{ timestamp(job.created_at) }}<span class="secondary">{{ timestamp(job.finished_at) }}</span></td>
+<td>Simulated · {{ job.output_artifact_ids|length }} artifacts<span class="secondary">{{ job.failure_category|known }}</span></td>
+</tr>{% else %}<tr><td colspan="4" class="empty-cell"><strong>No ToolJobs yet.</strong><p>Submit an explicit fake ToolJob through authorized MCP or the application API.</p></td></tr>{% endfor %}</tbody></table></div>
+{{ pager(previous, next, offset) }}
+{% endblock %}

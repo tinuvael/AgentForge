@@ -24,6 +24,18 @@ from agentforge.application.contracts import (
 )
 from agentforge.coding.models import CodingDiff, CodingResult
 from agentforge.councils.models import CouncilSnapshot
+from agentforge.specialists.models import (
+    Artifact,
+    ArtifactChunk,
+    ArtifactPage,
+    ArtifactQuery,
+    JobQuery,
+    RetrieveArtifact,
+    SubmitToolJob,
+    ToolJob,
+    ToolPage,
+    ToolQuery,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +49,64 @@ class ToolContract:
 
 
 TOOL_CONTRACTS = (
+    ToolContract(
+        "list_specialist_tools",
+        "list_specialist_tools",
+        "Permitted opt-in specialist tools, independent of Workers. Phase A "
+        "ships deterministic fake adapters only.",
+        ToolQuery,
+        ToolPage,
+    ),
+    ToolContract(
+        "submit_tool_job",
+        "submit_tool_job",
+        "Submit an explicit specialist job with required request UUID and "
+        "idempotency key. Fake outputs are synthetic; no real "
+        "ComfyUI/Blender execution.",
+        SubmitToolJob,
+        ToolJob,
+        False,
+    ),
+    ToolContract(
+        "get_tool_job",
+        "get_tool_job",
+        "Inspect durable specialist state, cancellation, outputs and safe "
+        "failure category.",
+        JobQuery,
+        ToolJob,
+    ),
+    ToolContract(
+        "cancel_tool_job",
+        "cancel_tool_job",
+        "Durably request specialist cancellation. Completed results remain terminal.",
+        JobQuery,
+        ToolJob,
+        False,
+    ),
+    ToolContract(
+        "list_artifacts",
+        "list_artifacts",
+        "List permitted project artifact metadata. No binary content or private paths.",
+        ToolQuery,
+        ArtifactPage,
+    ),
+    ToolContract(
+        "inspect_artifact",
+        "inspect_artifact",
+        "Verify a permitted artifact and inspect hash, format and synthetic "
+        "provenance.",
+        ArtifactQuery,
+        Artifact,
+    ),
+    ToolContract(
+        "retrieve_artifact",
+        "retrieve_artifact",
+        "Explicit authorized binary retrieval: at most 49152 bytes per "
+        "base64 chunk. Never insert binary content into ordinary model "
+        "context.",
+        RetrieveArtifact,
+        ArtifactChunk,
+    ),
     ToolContract(
         "suggest_workers",
         "suggest_workers",

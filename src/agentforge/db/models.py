@@ -306,3 +306,54 @@ class CodingWorkspaceRecord(Base):
     prefix: Mapped[str] = mapped_column(Text)
     identities: Mapped[dict] = mapped_column(JSON)
     observations: Mapped[dict] = mapped_column(JSON)
+
+
+class SpecialistStoreRecord(Base):
+    """Private pinned store identity; never returned to Directors."""
+
+    __tablename__ = "specialist_store"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    root_path: Mapped[str] = mapped_column(Text)
+    root_identity: Mapped[dict] = mapped_column(JSON)
+
+
+class ToolJobRecord(Base):
+    __tablename__ = "tool_jobs"
+    __table_args__ = (
+        UniqueConstraint("owner_scope", "idempotency_key", name="uq_tool_job_key"),
+        UniqueConstraint("owner_scope", "request_id", name="uq_tool_job_request"),
+        CheckConstraint(
+            "state IN ('queued', 'running', 'completed', 'failed', 'cancelled', "
+            "'interrupted')",
+            name="ck_tool_jobs_state",
+        ),
+        Index("ix_tool_jobs_queue", "state", "created_at", "tool_job_id"),
+        Index("ix_tool_jobs_project", "project_id", "created_at"),
+    )
+    tool_job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    project_id: Mapped[UUID] = mapped_column(Uuid)
+    tool_id: Mapped[str] = mapped_column(String(100))
+    owner_scope: Mapped[str] = mapped_column(String(110))
+    idempotency_key: Mapped[str] = mapped_column(String(100))
+    request_id: Mapped[UUID] = mapped_column(Uuid)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
+class ArtifactRecord(Base):
+    __tablename__ = "artifacts"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('staged', 'ready', 'expired')", name="ck_artifacts_state"
+        ),
+        CheckConstraint("size_bytes > 0", name="ck_artifacts_size"),
+        Index("ix_artifacts_project", "project_id", "artifact_id"),
+    )
+    artifact_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    project_id: Mapped[UUID] = mapped_column(Uuid)
+    tool_job_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tool_jobs.tool_job_id"))
+    state: Mapped[str] = mapped_column(String(20))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    descriptor: Mapped[dict] = mapped_column(JSON)

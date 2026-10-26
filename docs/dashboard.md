@@ -278,3 +278,10 @@ Gateway Tasks running; Task cancellation is a separate approval/control.
 See the [design decisions, before/after screenshots and reproducible offline
 review](ui/README.md), [shared design system](../design-system/agentforge/MASTER.md)
 and [validation record](ui/validation.md). Physical acceptance remains in #31.
+
+The **ToolJobs** page reuses the same dashboard shell for specialist history,
+manual refresh, lifecycle/cancellation and artifact descriptors. Phase A clearly
+labels simulated outputs. Integrity status, formats, hashes, input relationships,
+expiry and unassessed printability are inspectable; binary transfers use the
+explicitly authorized MCP retrieval operation. The page explains opt-in setup when
+specialists are disabled. See [specialist operators guide](specialists.md).
