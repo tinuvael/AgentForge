@@ -429,14 +429,14 @@ class SpecialistService:
             )
         except SpecialistError as error:
             current = self.repository.get(job.tool_job_id)
+            recoverable = job.adapter == "comfyui" and (
+                current.execution.remote_may_continue
+                or error.code == "recovery_required"
+            )
             self.repository.transition(
                 job.tool_job_id,
-                state="interrupted"
-                if job.adapter == "comfyui" and current.execution.remote_may_continue
-                else "failed",
-                failure="recovery_required"
-                if job.adapter == "comfyui" and current.execution.remote_may_continue
-                else error.code,
+                state="interrupted" if recoverable else "failed",
+                failure="recovery_required" if recoverable else error.code,
             )
         except (OSError, ProjectError, ValueError):
             current = self.repository.get(job.tool_job_id)

@@ -147,6 +147,15 @@ class Server:
                 },
             )
         assert request.url.path == "/view"
+        if self.mode == "partial_download":
+            payload = self.data
+
+            class PartialBody(httpx.AsyncByteStream):
+                async def __aiter__(self):
+                    yield payload[:32]
+                    raise httpx.ReadError("PRIVATE partial response", request=request)
+
+            return httpx.Response(200, stream=PartialBody())
         if self.mode == "redirect":
             return httpx.Response(
                 302, headers={"Location": "https://evil.example/secret"}
@@ -374,6 +383,41 @@ def test_comfy_cancel_preserves_receipt_and_never_interrupts_other_clients(
         await app.start()
         try:
             assert app.submit_tool_job(**fields).state == "cancelled"
+            assert sum(r.method == "POST" for r in server.calls) == 1
+        finally:
+            await app.close()
+
+    run(execute())
+
+
+def test_completed_remote_job_with_interrupted_download_reconciles(setup, monkeypatch):
+    server = Server("partial_download")
+    transport(monkeypatch, server)
+
+    async def execute():
+        config = comfy(setup)
+        app = setup.make(config)
+        await app.start()
+        fields = arguments(setup)
+        job = await wait(app, app.submit_tool_job(**fields))
+        assert (
+            job.state == "interrupted" and job.failure_category == "recovery_required"
+        )
+        assert (
+            job.execution.remote_state == "completed"
+            and not job.execution.remote_may_continue
+        )
+        assert (
+            job.execution.remote_job_id == server.receipt
+            and not job.output_artifact_ids
+        )
+        await app.close()
+        server.mode = "success"
+        app = setup.make(config)
+        await app.start()
+        try:
+            job = await wait(app, app.submit_tool_job(**fields))
+            assert job.state == "completed"
             assert sum(r.method == "POST" for r in server.calls) == 1
         finally:
             await app.close()
