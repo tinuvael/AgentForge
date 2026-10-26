@@ -44,7 +44,12 @@ class PrivateFiles:
         name, temporary = self.name(identity), self.name(identity, pending=True)
         with self.root() as root:
             if os.name == "nt":
-                self._windows_write(root, temporary, name, data)
+                try:
+                    self._windows_write(root, temporary, name, data)
+                except OSError as error:
+                    # Preserve native diagnostic evidence for trusted host tests;
+                    # public job metadata contains only the fixed safe category.
+                    raise SpecialistError("artifact_publication_failed") from error
                 return
             fd = os.open(
                 temporary,
