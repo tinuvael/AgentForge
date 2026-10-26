@@ -852,3 +852,25 @@ def test_real_adapters_and_binary_director_actions_are_not_available():
     assert "list_specialist_tools" in ALLOWED
     assert not {"submit_tool_job", "cancel_tool_job", "retrieve_artifact"} & ALLOWED
     assert set(ADAPTERS) == {"fake_comfyui", "fake_blender"}
+
+
+def test_denied_operation_does_not_even_read_job_storage(setup, monkeypatch):
+    async def execute():
+        app = setup.make()
+        await app.start()
+        try:
+            denied = client(app, setup)
+            denied.principal = lambda: ClientPolicy(
+                client_id="denied", token_sha256="0" * 64
+            )
+
+            def forbidden(_):
+                pytest.fail("Denied specialist operation must not read storage")
+
+            monkeypatch.setattr(app.specialists.repository, "get", forbidden)
+            with pytest.raises(ServiceError, match="access_denied"):
+                denied.get_tool_job(tool_job_id=uuid4())
+        finally:
+            await app.close()
+
+    run(execute())

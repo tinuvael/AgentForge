@@ -393,6 +393,7 @@ class ClientApplication:
         return client, grant
 
     def specialist_job(self, operation, tool_job_id):
+        self.require(operation)
         try:
             job = self.app.specialist_service().repository.get(tool_job_id)
         except SpecialistError:
