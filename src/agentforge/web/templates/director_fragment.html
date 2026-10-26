@@ -23,9 +23,35 @@
       <p class="director-connection" role="status">{% if working %}Updates refresh every two seconds. If updates stop, reload this conversation to reconnect.{% else %}This is a saved session snapshot. Reload to reconnect to Gateway.{% endif %}</p>
     </div>
     <aside class="director-context" aria-label="Execution and evidence">
-      <h3>Session context</h3><dl class="context-facts"><dt>Director model</dt><dd>{{ model }}</dd><dt>Selected Project</dt><dd>{{ conversation.project_id or 'Not selected yet' }}</dd><dt>Selected Worker</dt><dd>{{ conversation.worker_id or 'Not selected yet' }}</dd></dl>
+      <h3>Session context</h3>
+      <dl class="context-facts">
+        <dt>Director model</dt><dd>{{ model }}</dd>
+        <dt>Your Project pin</dt><dd>{{ conversation.project_id or 'No pin · Director selects' }}</dd>
+        <dt>Your Worker pin</dt><dd>{{ conversation.worker_id or 'No pin · Director selects' }}</dd>
+      </dl>
+      {% if conversation.tasks %}
+      <div class="director-tasks">
+        <h3>Task evidence</h3><p>Recorded execution bindings</p>
+        {% for task in conversation.tasks %}
+        <article data-task-id="{{ task.task_id }}">
+          <div class="section-heading">{{ badge(task.state) }}<span class="evidence-label">{{ task.evidence|replace('_', ' ') }}</span></div>
+          <a href="/tasks/{{ task.task_id }}">Task {{ task.task_id }}</a>
+          <dl class="task-binding">
+            <dt>Project</dt><dd><code>{{ task.project_id }}</code></dd>
+            <dt>Worker</dt><dd>{{ task.worker_id }}</dd>
+            <dt>Agent</dt><dd>{{ task.agent_id }}</dd>
+          </dl>
+          {% if not working and not conversation.pending and task.state not in ['completed','failed','cancelled','interrupted'] %}
+          <form method="post" action="/director/{{ conversation.id }}/cancel-task" hx-post="/director/{{ conversation.id }}/cancel-task" hx-sync="this:drop" hx-disabled-elt="find button">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><input type="hidden" name="task" value="{{ task.task_id }}">
+            <button type="submit" class="danger">Request Task cancellation approval</button>
+          </form>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<p class="director-hint">No delegated Task binding recorded.</p>{% endif %}
       {% if conversation.progress %}<details class="director-progress" open><summary>Execution activity</summary><ol tabindex="0" aria-label="Recorded execution activity">{% for event in conversation.progress %}<li>{{ event }}</li>{% endfor %}</ol></details>{% endif %}
-      {% if conversation.tasks %}<div class="director-tasks"><h3>Task evidence</h3>{% for task in conversation.tasks %}<article><div class="section-heading">{{ badge(task.state) }}<span class="evidence-label">{{ task.evidence|replace('_', ' ') }}</span></div><a href="/tasks/{{ task.task_id }}">Task {{ task.task_id }}</a><p>{{ task.agent_id }} · Worker <strong>{{ task.worker_id }}</strong></p><details><summary>Project binding</summary><code>{{ task.project_id }}</code></details>{% if not working and not conversation.pending and task.state not in ['completed','failed','cancelled','interrupted'] %}<form method="post" action="/director/{{ conversation.id }}/cancel-task" hx-post="/director/{{ conversation.id }}/cancel-task" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><input type="hidden" name="task" value="{{ task.task_id }}"><button type="submit" class="danger">Request Task cancellation approval</button></form>{% endif %}</article>{% endfor %}</div>{% endif %}
       {% for council in conversation.councils %}<p><a href="/councils/{{ council.council_id }}">Council {{ council.council_id }}</a> · independent participant results above</p>{% endfor %}
       <div class="verification-note">{{ icon('shield') }}<p><strong>Verification boundary</strong>Source-tool use is observed evidence. The Director cannot independently read or verify source. Review linked Task results before accepting findings.</p></div>
       {% if not working and conversation.tasks and not conversation.pending %}<form method="post" action="/director/{{ conversation.id }}/resume" hx-post="/director/{{ conversation.id }}/resume" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button type="submit">Restore known Task results</button></form>{% endif %}

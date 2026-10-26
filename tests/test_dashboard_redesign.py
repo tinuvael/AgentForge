@@ -1,11 +1,15 @@
 """Operator-facing layout contracts over real ASGI routes and saved sessions."""
 
 import asyncio
+import re
 from html.parser import HTMLParser
 from time import time
+from uuid import uuid4
 
 import pytest
 
+from agentforge.db.database import create_session_factory
+from agentforge.db.tasks import TaskRepository
 from agentforge.director.models import Action, TaskBinding, VisibleMessage
 from tests.test_coding_workspaces import coding as coding_fixture
 from tests.test_director import fixture
@@ -267,5 +271,110 @@ def test_workspace_cleanup_htmx_redirect_preserves_confirmation(coding, database
             assert removed.status_code == 200
             assert removed.headers["HX-Redirect"] == path
             assert app.get_coding_workspace(task_id=task.task_id).state == "removed"
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "pin_project,pin_worker",
+    [(False, False), (True, False), (False, True), (True, True)],
+)
+def test_request_pins_do_not_replace_recorded_task_bindings(
+    setup, tmp_path, pin_project, pin_worker
+):
+    async def scenario():
+        async with fixture(setup, tmp_path) as f:
+            async with browser(setup, f) as (client, _):
+                path = await new(client)
+                item = f.director.load(path.split("/")[-1], owner(client))
+                first = stored(setup, "running")
+                repository = TaskRepository(create_session_factory(setup.app.database))
+                second = repository.add(
+                    project_id=setup.project.id,
+                    agent_id="repo_explorer",
+                    worker_id="cloud",
+                    request="Independent participant",
+                    provider="fake",
+                    model="history-model",
+                )
+                item.tasks = [
+                    TaskBinding(
+                        task_id=first,
+                        project_id=setup.project.id,
+                        agent_id="repo_explorer",
+                        worker_id="home-i5",
+                        state="running",
+                    ),
+                    TaskBinding(
+                        task_id=second.task_id,
+                        project_id=setup.project.id,
+                        agent_id="repo_explorer",
+                        worker_id="cloud",
+                        state="queued",
+                    ),
+                ]
+                # Current request pins can differ from earlier immutable bindings.
+                item.project_id = uuid4() if pin_project else None
+                item.worker_id = "local-4080" if pin_worker else None
+                f.director.journal.save(item)
+                expected = {
+                    str(t.task_id): (str(t.project_id), t.worker_id, t.agent_id)
+                    for t in item.tasks
+                }
+                for suffix in ("", "/fragment"):
+                    response = await client.get(path + suffix)
+                    assert response.status_code == 200
+                    body = response.text
+                    pins = body.split('<dl class="context-facts">', 1)[1].split(
+                        "</dl>", 1
+                    )[0]
+                    assert "Your Project pin" in pins and "Your Worker pin" in pins
+                    assert (
+                        pins.count("No pin · Director selects")
+                        == 2 - pin_project - pin_worker
+                    )
+                    if pin_project:
+                        assert str(item.project_id) in pins
+                    if pin_worker:
+                        assert "local-4080" in pins
+                    assert "Not selected yet" not in body
+                    records = dict(
+                        re.findall(
+                            r'<article data-task-id="([^"]+)">(.*?)</article>',
+                            body,
+                            re.S,
+                        )
+                    )
+                    assert set(records) == set(expected)
+                    for identity, (project, worker, agent) in expected.items():
+                        card = records[identity]
+                        assert f'href="/tasks/{identity}"' in card
+                        assert '<dl class="task-binding">' in card
+                        assert f"<dt>Project</dt><dd><code>{project}</code>" in card
+                        assert f"<dt>Worker</dt><dd>{worker}</dd>" in card
+                        assert f"<dt>Agent</dt><dd>{agent}</dd>" in card
+                    persisted = f.director.load(item.id, owner(client))
+                    assert {
+                        str(t.task_id): (str(t.project_id), t.worker_id, t.agent_id)
+                        for t in persisted.tasks
+                    } == expected
+                    assert repository.get(first).worker_id == "home-i5"
+                    assert repository.get(second.task_id).worker_id == "cloud"
+
+    asyncio.run(scenario())
+
+
+def test_idle_session_identifies_unpinned_requests_without_inventing_execution(
+    setup, tmp_path
+):
+    async def scenario():
+        async with fixture(setup, tmp_path) as f:
+            async with browser(setup, f) as (client, _):
+                path = await new(client)
+                body = (await client.get(path)).text
+                assert body.count("No pin · Director selects") == 2
+                assert "No delegated Task binding recorded." in body
+                assert '<dl class="task-binding">' not in body
+                assert not setup.app.tasks.history()
 
     asyncio.run(scenario())

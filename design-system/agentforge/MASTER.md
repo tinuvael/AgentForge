@@ -30,8 +30,8 @@ Positive #8bdbb4, caution #f3cc87, failure #f4a3ad. Text labels always accompany
 status color. Dividers are subtle; form control borders and focus rings are stronger.
 
 System sans for prose; system monospace for identifiers/code. Page titles 30px,
-section titles 17px, body 14px, conversation 13px, dense metadata 10–12px. Use
-full, copyable identifiers with wrapping. Six-pixel panel/control radius; no glass,
+section titles 17px, body 14px, conversation 13px, operational metadata 12–13px.
+Small decorative labels remain separate. Use full, copyable identifiers with wrapping. Six-pixel panel/control radius; no glass,
 large gradients, decorative metrics or entrance animations. Hover transitions
 150ms, removed for reduced motion. Native select/checkbox/details controls.
 
@@ -45,7 +45,8 @@ large gradients, decorative metrics or entrance animations. Hover transitions
   recent submissions and terminal telemetry. A failed-history link supports triage.
 - Director separates conversation navigation, readable messages and an evidence
   rail. Exact argument approvals interrupt the conversation at the decision point.
-  Running requests show the current model and selected Worker; incomplete evidence
+  Request pins are labelled separately from the immutable Project/Worker/Agent
+  recorded on each delegated Task; incomplete evidence
   stays labelled. Large messages use native disclosures with the full escaped text.
 - History tables keep complete engineering fields in labelled, keyboard-focusable
   overflow regions. Worker probe detail uses expandable rows; declarations never

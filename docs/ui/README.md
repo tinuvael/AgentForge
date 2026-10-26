@@ -11,7 +11,7 @@ telemetry semantics; [Local Director](../local-director.md) defines orchestratio
 | --- | --- | --- |
 | Shared navigation | Horizontal links without active state | Responsive persistent sidebar, six real routes, active parent detail route, skip link |
 | Overview | Eight equal count cards and dense ungrouped data | Service/inventory strip, linked lifecycle counts, failure triage, recent Tasks, covered terminal telemetry |
-| Local Director | Single long message/activity/approval column | Conversation navigation, message workspace, context/evidence rail, exact argument approvals with UTC expiry, separate stop/cancel, recovery links |
+| Local Director | Single long message/activity/approval column | Conversation navigation, message workspace, request pins separate from recorded Task execution bindings, context/evidence rail, exact argument approvals with UTC expiry, separate stop/cancel, recovery links |
 | Tasks | Unstyled filters and dense raw timestamps | Grouped filters, reset, compact dates with full UTC `datetime`/title, full IDs, lifecycle badges, keyboard-scrollable table |
 | Task detail | Unstructured metadata | Shared hierarchy, scoped overflow, readable facts/results/diffs; all telemetry, validation and cleanup controls retained |
 | Workers | Huge always-open probe tables | Identity/trust/model table, last health with time, expandable full probe evidence and declared capabilities, explicit unknown resource limits |

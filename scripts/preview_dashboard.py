@@ -228,8 +228,7 @@ async def serve(port):
             active = director.create(OWNER)
             active.title = "Investigate cancellation safety"
             active.state = "running"
-            active.project_id = projects[0].id
-            active.worker_id = "atlas-gpu"
+            # Exercise Director-selected execution without user form pins.
             active.request_id = uuid4()
             active.messages = [
                 VisibleMessage(

@@ -97,3 +97,32 @@ No inference, egress policy, Gateway authentication, SQLite owner or Provider
 contract was changed. Physical Windows browser, authenticated MacBook SSH tunnel,
 iPad/small-screen use, real Ollama sessions, long outputs and reconnect/approval
 acceptance remain in **Issue #31**. Hosted checks do not close that gate.
+
+
+## PR #68 polish verification (26 October 2026)
+
+The follow-up stays within #67. Session context now labels the user's Project and
+Worker pins separately from every recorded Task's immutable Project/Worker/Agent
+binding. An unpinned request says “No pin · Director selects”; actual bindings are
+always visible in Task evidence, before execution activity. The preview's active
+conversation deliberately has no user form pins, exercising the original defect.
+
+Operational metadata uses a shared 12–13px scale. Task identifiers, evidence,
+Worker identity, state labels, approvals and activity no longer depend on tiny
+10–11px text. Existing layout spacing, colours and native controls are retained.
+Decorative navigation/brand captions remain separate from operational metadata.
+
+Focused regression suite: **119 passed**. Added full-page and fragment checks for
+unpinned, partially pinned and changed-pin requests, two independent Workers,
+idle sessions and unchanged durable Task identities. Existing CSRF, Origin/Host,
+approval, stale-form and cancellation tests remain unchanged and pass.
+
+Rechecked 28 page/viewport combinations at 1440, 1024, 768 and 390px: no document
+horizontal overflow and exactly one main region. Measured Director context/evidence
+at 12px and execution activity at 13px. Browser HTMX filtering preserved its field
+value and one results fragment. Stop Director and rejection of Task cancellation
+left its original Task ID, Project, Worker and Agent intact; the Task remained
+running. A separate confirmed mobile queued cancellation produced one cancelled
+Task detail fragment and removed the cancellation form. Updated the affected
+rendered screenshots. Build/installed-wheel and final hosted CI results are
+recorded in PR #68; the full nine-job matrix remains unchanged.
