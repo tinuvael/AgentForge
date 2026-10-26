@@ -15,10 +15,29 @@ from agentforge.specialists.models import SpecialistError
 class PrivateFiles:
     def __init__(self, path):
         self.backend = select_backend()
+        self._root_backend = self.backend
         if os.name == "nt":
+            import ctypes as c
+
             from agentforge.projects.mutation import Win32Mutation
+            from agentforge.projects.windows import WindowsSafeFilesystemBackend
 
             self.backend.api = Win32Mutation()
+
+            class PublicationDirectories(Win32Mutation):
+                def open(self, path):
+                    # Match SQLite ownership's private-directory pins: publication
+                    # needs WRITE sharing on ancestors, while DELETE stays denied.
+                    handle = self.api.CreateFileW(
+                        path, 0x80000000, 1 | 2, None, 3, 0x02200000, None
+                    )
+                    if handle == c.c_void_p(-1).value:
+                        self._error()
+                    return handle
+
+            # Only root/ancestor opening uses WRITE sharing. Leaf reads continue
+            # through self.backend, retaining the normal no-write/no-delete guard.
+            self._root_backend = WindowsSafeFilesystemBackend(PublicationDirectories())
         # Operator creates the directory first; composition performs no writes.
         if Path(path).is_symlink():
             raise SpecialistError("artifact_store_unsafe")
@@ -27,7 +46,7 @@ class PrivateFiles:
 
     @contextmanager
     def root(self):
-        with self.backend.anchored_root(self.path, self.identity) as root:
+        with self._root_backend.anchored_root(self.path, self.identity) as root:
             if os.name != "nt":
                 info = os.fstat(root)
                 if info.st_uid != os.geteuid() or info.st_mode & 0o077:

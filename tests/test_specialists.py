@@ -887,3 +887,15 @@ def test_native_artifact_publication_is_exclusive_and_durable(setup):
     assert files.read(identity, len(data)) == data
     files.remove(identity)
     assert not list(setup.directory.iterdir())
+
+
+@pytest.mark.windows
+def test_native_artifact_publication_keeps_ancestry_pinned(setup):
+    files = PrivateFiles(setup.directory)
+    identity = uuid4()
+    with files.root():
+        with pytest.raises(PermissionError):
+            setup.directory.rename(setup.directory.with_name("moved-artifacts"))
+        files.write(identity, b"new private file")
+        assert files.read(identity, 16) == b"new private file"
+    files.remove(identity)
