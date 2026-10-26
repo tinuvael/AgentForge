@@ -35,7 +35,10 @@ Their databases are not an upgrade source. Preserve/export any development histo
 and uncommitted workspaces you need, then select a fresh database and register roots
 explicitly. No command wipes, stamps or silently adopts an old database.
 
-The current head is `0003_capability_policy`, adding default-local Project egress,
+The current head is `0004_specialists`, adding ToolJobs, private store identity and
+artifact descriptors (binary bytes stay outside SQLite). See
+[specialist validation and Phase B boundary](specialists.md).
+`0003_capability_policy` adds default-local Project egress,
 Task connection/policy snapshots and bounded connection resource evidence.
 `0002_gateway_client` adds nullable durable Task client ownership. The released
 revisions are unchanged. Upgrading an existing baseline retains its
@@ -187,6 +190,12 @@ The installed-wheel Companion smoke also checks separate MCP/web startup rejecti
 while the shared MCP/Companion remains available, then legitimate EOF restart.
 Physical device acceptance, live Providers and real Codex model tool selection
 remain pending under #31; hosted NTFS evidence is recorded separately.
+
+The installed-wheel smoke also runs `scripts/verify_specialists.py`: explicit fake
+image generation, synthetic glTF processing using the image artifact, authorized
+chunk retrieval, idempotent submission and descriptor/hash verification after
+Application restart. The ordinary suite includes actual subprocess termination at
+pending/published file checkpoints, with conservative interrupted recovery.
 
 ## Persistent Gateway acceptance (#46)
 

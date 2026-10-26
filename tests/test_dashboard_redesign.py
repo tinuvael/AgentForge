@@ -49,6 +49,7 @@ class Navigation(HTMLParser):
         ("/tasks?state=failed", "/tasks", 200),
         ("/councils", "/councils", 200),
         ("/director", "/director", 503),
+        ("/tool-jobs", "/tool-jobs", 200),
     ],
 )
 def test_navigation_matches_actual_routes(setup, path, active, status):
@@ -64,6 +65,7 @@ def test_navigation_matches_actual_routes(setup, path, active, status):
                 "/workers",
                 "/tasks",
                 "/councils",
+                "/tool-jobs",
             ]
             assert [link["href"] for link in links if "aria-current" in link] == [
                 active

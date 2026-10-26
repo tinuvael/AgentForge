@@ -27,6 +27,7 @@ from agentforge.coding.models import CodingError
 from agentforge.councils.models import CouncilNotFound
 from agentforge.db.ownership import ExecutorOwnershipError
 from agentforge.projects.errors import ProjectStorageError
+from agentforge.specialists.models import SpecialistError
 from agentforge.tasks.models import (
     TERMINAL_STATES,
     TaskNotFound,
@@ -214,6 +215,8 @@ def create_app(
         request.state.csrf = token
         try:
             response = await call_next(request)
+        except SpecialistError:
+            response = failure(request, "specialist_unavailable", 409)
         except CodingError:
             response = failure(request, "coding_unavailable", 409)
         except CouncilNotFound:
@@ -345,6 +348,39 @@ def create_app(
     @web.get("/tasks/{task_id}", response_class=HTMLResponse)
     async def task(request: Request, task_id: UUID):
         return detail_response(request, task_id)
+
+    @web.get("/tool-jobs", response_class=HTMLResponse)
+    async def tool_jobs(request: Request):
+        values = query(request)
+        service = core().specialists
+        jobs = (
+            service.repository.jobs(limit=values.limit + 1, offset=values.offset)
+            if service
+            else []
+        )
+        return render(
+            request,
+            "tool_jobs.html",
+            enabled=service is not None,
+            jobs=jobs[: values.limit],
+            **pagination(request, values, len(jobs) > values.limit),
+        )
+
+    @web.get("/tool-jobs/{tool_job_id}", response_class=HTMLResponse)
+    async def tool_job(request: Request, tool_job_id: UUID):
+        app = core()
+        job = app.get_tool_job(tool_job_id=tool_job_id)
+        artifacts = tuple(
+            app.inspect_artifact(project_id=job.project_id, artifact_id=aid)
+            for aid in job.output_artifact_ids
+        )
+        return render(request, "tool_job.html", job=job, artifacts=artifacts)
+
+    @web.post("/tool-jobs/{tool_job_id}/cancel", response_class=HTMLResponse)
+    async def cancel_tool_job(request: Request, tool_job_id: UUID):
+        await check_cancellation(request)
+        core().cancel_tool_job(tool_job_id=tool_job_id)
+        return RedirectResponse(f"/tool-jobs/{tool_job_id}", status_code=303)
 
     @web.get("/tasks/{task_id}/fragment", response_class=HTMLResponse)
     async def task_fragment(request: Request, task_id: UUID):

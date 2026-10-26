@@ -44,7 +44,8 @@ icacls C:\AgentForgeState /inheritance:r /grant:r "${afAccount}:(OI)(CI)F"
 ```
 
 Existing installations must stop executors and back up the database/workspaces
-before upgrading to `0003_capability_policy`. It adds default-local Project egress,
+before upgrading to the current head (`0004_specialists`).
+`0003_capability_policy` adds default-local Project egress,
 Task policy/connection snapshots and resource evidence; the earlier
 `0002_gateway_client` adds nullable submitting-client identity without changing old
 Tasks. Existing operator/stdio history has no client
@@ -450,3 +451,10 @@ Gateway or share either host's filesystem state.
 
 No workstation, tailnet, RTX 4080, real Ollama, Xcode or physical macOS execution-host
 acceptance is claimed by this implementation or its scripted tests.
+
+Specialist operations additionally require explicit per-Project `specialists`
+grants and operation scopes; they default to no access. Each artifact resolves to
+its source ToolJob for server-side ownership/tool authorization, including inputs
+on new submissions. `read_shared` and `cancel_shared` remain independent. Add
+`--specialists /absolute/private/specialists.toml` to `gateway serve` only after
+private store setup. See [specialist policy and artifact retrieval](specialists.md).

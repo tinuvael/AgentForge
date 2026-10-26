@@ -56,6 +56,8 @@ class TaskEngine:
         concurrency: int = 1,
         clock: Callable[[], float] = monotonic,
         workspaces=None,
+        specialists=None,
+        specialist_repository=None,
     ) -> None:
         if type(concurrency) is not int or not 1 <= concurrency <= 32:
             raise TaskValidationError("Concurrency must be between 1 and 32")
@@ -63,6 +65,8 @@ class TaskEngine:
         self._ownership = DatabaseOwnership(repository.database)
         self._runtime = runtime
         self._workspaces = workspaces
+        self._specialists = specialists
+        self._specialist_repository = specialist_repository
         self._concurrency = concurrency
         self._thread = get_ident()
         self._wake = asyncio.Event()
@@ -98,6 +102,12 @@ class TaskEngine:
             # Any lost executor slot makes the service unavailable. Wake every
             # subscriber, including Tasks which have not yet been claimed.
             self._observe("close", "unavailable")
+
+    def work_changed(self):
+        """Wake shared execution slots and lifecycle waiters on the owning loop."""
+        self._check_thread()
+        self._wake.set()
+        self._changed.set()
 
     @staticmethod
     def _id(task_id: UUID | str) -> UUID:
@@ -297,8 +307,12 @@ class TaskEngine:
         try:
             self._repository.check_schema()
             self._repository.recover_running()
+            if self._specialist_repository is not None:
+                self._specialist_repository.recover_running()
             if self._workspaces is not None:
                 self._workspaces.recover(self._repository)
+            if self._specialists is not None:
+                self._specialists.recover()
             self._event_loop = asyncio.get_running_loop()
             for index in range(self._concurrency):
                 loop = asyncio.create_task(
@@ -340,12 +354,21 @@ class TaskEngine:
         return result.model_copy(update={"coding_result": None})
 
     async def _execute_loop(self):
+        specialist_turn = True
         while not self._closed:
             self._wake.clear()
             identity = self._repository.next_queued_id()
+            # Both kinds share the same bounded slots, owner, wakeup and shutdown.
+            # Alternate when both queues are busy, avoiding starvation.
+            if self._specialists is not None and (specialist_turn or identity is None):
+                if await self._specialists.execute_next():
+                    specialist_turn = False
+                    await asyncio.sleep(0)
+                    continue
             if identity is None:
                 await self._wake.wait()
                 continue
+            specialist_turn = True
             queued = self._repository.get(identity)
             queued_at = self._queued_at.pop(identity, None)
             task = self._repository.claim(

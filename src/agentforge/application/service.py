@@ -41,11 +41,14 @@ from agentforge.db.diagnostics import DiagnosticsRepository
 from agentforge.db.index import IndexRepository
 from agentforge.db.projects import ProjectRepository
 from agentforge.db.resources import ResourceRepository
+from agentforge.db.specialists import SpecialistRepository
 from agentforge.db.tasks import TaskRepository
 from agentforge.db.telemetry import TelemetryRepository
 from agentforge.index.service import ProjectIndex
 from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.factory import create_providers
+from agentforge.specialists.models import load_specialists
+from agentforge.specialists.service import SpecialistService
 from agentforge.tasks.engine import TaskEngine
 from agentforge.tasks.models import TERMINAL_STATES, Task
 from agentforge.tasks.observation import Notice, ObservationUnavailable, task_timeline
@@ -88,6 +91,7 @@ class Application:
         *,
         agents: Sequence[Agent] | None = None,
         coding_config=None,
+        specialist_config=None,
         providers: Mapping[str, Provider] | None = None,
         concurrency: int = 1,
     ):
@@ -101,6 +105,13 @@ class Application:
         self.projects = ProjectRegistry(ProjectRepository(sessions))
         self.index = ProjectIndex(self.projects, IndexRepository(sessions))
         self.repository_tools = RepositoryTools(self.projects)
+        self.specialists = (
+            SpecialistService(
+                specialist_config, SpecialistRepository(sessions), self.projects
+            )
+            if specialist_config is not None
+            else None
+        )
         self.coding = (
             CodingWorkspaceManager(
                 self.projects, WorkspaceRepository(sessions), coding_config
@@ -163,8 +174,15 @@ class Application:
         )
         task_repository = TaskRepository(sessions)
         self.tasks = TaskEngine(
-            task_repository, runtime, concurrency=concurrency, workspaces=self.coding
+            task_repository,
+            runtime,
+            concurrency=concurrency,
+            workspaces=self.coding,
+            specialists=self.specialists,
+            specialist_repository=SpecialistRepository(sessions),
         )
+        if self.specialists is not None:
+            self.specialists.engine = self.tasks
         self.councils = CouncilService(
             CouncilRepository(sessions),
             self.tasks,
@@ -187,6 +205,7 @@ class Application:
         workers_path: str,
         concurrency: int = 1,
         coding_path: str | None = None,
+        specialists_path: str | None = None,
     ):
         workers = load_workers(workers_path)
         database = create_database_engine(database_url)
@@ -196,6 +215,9 @@ class Application:
                 workers,
                 concurrency=concurrency,
                 coding_config=load_coding(coding_path) if coding_path else None,
+                specialist_config=load_specialists(specialists_path)
+                if specialists_path
+                else None,
             )
         except BaseException:
             database.dispose()
@@ -270,6 +292,17 @@ class Application:
             )
             if self.coding
             else (),
+            specialist_operations=(
+                "list_specialist_tools",
+                "submit_tool_job",
+                "get_tool_job",
+                "cancel_tool_job",
+                "list_artifacts",
+                "inspect_artifact",
+                "retrieve_artifact",
+            )
+            if self.specialists
+            else (),
             repository_access="central_host_agent_allowlisted_isolated_write"
             if self.coding
             else "central_host_agent_allowlisted_read_only",
@@ -304,6 +337,34 @@ class Application:
             ),
             next_offset=offset + limit if len(values) > limit else None,
         )
+
+    def specialist_service(self):
+        if self.specialists is None:
+            raise ServiceError("specialist_unavailable")
+        return self.specialists
+
+    def list_specialist_tools(self, **fields):
+        return self.specialist_service().list_tools(**fields)
+
+    def submit_tool_job(self, **fields):
+        if not self.tasks.available:
+            raise ServiceError("service_unavailable")
+        return self.specialist_service().submit(**fields)
+
+    def get_tool_job(self, **fields):
+        return self.specialist_service().get(**fields)
+
+    def cancel_tool_job(self, **fields):
+        return self.specialist_service().cancel(**fields)
+
+    def list_artifacts(self, **fields):
+        return self.specialist_service().artifacts(**fields)
+
+    def inspect_artifact(self, **fields):
+        return self.specialist_service().inspect(**fields)
+
+    def retrieve_artifact(self, **fields):
+        return self.specialist_service().retrieve(**fields)
 
     def list_workers(
         self, *, limit: int = 100, offset: int = 0, authorized_ids=None

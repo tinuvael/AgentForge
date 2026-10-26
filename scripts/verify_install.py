@@ -62,7 +62,10 @@ def package_checks():
         "db/migrations/versions/0001_initial.py",
         "db/migrations/versions/0002_gateway_client.py",
         "db/migrations/versions/0003_capability_policy.py",
+        "db/migrations/versions/0004_specialists.py",
         "web/templates/base.html",
+        "web/templates/tool_job.html",
+        "web/templates/tool_jobs.html",
         "web/templates/director.html",
         "web/templates/director_fragment.html",
         "web/templates/companion_base.html",
@@ -109,7 +112,12 @@ def package_checks():
         file.name
         for file in root.joinpath("db/migrations/versions").iterdir()
         if file.name.endswith(".py")
-    } == {"0001_initial.py", "0002_gateway_client.py", "0003_capability_policy.py"}
+    } == {
+        "0001_initial.py",
+        "0002_gateway_client.py",
+        "0003_capability_policy.py",
+        "0004_specialists.py",
+    }
     for module in ("db.migrate", "mcp.server", "web.server"):
         result = subprocess.run(
             [sys.executable, "-m", "agentforge." + module, "--help"],
@@ -225,7 +233,7 @@ async def smoke():
             with engine.connect() as connection:
                 assert (
                     MigrationContext.configure(connection).get_current_revision()
-                    == "0003_capability_policy"
+                    == "0004_specialists"
                 )
                 assert set(inspect(connection).get_table_names()) == {
                     *Base.metadata.tables,
@@ -500,7 +508,7 @@ async def smoke():
             assert {t.name for t in discovered.tools} == {
                 t.name for t in TOOL_CONTRACTS
             }
-            assert len(discovered.tools) == 16
+            assert len(discovered.tools) == 23
             watch_contract = next(t for t in discovered.tools if t.name == "watch_task")
             assert watch_contract.inputSchema["required"] == ["task_id"]
             assert "timeline" in watch_contract.outputSchema["properties"]
@@ -622,6 +630,10 @@ async def smoke():
         with TemporaryDirectory() as gateway_directory:
             await integration(Path(gateway_directory).resolve())
         await installed_gateway()
+        from verify_specialists import acceptance as specialist_acceptance
+
+        with TemporaryDirectory() as specialist_directory:
+            await specialist_acceptance(Path(specialist_directory).resolve())
         from verify_director import integration as director_integration
 
         with TemporaryDirectory() as director_directory:

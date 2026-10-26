@@ -26,7 +26,14 @@ from agentforge.director.models import (
 from agentforge.providers.factory import PROVIDER_TYPES
 
 CONTRACTS = {t.name: t for t in TOOL_CONTRACTS}
-ALLOWED = frozenset(CONTRACTS)
+ALLOWED = frozenset(CONTRACTS) - {
+    "submit_tool_job",
+    "cancel_tool_job",
+    "retrieve_artifact",
+    "get_tool_job",
+    "list_artifacts",
+    "inspect_artifact",
+}
 WRITES = {
     "delegate_task",
     "delegate_council",

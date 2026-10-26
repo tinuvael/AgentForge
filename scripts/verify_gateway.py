@@ -35,6 +35,7 @@ from agentforge.gateway.server import GatewayConfig, create_gateway
 from agentforge.mcp.server import TOOL_CONTRACTS, _SafeDiagnostics
 from agentforge.projects.service import ProjectRegistry
 from agentforge.providers.ollama import OllamaProvider
+from agentforge.specialists.models import SpecialistConfig, SpecialistTool
 from agentforge.web.combined import BorrowedServer, CompanionConfig
 from agentforge.workers.config import WorkersConfig
 
@@ -234,6 +235,21 @@ supports_tools = true
     )
     applications = []
     starts, closes = [], []
+    artifact_directory = root / "artifacts"
+    artifact_directory.mkdir(mode=0o700)
+    specialists = SpecialistConfig(
+        artifact_directory=artifact_directory,
+        tools=(
+            SpecialistTool(
+                tool_id="image",
+                kind="comfyui_image",
+                adapter="fake_comfyui",
+                connection_id="fake",
+                output_formats=("png",),
+                enabled=True,
+            ),
+        ),
+    )
 
     def factory():
         app = Application(
@@ -242,6 +258,7 @@ supports_tools = true
             agents=shipped_agents(coding_enabled=True),
             providers={"ollama": provider},
             concurrency=2,
+            specialist_config=specialists,
         )
         original_start, original_close = app.tasks.start, app.tasks.close
 
@@ -282,7 +299,9 @@ supports_tools = true
     auth_path = root / "clients.json"
     token_a, token_b, token_c = ("test-" + name * 48 for name in ("a", "b", "c"))
     tools = tuple(t.name for t in TOOL_CONTRACTS if "coding" not in t.name)
-    grant = ProjectGrant(project_id=project.id, workers=("local-4080", "home-i5"))
+    grant = ProjectGrant(
+        project_id=project.id, workers=("local-4080", "home-i5"), specialists=("image",)
+    )
     a = ClientPolicy(
         client_id="windows-codex",
         token_sha256=fingerprint(token_a),
@@ -354,6 +373,44 @@ supports_tools = true
             app = applications[0]
             assert len(applications) == len(starts) == 1 and len(app.tasks._loops) == 2
             engine_id = id(app.tasks)
+            tool_fields = dict(
+                project_id=str(project.id),
+                tool_id="image",
+                request_id=str(uuid4()),
+                idempotency_key=uuid4().hex,
+            )
+            tool_job = await call(ca, "submit_tool_job", tool_fields)
+            job_query = {"tool_job_id": tool_job["tool_job_id"]}
+            async with asyncio.timeout(5):
+                while True:
+                    tool_job = await call(ca, "get_tool_job", job_query)
+                    if tool_job["state"] == "completed":
+                        break
+                    assert tool_job["state"] in {"queued", "running"}, tool_job
+                    await asyncio.sleep(0.01)
+            duplicate = await call(ca, "submit_tool_job", tool_fields)
+            assert duplicate["tool_job_id"] == tool_job["tool_job_id"]
+            artifact_query = {
+                "project_id": str(project.id),
+                "artifact_id": tool_job["output_artifact_ids"][0],
+            }
+            await call(cb, "get_tool_job", job_query, error="access_denied")
+            await call(cb, "cancel_tool_job", job_query, error="access_denied")
+            await call(cb, "retrieve_artifact", artifact_query, error="access_denied")
+            assert not (
+                await call(cb, "list_artifacts", {"project_id": str(project.id)})
+            )["artifacts"]
+            descriptor = await call(ca, "inspect_artifact", artifact_query)
+            assert descriptor["simulated"] and descriptor["status"] == "ready"
+            chunk = await call(
+                ca, "retrieve_artifact", {**artifact_query, "max_bytes": 8}
+            )
+            assert chunk["next_offset"] == 8
+            print(
+                "S: authenticated specialist idempotency, ownership "
+                "and bounded retrieval",
+                flush=True,
+            )
             assert await call(ca, "list_workers") == await call(cb, "list_workers")
             assert await call(ca, "list_agents") == await call(cb, "list_agents")
             projects = await call(cb, "list_projects")

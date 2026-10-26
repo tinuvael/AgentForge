@@ -24,10 +24,19 @@ from agentforge.core.policy import PolicyDenied, PolicyStorageError
 from agentforge.councils.models import CouncilNotFound, InvalidCouncil
 from agentforge.db.ownership import ExecutorOwnershipError
 from agentforge.projects.errors import ProjectNotFound, ProjectStorageError
+from agentforge.specialists.models import SpecialistError
 from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidationError
 from agentforge.web.combined import CompanionConfig, companion_http
 
 _MESSAGES = {
+    "specialist_unavailable": (
+        "Specialist tools are disabled or unavailable; "
+        "only opt-in fake adapters are shipped."
+    ),
+    "specialist_error": (
+        "Specialist operation denied or artifact unavailable; "
+        "inspect authorized ToolJob and artifact metadata."
+    ),
     "policy_denied": (
         "Worker admission denied by egress, cooldown or budget policy; "
         "inspect suggest_workers."
@@ -62,6 +71,8 @@ def safe_error(error: Exception) -> SafeError:
         return SafeError(code="storage_unavailable", message=str(error))
     if isinstance(error, PolicyDenied):
         code = "policy_denied"
+    elif isinstance(error, SpecialistError):
+        code = "specialist_error"
     elif isinstance(error, ServiceError):
         code = error.code
     elif isinstance(error, CodingError):
@@ -228,6 +239,7 @@ async def run_stdio(
     workers_path: str,
     concurrency: int,
     coding_path: str | None = None,
+    specialists_path: str | None = None,
     companion: CompanionConfig | None = None,
 ):
     server = create_server(
@@ -236,6 +248,7 @@ async def run_stdio(
             workers_path=workers_path,
             concurrency=concurrency,
             coding_path=coding_path,
+            specialists_path=specialists_path,
         ),
         companion=companion,
     )
@@ -261,6 +274,9 @@ def add_arguments(parser) -> None:
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--workers", required=True)
     parser.add_argument("--coding", help="Explicit trusted coding TOML configuration")
+    parser.add_argument(
+        "--specialists", help="Opt-in specialist tools and private artifact TOML"
+    )
     parser.add_argument("--concurrency", type=int, choices=range(1, 33), default=1)
     parser.add_argument(
         "--companion",
@@ -290,6 +306,7 @@ def run(arguments) -> int:
                 workers_path=arguments.workers,
                 concurrency=arguments.concurrency,
                 coding_path=arguments.coding,
+                specialists_path=arguments.specialists,
                 companion=companion,
             )
         )

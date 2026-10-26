@@ -44,7 +44,7 @@ def configuration():
 def assert_schema(connection):
     assert (
         MigrationContext.configure(connection).get_current_revision()
-        == "0003_capability_policy"
+        == "0004_specialists"
     )
     config = configuration()
     config.attributes["connection"] = connection
@@ -128,6 +128,52 @@ def populate(engine, tmp_path):
         ]
     )
     service = WorkerDiagnosticsService(config, {})
+    from datetime import timedelta
+
+    from agentforge.db.specialists import SpecialistRepository
+    from agentforge.specialists.models import Artifact, SpecialistTool, SubmitToolJob
+
+    specialists = SpecialistRepository(sessions)
+    specialists.pin_store(tmp_path, {"synthetic": True})
+    tool = SpecialistTool(
+        tool_id="image",
+        kind="comfyui_image",
+        adapter="fake_comfyui",
+        connection_id="fake",
+        enabled=True,
+        output_formats=("png",),
+    )
+    job = specialists.submit(
+        SubmitToolJob(
+            project_id=project.id,
+            tool_id=tool.tool_id,
+            request_id=uuid4(),
+            idempotency_key="migration",
+        ),
+        tool,
+        None,
+    )
+    specialists.transition(job.tool_job_id, state="running")
+    artifact = Artifact(
+        artifact_id=uuid4(),
+        project_id=project.id,
+        tool_job_id=job.tool_job_id,
+        tool_id=tool.tool_id,
+        input_artifact_ids=(),
+        created_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+        name="synthetic.png",
+        format="png",
+        mime_type="image/png",
+        size_bytes=1,
+        sha256="0" * 64,
+    )
+    from agentforge.specialists.models import SpecialistConfig
+
+    specialists.reserve(artifact, SpecialistConfig(artifact_directory=tmp_path))
+    specialists.transition(
+        job.tool_job_id, state="completed", output_ids=(artifact.artifact_id,)
+    )
     DiagnosticsRepository(sessions).save(
         DiagnosticObservation(
             configuration=service.get("local").configuration,
@@ -145,19 +191,25 @@ def populate(engine, tmp_path):
 def test_linear_gateway_migration_preserves_initial_revision():
     scripts = ScriptDirectory.from_config(configuration())
     revisions = list(scripts.walk_revisions())
-    assert scripts.get_heads() == ["0003_capability_policy"]
+    assert scripts.get_heads() == ["0004_specialists"]
     assert scripts.get_bases() == ["0001_initial"]
-    assert len(revisions) == 3
-    assert revisions[0].down_revision == "0002_gateway_client"
-    assert revisions[1].down_revision == "0001_initial"
-    assert revisions[2].down_revision is None
+    assert len(revisions) == 4
+    assert revisions[0].down_revision == "0003_capability_policy"
+    assert revisions[1].down_revision == "0002_gateway_client"
+    assert revisions[2].down_revision == "0001_initial"
+    assert revisions[3].down_revision is None
     assert {
         path.name
         for path in Path(migrate.__file__)
         .with_name("migrations")
         .joinpath("versions")
         .glob("*.py")
-    } == {"0001_initial.py", "0002_gateway_client.py", "0003_capability_policy.py"}
+    } == {
+        "0001_initial.py",
+        "0002_gateway_client.py",
+        "0003_capability_policy.py",
+        "0004_specialists.py",
+    }
 
 
 def test_fresh_initial_upgrade_includes_diagnostic_contract(tmp_path):

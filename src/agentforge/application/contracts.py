@@ -43,6 +43,8 @@ ErrorCode = Literal[
     "storage_unavailable",
     "service_unavailable",
     "internal_error",
+    "specialist_unavailable",
+    "specialist_error",
 ]
 
 
@@ -131,6 +133,7 @@ class Capabilities(Contract):
     advisory_operations: tuple[str, ...] = ("suggest_workers",)
     council_operations: tuple[str, ...]
     coding_operations: tuple[str, ...] = ()
+    specialist_operations: tuple[str, ...] = ()
     council_max_participants: Literal[16] = MAX_PARTICIPANTS
     repository_access: Literal[
         "central_host_agent_allowlisted_read_only",
