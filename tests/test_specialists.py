@@ -874,3 +874,16 @@ def test_denied_operation_does_not_even_read_job_storage(setup, monkeypatch):
             await app.close()
 
     run(execute())
+
+
+def test_native_artifact_publication_is_exclusive_and_durable(setup):
+    files = PrivateFiles(setup.directory)
+    identity = uuid4()
+    data = b"private artifact publication fixture"
+    files.write(identity, data)
+    assert files.read(identity, len(data)) == data
+    with pytest.raises((OSError, SpecialistError, ProjectError)):
+        files.write(identity, b"replacement forbidden")
+    assert files.read(identity, len(data)) == data
+    files.remove(identity)
+    assert not list(setup.directory.iterdir())

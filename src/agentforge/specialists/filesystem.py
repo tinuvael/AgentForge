@@ -100,7 +100,7 @@ class PrivateFiles:
 
             class RenameInfo(c.Structure):
                 _fields_ = [
-                    ("replace", c.c_ubyte),
+                    ("flags", DWORD),
                     ("root", HANDLE),
                     ("length", DWORD),
                     ("name", c.c_wchar * 1),
@@ -109,10 +109,13 @@ class PrivateFiles:
             target = ntpath.join(root.path, name).encode("utf-16-le")
             buffer = c.create_string_buffer(RenameInfo.name.offset + len(target) + 2)
             info = RenameInfo.from_buffer(buffer)
+            # Same native NTFS publication class as credential persistence. Keep
+            # REPLACE_IF_EXISTS unset: finalized artifacts must never be replaced.
+            info.flags = 0x2  # POSIX_SEMANTICS, without replacement authorization.
             info.length = len(target)
             c.memmove(c.addressof(buffer) + RenameInfo.name.offset, target, len(target))
             self.backend._verify(root)
-            if not api.api.SetFileInformationByHandle(handle, 3, buffer, len(buffer)):
+            if not api.api.SetFileInformationByHandle(handle, 22, buffer, len(buffer)):
                 api._error()
             if not api.api.FlushFileBuffers(handle):
                 api._error()
