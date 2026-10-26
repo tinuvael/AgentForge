@@ -30,6 +30,7 @@ def validate(data, format):
         struct.error,
         zlib.error,
         RecursionError,
+        OverflowError,
     ):
         pass
     raise SpecialistError("artifact_format_invalid")
@@ -70,6 +71,12 @@ def _png(data):
                 raise ValueError
         elif kind == b"IDAT":
             compressed.extend(body)
+        elif kind == b"tEXt":
+            # ComfyUI SaveImage emits uncompressed prompt/workflow text. Treat it
+            # only as opaque metadata; never execute or use it as provenance.
+            keyword, separator, _ = body.partition(b"\0")
+            if not separator or not 1 <= len(keyword) <= 79 or size > 262144:
+                raise ValueError
         elif kind != b"IEND" or size:
             raise ValueError
         offset += size + 12
@@ -117,7 +124,7 @@ def _gltf(data):
         or len(document["meshes"]) != 1
         or len(document["accessors"]) != 2
         or len(document["bufferViews"]) != 2
-        or set(document["meshes"][0]) != {"primitives"}
+        or set(document["meshes"][0]) - {"primitives", "name"}
     ):
         raise ValueError
     buffer = document["buffers"][0]
@@ -134,18 +141,27 @@ def _gltf(data):
     ):
         raise ValueError
     primitives = document["meshes"][0]["primitives"]
-    if len(primitives) != 1 or set(primitives[0]) != {"attributes", "indices", "mode"}:
+    if len(primitives) != 1 or set(primitives[0]) - {"attributes", "indices", "mode"}:
         raise ValueError
     primitive = primitives[0]
-    if primitive["mode"] != 4 or set(primitive["attributes"]) != {"POSITION"}:
+    if primitive.get("mode", 4) != 4 or set(primitive["attributes"]) != {"POSITION"}:
         raise ValueError
     positions = _accessor(
         document, binary, primitive["attributes"]["POSITION"], 5126, "VEC3", 12
     )
-    indices = _accessor(document, binary, primitive["indices"], 5123, "SCALAR", 2)
+    index_component = document["accessors"][primitive["indices"]]["componentType"]
+    if index_component not in {5123, 5125}:
+        raise ValueError
+    index_width = 2 if index_component == 5123 else 4
+    indices = _accessor(
+        document, binary, primitive["indices"], index_component, "SCALAR", index_width
+    )
     if (
-        len(indices) % 6
-        or any(i[0] >= len(positions) // 12 for i in struct.iter_unpack("<H", indices))
+        len(indices) % (3 * index_width)
+        or any(
+            i[0] >= len(positions) // 12
+            for i in struct.iter_unpack("<H" if index_width == 2 else "<I", indices)
+        )
         or any(not math.isfinite(v[0]) for v in struct.iter_unpack("<f", positions))
     ):
         raise ValueError
@@ -163,10 +179,29 @@ def _gltf(data):
     if (
         type(document["scene"]) is not int
         or document["scene"] != 0
-        or document["scenes"] != [{"nodes": [0]}]
-        or document["nodes"] != [{"mesh": 0}]
+        or len(document["scenes"]) != 1
+        or set(document["scenes"][0]) - {"nodes", "name"}
+        or document["scenes"][0]["nodes"] != [0]
+        or len(document["nodes"]) != 1
+        or set(document["nodes"][0])
+        - {"mesh", "name", "translation", "rotation", "scale"}
+        or type(document["nodes"][0]["mesh"]) is not int
+        or document["nodes"][0]["mesh"] != 0
     ):
         raise ValueError
+    for key, count in (("translation", 3), ("rotation", 4), ("scale", 3)):
+        value = document["nodes"][0].get(key)
+        if value is not None and (
+            not isinstance(value, list)
+            or len(value) != count
+            or any(type(v) not in {float, int} or not math.isfinite(v) for v in value)
+        ):
+            raise ValueError
+    for item in (*document["nodes"], *document["scenes"], *document["meshes"]):
+        if "name" in item and (
+            not isinstance(item["name"], str) or len(item["name"]) > 100
+        ):
+            raise ValueError
 
 
 def _accessor(document, binary, index, component, kind, width):
@@ -174,11 +209,12 @@ def _accessor(document, binary, index, component, kind, width):
         raise ValueError
     accessor = document["accessors"][index]
     if (
-        set(accessor) - {"bufferView", "componentType", "count", "type", "min", "max"}
+        set(accessor)
+        - {"bufferView", "byteOffset", "componentType", "count", "type", "min", "max"}
         or accessor["componentType"] != component
         or accessor["type"] != kind
         or type(accessor["count"]) is not int
-        or accessor["count"] < 1
+        or not 1 <= accessor["count"] <= 300000
     ):
         raise ValueError
     view_id = accessor["bufferView"]
@@ -188,15 +224,23 @@ def _accessor(document, binary, index, component, kind, width):
     if (
         set(view) - {"buffer", "byteOffset", "byteLength", "target"}
         or view["buffer"] != 0
-        or view["byteLength"] != accessor["count"] * width
+        or type(view["byteLength"]) is not int
+    ):
+        raise ValueError
+    start = accessor.get("byteOffset", 0)
+    if (
+        type(start) is not int
+        or start < 0
+        or start + accessor["count"] * width > view["byteLength"]
     ):
         raise ValueError
     offset, length = view.get("byteOffset", 0), view["byteLength"]
     if (
         type(offset) is not int
         or offset < 0
-        or offset % (4 if component == 5126 else 2)
+        or offset % (2 if component == 5123 else 4)
+        or start % (2 if component == 5123 else 4)
         or offset + length > len(binary)
     ):
         raise ValueError
-    return binary[offset : offset + length]
+    return binary[offset + start : offset + start + accessor["count"] * width]

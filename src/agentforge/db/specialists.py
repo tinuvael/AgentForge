@@ -1,6 +1,7 @@
 """Short specialist transactions in the executor's existing SQLite database."""
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -8,7 +9,24 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from agentforge.db.models import ArtifactRecord, SpecialistStoreRecord, ToolJobRecord
-from agentforge.specialists.models import Artifact, SpecialistError, ToolJob
+from agentforge.specialists.models import (
+    Artifact,
+    ExecutionEvidence,
+    SpecialistError,
+    ToolJob,
+)
+
+
+def request_digest(arguments):
+    # Preserve Phase A request identities when new optional parameters are added.
+    value = arguments.model_dump(mode="json")
+    value["parameters"] = {
+        "seed": arguments.parameters.seed,
+        **arguments.parameters.model_dump(exclude_defaults=True),
+    }
+    return hashlib.sha256(
+        json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
 
 
 class SpecialistRepository:
@@ -46,7 +64,7 @@ class SpecialistRepository:
 
     def submit(self, arguments, tool, client_id):
         scope = "client:" + client_id if client_id is not None else "local"
-        digest = hashlib.sha256(arguments.model_dump_json().encode()).hexdigest()
+        digest = request_digest(arguments)
         with self.sessions() as session:
             self.writer(session)
             existing = session.scalar(
@@ -81,6 +99,8 @@ class SpecialistRepository:
                 kind=tool.kind,
                 adapter=tool.adapter,
                 connection_id=tool.connection_id,
+                authorized_host=tool.authorized_host,
+                connection_origin=str(tool.comfyui.base_url) if tool.comfyui else None,
                 trust=tool.trust,
                 limits=tool.limits,
                 simulated=tool.simulated,
@@ -107,7 +127,7 @@ class SpecialistRepository:
 
     def existing(self, arguments, client_id):
         scope = "client:" + client_id if client_id is not None else "local"
-        digest = hashlib.sha256(arguments.model_dump_json().encode()).hexdigest()
+        digest = request_digest(arguments)
         with self.sessions() as session:
             rows = session.scalars(
                 select(ToolJobRecord).where(
@@ -138,6 +158,73 @@ class SpecialistRepository:
                 raise SpecialistError("tool_job_not_found")
             return ToolJob.model_validate(row.payload)
 
+    def evidence(self, identity, **fields):
+        """Commit intent before I/O and receipt before polling; never store bodies."""
+        with self.sessions() as session:
+            self.writer(session)
+            row = session.get(ToolJobRecord, identity)
+            job = ToolJob.model_validate(row.payload)
+            value = ExecutionEvidence.model_validate(
+                {
+                    **job.execution.model_dump(),
+                    **fields,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+            if (
+                job.execution.remote_job_id
+                and value.remote_job_id != job.execution.remote_job_id
+            ):
+                raise SpecialistError("execution_receipt_changed")
+            if (
+                job.execution.intent_sha256
+                and value.intent_sha256 != job.execution.intent_sha256
+            ):
+                raise SpecialistError("execution_intent_changed")
+            if job.execution.validated_output_sha256 and (
+                value.validated_output_sha256,
+                value.validated_output_bytes,
+            ) != (
+                job.execution.validated_output_sha256,
+                job.execution.validated_output_bytes,
+            ):
+                raise SpecialistError("execution_output_changed")
+            job = job.model_copy(update={"execution": value})
+            row.payload = job.model_dump(mode="json")
+            self.commit(session)
+            return job
+
+    def reconcile(self, identity):
+        """Only an existing ComfyUI receipt can re-enter the shared queue."""
+        with self.sessions() as session:
+            self.writer(session)
+            row = session.get(ToolJobRecord, identity)
+            job = ToolJob.model_validate(row.payload)
+            if (
+                job.state != "interrupted"
+                or job.adapter != "comfyui"
+                or not job.execution.remote_job_id
+                or job.cancellation_requested_at
+            ):
+                raise SpecialistError("recovery_required")
+            active = session.scalar(
+                select(func.count())
+                .select_from(ToolJobRecord)
+                .where(ToolJobRecord.state.in_(("queued", "running")))
+            )
+            if active >= 256:
+                raise SpecialistError("specialist_resource_limit")
+            job = job.model_copy(
+                update={
+                    "state": "queued",
+                    "finished_at": None,
+                    "failure_category": None,
+                }
+            )
+            row.state, row.payload = job.state, job.model_dump(mode="json")
+            self.commit(session)
+            return job
+
     def jobs(self, *, project_id=None, limit=100, offset=0, states=None):
         with self.sessions() as session:
             query = select(ToolJobRecord).order_by(
@@ -166,7 +253,7 @@ class SpecialistRepository:
                 raise SpecialistError("invalid_tool_job_state")
             fields = {"state": state}
             if state == "running":
-                fields["started_at"] = now
+                fields["started_at"] = job.started_at or now
             elif state == "cancel_requested":
                 fields = {"cancellation_requested_at": now}
                 if job.state == "queued":

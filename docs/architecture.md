@@ -31,7 +31,7 @@ guide for scoped credentials, one-use approvals and authenticated SSH forwarding
 | Project | Registers an existing local root with stable UUID and observed filesystem identity. |
 | Task | Persists an explicit Project/Agent/Worker request and lifecycle. |
 | Council | Groups independent Tasks on explicitly selected Workers, preserving all outcomes. |
-| SpecialistTool | Explicit opt-in file-producing definition independent of inference Workers; Phase A ships fake ComfyUI/Blender only. |
+| SpecialistTool | Explicit opt-in file-producing definition independent of inference Workers; ComfyUI HTTP and local headless Blender, alongside deterministic fakes. |
 | ToolJob / Artifact | Durable specialist lifecycle and private file descriptors in the same database; execution shares TaskEngine slots and ownership. |
 | CodingWorkspaceManager | Owns creation, authorization, inspection and explicit cleanup of Task worktrees. |
 
@@ -73,10 +73,16 @@ Staged artifact rows reserve resources before atomic private-file publication;
 one transaction exposes all declared descriptors with completed job state.
 Interrupted jobs require reconciliation and are never blindly replayed. Gateway
 independently enforces Project specialist grants, owner/shared rights and egress.
-Only deterministic synthetic PNG/glTF operations are implemented. The local-only
+Real ComfyUI uses approved workflows and durable intent/receipt evidence. Blender
+4.5 runs a packaged reference-blockout operation on the Application host in private
+staging, using the existing bounded process-tree runner. PNG metadata and the
+selected self-contained glTF exporter profile have explicit bounded validators. The local-only
 Director may discover those definitions; specialist writes/binary content are
-excluded from its inference loop. Native applications, mesh manufacturing checks,
-remote execution receipts and a workflow DAG remain separate later work.
+excluded from its inference loop. Native physical acceptance and mesh manufacturing checks remain #31; a workflow
+DAG remains #53. Known ComfyUI receipts reconcile through existing slots without
+resubmission; ambiguous submissions stay recovery-required. Local cancellation
+does not claim remote interruption. Trusted node/Blender Python execution is not
+an OS/network sandbox. No new schema is needed for optional ToolJob JSON evidence.
 
 Use exactly one executor process per database. A nonblocking kernel ownership lock
 now rejects another OS process before schema checks or recovery on supported local

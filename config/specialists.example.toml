@@ -22,6 +22,76 @@ runtime_seconds = 30
 max_output_bytes = 1048576
 max_requests = 1000
 
+# Real definitions are also disabled. Copy a reviewed ComfyUI API-format workflow
+# into workflow_json; no automatic model/node downloads or service probes occur.
+[[tools]]
+tool_id = "comfy-image"
+kind = "comfyui_image"
+adapter = "comfyui"
+connection_id = "comfy-loopback"
+authorized_host = "configured_http"
+trust = "local" # Remote/cloud service: use cloud + Project connection allowlist.
+enabled = false
+simulated = false
+availability = "configured_untested"
+input_formats = []
+output_formats = ["png"]
+[tools.limits]
+runtime_seconds = 300
+max_output_bytes = 8388608
+max_requests = 100
+[tools.comfyui]
+base_url = "http://127.0.0.1:8188"
+# For a protected remote HTTPS origin: api_key_env = "COMFYUI_TOKEN"
+request_timeout_seconds = 10
+poll_seconds = 1
+max_response_bytes = 524288
+output_node = "9"
+# Review/replace the checkpoint name with an ALREADY installed model. This example
+# uses built-in nodes, a 512x512 batch of ONE, and exactly one SaveImage output.
+workflow_json = '''
+{
+ "3":{"class_type":"KSampler","inputs":{"seed":0,"steps":20,"cfg":7.0,"sampler_name":"euler","scheduler":"normal","denoise":1.0,"model":["4",0],"positive":["6",0],"negative":["7",0],"latent_image":["5",0]}},
+ "4":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"operator-approved.safetensors"}},
+ "5":{"class_type":"EmptyLatentImage","inputs":{"width":512,"height":512,"batch_size":1}},
+ "6":{"class_type":"CLIPTextEncode","inputs":{"text":"a simple reference object","clip":["4",1]}},
+ "7":{"class_type":"CLIPTextEncode","inputs":{"text":"","clip":["4",1]}},
+ "8":{"class_type":"VAEDecode","inputs":{"samples":["3",0],"vae":["4",2]}},
+ "9":{"class_type":"SaveImage","inputs":{"filename_prefix":"agentforge","images":["8",0]}}
+}
+'''
+[tools.comfyui.seed_field]
+node = "3"
+field = "seed"
+[tools.comfyui.text_field]
+node = "6"
+field = "text"
+
+[[tools]]
+tool_id = "blender-blockout"
+kind = "blender_scene"
+adapter = "blender"
+connection_id = "application-blender-45"
+authorized_host = "application_host"
+trust = "local"
+enabled = false
+simulated = false
+availability = "configured_untested"
+input_formats = ["png"]
+output_formats = ["gltf"]
+[tools.limits]
+runtime_seconds = 120
+max_output_bytes = 1048576
+max_requests = 100
+[tools.blender]
+# Blender 4.5 LTS only. Use a real absolute executable path (not a shell shim).
+executable = "/absolute/Blender/4.5/blender"
+# Replace with SHA-256 of that installed executable; changes fail closed.
+executable_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+staging_directory = "/absolute/private/blender-staging"
+operations = ["reference_blockout"]
+max_log_bytes = 16384
+
 [[tools]]
 tool_id = "fake-blender"
 kind = "blender_scene"

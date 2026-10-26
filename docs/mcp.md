@@ -515,12 +515,17 @@ include `task_policy`; existing required explicit IDs are unchanged. See
 [Worker policy examples](worker-policy.md). Gateway clients need a separate exact
 `suggest_workers` tool grant and Project/Agent/Worker grants.
 
-## Specialist ToolJobs and artifacts (#52 Phase A)
+## Specialist ToolJobs and artifacts (#52)
 
 The shared catalog adds `list_specialist_tools`, `submit_tool_job`, `get_tool_job`,
 `cancel_tool_job`, `list_artifacts`, `inspect_artifact` and `retrieve_artifact`.
 Existing tools retain their contracts. Specialist tools require explicit opt-in
 configuration and Gateway Project grants; inference Worker grants do not apply.
-Only deterministic fake adapters are shipped. Binary retrieval is explicit,
+Real ComfyUI HTTP and local headless Blender 4.5 adapters are disabled by default;
+deterministic fake adapters remain available. Typed parameters, operator-approved
+workflows/operations and durable receipt evidence do not grant arbitrary execution.
+ComfyUI cancellation stops local work; remote execution may continue. Local Director
+remains discovery-only for specialists with its approval/resume boundary unchanged.
+Binary retrieval is explicit,
 Project/client authorized and capped at 49152 bytes per base64 chunk; keep these
 bytes out of model prompts. See [contracts, demo and security](specialists.md).

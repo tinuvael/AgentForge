@@ -52,8 +52,9 @@ TOOL_CONTRACTS = (
     ToolContract(
         "list_specialist_tools",
         "list_specialist_tools",
-        "Permitted opt-in specialist tools, independent of Workers. Phase A "
-        "ships deterministic fake adapters only.",
+        "Permitted opt-in specialist tools, independent of Workers. Discovery "
+        "supports explicit simulated and opt-in real adapters; "
+        "configured is not host acceptance.",
         ToolQuery,
         ToolPage,
     ),
@@ -61,8 +62,8 @@ TOOL_CONTRACTS = (
         "submit_tool_job",
         "submit_tool_job",
         "Submit an explicit specialist job with required request UUID and "
-        "idempotency key. Fake outputs are synthetic; no real "
-        "ComfyUI/Blender execution.",
+        "idempotency key. Select a configured adapter explicitly. Real ComfyUI "
+        "accepts approved seed/text; local Blender accepts reference_blockout/depth.",
         SubmitToolJob,
         ToolJob,
         False,

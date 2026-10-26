@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from time import monotonic
 from uuid import uuid4
 
@@ -30,11 +31,30 @@ class SpecialistService:
         self.config, self.repository, self.projects = config, repository, projects
         self.tools = {tool.tool_id: tool for tool in config.tools}
         self.files = PrivateFiles(config.artifact_directory)
+        self.staging = {
+            tool.tool_id: PrivateFiles(tool.blender.staging_directory)
+            for tool in config.tools
+            if tool.enabled and tool.blender
+        }
         self._active = {}
         self.engine = None
 
     def _private(self):
-        path = self.files.path
+        self._outside(self.files.path)
+        with self.files.root():
+            pass
+        for stage in self.staging.values():
+            self._outside(stage.path)
+            if (
+                stage.path == self.files.path
+                or stage.path.is_relative_to(self.files.path)
+                or self.files.path.is_relative_to(stage.path)
+            ):
+                raise SpecialistError("artifact_store_unsafe")
+            with stage.root():
+                pass
+
+    def _outside(self, path: Path):
         if any((parent / ".git").exists() for parent in (path, *path.parents)):
             raise SpecialistError("artifact_store_unsafe")
         for project in self.projects.list_projects():
@@ -42,8 +62,6 @@ class SpecialistService:
                 project.root_path
             ) or project.root_path.is_relative_to(path):
                 raise SpecialistError("artifact_store_unsafe")
-        with self.files.root():
-            pass
 
     def authorize(self, project_id, tool_id=None):
         self._private()
@@ -71,6 +89,29 @@ class SpecialistService:
                 self.files.remove(artifact.artifact_id)
                 self.repository.expire(artifact.artifact_id)
         self.cleanup()
+        # Only interrupted known-receipt reads are resumable. No new /prompt is
+        # sent. Ambiguous submissions and local Blender processes need an operator.
+        offset = 0
+        while jobs := self.repository.jobs(
+            states=("interrupted",), limit=100, offset=offset
+        ):
+            for job in jobs:
+                if (
+                    job.adapter == "comfyui"
+                    and job.execution.remote_job_id
+                    and not job.cancellation_requested_at
+                ):
+                    try:
+                        tool = self.authorize(job.project_id, job.tool_id)
+                        if tool.fingerprint() == job.tool_fingerprint:
+                            self.repository.reconcile(job.tool_job_id)
+                    except (SpecialistError, ProjectError):
+                        pass
+            # Reconciled rows leave this selection; start a fresh bounded query
+            # while retaining skipped interrupted rows.
+            offset += sum(
+                self.repository.get(j.tool_job_id).state == "interrupted" for j in jobs
+            )
 
     def list_tools(self, *, authorized_ids=None, **fields):
         query = ToolQuery.model_validate(fields)
@@ -88,6 +129,21 @@ class SpecialistService:
             values.append(tool)
         return ToolPage(
             tools=tuple(values[query.offset : query.offset + query.limit]),
+            parameter_contracts={
+                t.tool_id: tuple(
+                    name
+                    for name, bound in (
+                        ("seed", t.comfyui.seed_field),
+                        ("text", t.comfyui.text_field),
+                    )
+                    if bound
+                )
+                if t.comfyui
+                else ("operation=reference_blockout", "depth")
+                if t.blender
+                else ("seed",)
+                for t in values[query.offset : query.offset + query.limit]
+            },
             next_offset=query.offset + query.limit
             if len(values) > query.offset + query.limit
             else None,
@@ -98,7 +154,8 @@ class SpecialistService:
         tool = self.authorize(arguments.project_id, arguments.tool_id)
         if existing := self.repository.existing(arguments, client_id):
             return existing
-        expected = 0 if tool.adapter == "fake_comfyui" else 1
+        arguments.parameters.for_tool(tool)
+        expected = 0 if tool.adapter in {"fake_comfyui", "comfyui"} else 1
         if len(arguments.input_artifact_ids) != expected:
             raise SpecialistError("specialist_input_invalid")
         for aid in arguments.input_artifact_ids:
@@ -118,6 +175,35 @@ class SpecialistService:
         job = self.repository.get(tool_job_id)
         self.authorize(job.project_id)
         return job
+
+    async def reconcile_remote(self, *, tool_job_id, remote_job_id):
+        """Trusted operator only; intentionally absent from MCP/Director/web."""
+        from uuid import UUID
+
+        from agentforge.specialists.comfyui import ComfyUI
+
+        with self.engine.storage_access():
+            job = self.get(tool_job_id=tool_job_id)
+            tool = self.authorize(job.project_id, job.tool_id)
+            if (
+                job.state != "interrupted"
+                or job.adapter != "comfyui"
+                or job.cancellation_requested_at
+                or tool.fingerprint() != job.tool_fingerprint
+            ):
+                raise SpecialistError("recovery_required")
+            receipt = UUID(str(remote_job_id))
+            context = ExecutionContext(
+                self.repository, job, staging=self.staging.get(tool.tool_id)
+            )
+            async with asyncio.timeout(tool.comfyui.request_timeout_seconds * 2):
+                await ComfyUI(tool, context).verify_receipt(receipt)
+            context.record(
+                phase="accepted", remote_job_id=receipt, remote_may_continue=True
+            )
+            result = self.repository.reconcile(tool_job_id)
+            self.engine.work_changed()
+            return result
 
     def cancel(self, *, tool_job_id):
         self.get(tool_job_id=tool_job_id)
@@ -246,10 +332,22 @@ class SpecialistService:
                 self._bytes(self.repository.artifact(job.project_id, aid))
                 for aid in job.input_artifact_ids
             )
+            job.parameters.for_tool(tool)
+            context = ExecutionContext(
+                self.repository, job, staging=self.staging.get(tool.tool_id)
+            )
+            if tool.adapter == "comfyui":
+                from agentforge.specialists.comfyui import ComfyUI
+
+                adapter = ComfyUI(tool, context)
+            elif tool.adapter == "blender":
+                from agentforge.specialists.blender import Blender
+
+                adapter = Blender(tool, context)
+            else:
+                adapter = ADAPTERS[tool.adapter]()
             async with asyncio.timeout(tool.limits.runtime_seconds):
-                child = asyncio.create_task(
-                    ADAPTERS[tool.adapter]().run(job.parameters, inputs)
-                )
+                child = asyncio.create_task(adapter.run(job.parameters, inputs))
                 self._active[job.tool_job_id] = child
                 try:
                     outputs = await child
@@ -266,6 +364,13 @@ class SpecialistService:
                         "." + output.format
                     ):
                         raise SpecialistError("artifact_format_invalid")
+                    output_sha256 = hashlib.sha256(output.data).hexdigest()
+                    if not tool.simulated:
+                        context.record(
+                            phase="outputs_validated",
+                            validated_output_sha256=output_sha256,
+                            validated_output_bytes=len(output.data),
+                        )
                     now = datetime.now(UTC)
                     artifact = Artifact(
                         artifact_id=uuid4(),
@@ -281,7 +386,14 @@ class SpecialistService:
                         mime_type=mime,
                         geometry=geometry,
                         size_bytes=len(output.data),
-                        sha256=hashlib.sha256(output.data).hexdigest(),
+                        sha256=output_sha256,
+                        simulated=tool.simulated,
+                        operation=job.parameters.operation,
+                        geometry_source="known_blockout"
+                        if tool.adapter == "blender"
+                        else "synthetic_fixture"
+                        if tool.adapter == "fake_blender"
+                        else None,
                     )
                     self.repository.reserve(artifact, self.config)
                     staged.append(artifact.artifact_id)
@@ -303,20 +415,52 @@ class SpecialistService:
             if not current.cancellation_requested_at:
                 raise
         except TimeoutError:
+            current = self.repository.get(job.tool_job_id)
             self.repository.transition(
-                job.tool_job_id, state="failed", failure="specialist_timeout"
+                job.tool_job_id,
+                state="interrupted"
+                if job.adapter == "comfyui"
+                and current.execution.phase != "not_submitted"
+                else "failed",
+                failure="recovery_required"
+                if job.adapter == "comfyui"
+                and current.execution.phase != "not_submitted"
+                else "specialist_timeout",
             )
         except SpecialistError as error:
+            current = self.repository.get(job.tool_job_id)
             self.repository.transition(
-                job.tool_job_id, state="failed", failure=error.code
+                job.tool_job_id,
+                state="interrupted"
+                if job.adapter == "comfyui" and current.execution.remote_may_continue
+                else "failed",
+                failure="recovery_required"
+                if job.adapter == "comfyui" and current.execution.remote_may_continue
+                else error.code,
             )
         except (OSError, ProjectError, ValueError):
+            current = self.repository.get(job.tool_job_id)
+            ambiguous = (
+                job.adapter == "comfyui" and current.execution.remote_may_continue
+            )
             self.repository.transition(
-                job.tool_job_id, state="failed", failure="specialist_validation_failed"
+                job.tool_job_id,
+                state="interrupted" if ambiguous else "failed",
+                failure="recovery_required"
+                if ambiguous
+                else "specialist_validation_failed",
             )
         except Exception:
+            current = self.repository.get(job.tool_job_id)
+            ambiguous = (
+                job.adapter == "comfyui" and current.execution.remote_may_continue
+            )
             self.repository.transition(
-                job.tool_job_id, state="failed", failure="specialist_adapter_failed"
+                job.tool_job_id,
+                state="interrupted" if ambiguous else "failed",
+                failure="recovery_required"
+                if ambiguous
+                else "specialist_adapter_failed",
             )
         finally:
             if self.repository.get(job.tool_job_id).state != "completed":
@@ -325,3 +469,14 @@ class SpecialistService:
                     self.repository.expire(aid)
             self.engine.work_changed()
         return True
+
+
+class ExecutionContext:
+    """Synchronous SQLite evidence commits on the owning executor event loop."""
+
+    def __init__(self, repository, job, *, staging=None):
+        self.repository, self.job = repository, job
+        self.staging = staging
+
+    def record(self, **fields):
+        self.job = self.repository.evidence(self.job.tool_job_id, **fields)
