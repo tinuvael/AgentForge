@@ -440,6 +440,7 @@ class WorkflowService:
 
     def tick(self):
         """Called synchronously by TaskEngine; waiting uses zero execution slots."""
+        deadlines = []
         for workflow in self.repository.list(active=True, limit=128):
             try:
                 self.advance(workflow)
@@ -466,6 +467,19 @@ class WorkflowService:
                         }
                     )
                 )
+
+            current = self.repository.get(workflow.workflow_id)
+            if current.state not in {"completed", "failed", "cancelled"}:
+                deadline = current.created_at + timedelta(
+                    seconds=current.definition.timeout_seconds
+                )
+                if deadline > now():
+                    deadlines.append(deadline)
+        # Only actual workflow deadlines wake an otherwise idle executor. Ordinary
+        # Task-only Applications preserve their previous no-polling behavior.
+        return (
+            max(0.001, (min(deadlines) - now()).total_seconds()) if deadlines else None
+        )
 
     def advance(self, workflow):
         original = workflow

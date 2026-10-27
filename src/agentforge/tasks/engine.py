@@ -362,8 +362,9 @@ class TaskEngine:
         specialist_turn = True
         while not self._closed:
             self._wake.clear()
-            if self.workflows is not None:
-                self.workflows.tick()
+            workflow_wait = (
+                self.workflows.tick() if self.workflows is not None else None
+            )
             identity = self._repository.next_queued_id()
             # Both kinds share the same bounded slots, owner, wakeup and shutdown.
             # Alternate when both queues are busy, avoiding starvation.
@@ -373,10 +374,10 @@ class TaskEngine:
                     await asyncio.sleep(0)
                     continue
             if identity is None:
-                if self.workflows is not None:
-                    # Deadline wakeup in the SAME executor; no workflow scheduler.
+                if workflow_wait is not None:
+                    # Exact deadline wakeup in the SAME executor; no idle polling.
                     try:
-                        await asyncio.wait_for(self._wake.wait(), timeout=1)
+                        await asyncio.wait_for(self._wake.wait(), timeout=workflow_wait)
                     except TimeoutError:
                         pass
                 else:
