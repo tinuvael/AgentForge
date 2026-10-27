@@ -208,3 +208,15 @@ for explicit paths, dry runs, backups and the mandatory single-client restrictio
 `--allow-connection <id>` sets durable operator authorization while executors are
 stopped. It requires `--database-url`; no remote/Agent tool can run this operation.
 Legacy/new Projects default to local-only. See [policy migration and examples](worker-policy.md).
+
+
+## Workflow operator setup
+
+Upgrade stopped storage to `0005_workflows` using the existing migration command;
+start the same single Gateway/Application with normal Worker/coding/specialist
+configuration. No workflow daemon or second SQLite owner is needed. Grant the
+five workflow operations plus each planned step's underlying operations and exact
+bindings in the private client policy. Mark GPU-heavy local Workers with
+`workflow_review_required = true`. Use `/workflows` in the trusted loopback
+Dashboard/Companion for scoped review and pause/resume/cancel. See
+[workflow setup, limits and recovery](workflows.md).

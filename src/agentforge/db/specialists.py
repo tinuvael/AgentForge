@@ -62,7 +62,7 @@ class SpecialistRepository:
             elif (row.root_path, row.root_identity) != (str(path), identity):
                 raise SpecialistError("artifact_store_changed")
 
-    def submit(self, arguments, tool, client_id):
+    def submit(self, arguments, tool, client_id, limits=None):
         scope = "client:" + client_id if client_id is not None else "local"
         digest = request_digest(arguments)
         with self.sessions() as session:
@@ -102,7 +102,7 @@ class SpecialistRepository:
                 authorized_host=tool.authorized_host,
                 connection_origin=str(tool.comfyui.base_url) if tool.comfyui else None,
                 trust=tool.trust,
-                limits=tool.limits,
+                limits=limits or tool.limits,
                 simulated=tool.simulated,
                 state="queued",
                 created_at=datetime.now(UTC),

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from agentforge.agents.models import ExecutionResult, TerminationReason
+from agentforge.agents.models import ExecutionResult, RuntimeLimits, TerminationReason
 from agentforge.core.policy import TaskPolicy
 
 TaskState = Literal["queued", "running", "completed", "failed", "cancelled"]
@@ -59,6 +59,7 @@ class Task(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     task_id: UUID
+    execution_limits: RuntimeLimits | None = None
     client_id: str | None = None
     provider_connection: str | None = None
     target_fingerprint: str | None = None

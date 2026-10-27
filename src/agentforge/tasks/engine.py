@@ -65,6 +65,7 @@ class TaskEngine:
         self._ownership = DatabaseOwnership(repository.database)
         self._runtime = runtime
         self._workspaces = workspaces
+        self.workflows = None
         self._specialists = specialists
         self._specialist_repository = specialist_repository
         self._concurrency = concurrency
@@ -126,6 +127,8 @@ class TaskEngine:
         task: str,
         client_id: str | None = None,
         task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
+        _dispatch_id=None,
+        _execution_limits=None,
     ) -> Task:
         self._check_thread()
         if self._closed:
@@ -141,6 +144,8 @@ class TaskEngine:
         provider, model = self._runtime.execution_target(worker_id)
         queued_at = self._clock()
         submitted = self._repository.add(
+            task_id=_dispatch_id,
+            execution_limits=_execution_limits,
             project_id=identity,
             agent_id=agent_id,
             worker_id=worker_id,
@@ -357,6 +362,8 @@ class TaskEngine:
         specialist_turn = True
         while not self._closed:
             self._wake.clear()
+            if self.workflows is not None:
+                self.workflows.tick()
             identity = self._repository.next_queued_id()
             # Both kinds share the same bounded slots, owner, wakeup and shutdown.
             # Alternate when both queues are busy, avoiding starvation.
@@ -366,7 +373,14 @@ class TaskEngine:
                     await asyncio.sleep(0)
                     continue
             if identity is None:
-                await self._wake.wait()
+                if self.workflows is not None:
+                    # Deadline wakeup in the SAME executor; no workflow scheduler.
+                    try:
+                        await asyncio.wait_for(self._wake.wait(), timeout=1)
+                    except TimeoutError:
+                        pass
+                else:
+                    await self._wake.wait()
                 continue
             specialist_turn = True
             queued = self._repository.get(identity)
@@ -430,8 +444,18 @@ class TaskEngine:
                                 step=0, kind="workspace_provisioned", success=True
                             )
                         )
+                    limits = task.execution_limits
+                    if limits is not None and self.workflows is not None:
+                        limits = limits.model_copy(
+                            update={
+                                "timeout_seconds": self.workflows.bound_timeout(
+                                    task.task_id, limits.timeout_seconds
+                                )
+                            }
+                        )
                     result = await self._runtime.run(
                         **arguments,
+                        limits=limits,
                         task_policy=task.task_policy,
                         expected_target=(task.provider, task.model),
                         expected_binding={

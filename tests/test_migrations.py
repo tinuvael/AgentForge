@@ -44,7 +44,7 @@ def configuration():
 def assert_schema(connection):
     assert (
         MigrationContext.configure(connection).get_current_revision()
-        == "0004_specialists"
+        == "0005_workflows"
     )
     config = configuration()
     config.attributes["connection"] = connection
@@ -185,19 +185,39 @@ def populate(engine, tmp_path):
         ),
         service._fingerprints["local"],
     )
+    from agentforge.db.workflows import WorkflowRepository
+    from agentforge.workflows.models import Definition, SpecialistStep
+
+    WorkflowRepository(sessions).submit(
+        Definition(
+            project_id=project.id,
+            steps=(
+                SpecialistStep(
+                    step_id="image",
+                    kind="specialist",
+                    tool_id="image",
+                    intended_effect="Synthetic output",
+                ),
+            ),
+        ),
+        "migration",
+        None,
+        (tool.fingerprint(),),
+    )
     return project
 
 
 def test_linear_gateway_migration_preserves_initial_revision():
     scripts = ScriptDirectory.from_config(configuration())
     revisions = list(scripts.walk_revisions())
-    assert scripts.get_heads() == ["0004_specialists"]
+    assert scripts.get_heads() == ["0005_workflows"]
     assert scripts.get_bases() == ["0001_initial"]
-    assert len(revisions) == 4
-    assert revisions[0].down_revision == "0003_capability_policy"
-    assert revisions[1].down_revision == "0002_gateway_client"
-    assert revisions[2].down_revision == "0001_initial"
-    assert revisions[3].down_revision is None
+    assert len(revisions) == 5
+    assert revisions[0].down_revision == "0004_specialists"
+    assert revisions[1].down_revision == "0003_capability_policy"
+    assert revisions[2].down_revision == "0002_gateway_client"
+    assert revisions[3].down_revision == "0001_initial"
+    assert revisions[4].down_revision is None
     assert {
         path.name
         for path in Path(migrate.__file__)
@@ -209,6 +229,7 @@ def test_linear_gateway_migration_preserves_initial_revision():
         "0002_gateway_client.py",
         "0003_capability_policy.py",
         "0004_specialists.py",
+        "0005_workflows.py",
     }
 
 

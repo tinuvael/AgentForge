@@ -237,6 +237,9 @@ def create_gateway(
     async def lifespan(_web):
         credentials.load()  # Fail closed at startup too, before recovery.
         application = application_factory()
+        application.workflows.client_access = lambda client_id: ClientApplication(
+            application, partial(credentials.client, client_id), config
+        )
         runtime["application"] = application
         manager = StreamableHTTPSessionManager(
             server,

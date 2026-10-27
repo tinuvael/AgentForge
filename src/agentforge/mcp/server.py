@@ -29,6 +29,7 @@ from agentforge.tasks.models import TaskNotFound, TaskStorageError, TaskValidati
 from agentforge.web.combined import CompanionConfig, companion_http
 
 _MESSAGES = {
+    "workflow_error": "Workflow validation or lifecycle operation failed.",
     "specialist_unavailable": (
         "Specialist tools are disabled or unavailable; "
         "only opt-in fake adapters are shipped."
@@ -69,7 +70,11 @@ _MESSAGES = {
 def safe_error(error: Exception) -> SafeError:
     if isinstance(error, ExecutorOwnershipError):
         return SafeError(code="storage_unavailable", message=str(error))
-    if isinstance(error, PolicyDenied):
+    from agentforge.workflows.models import WorkflowError
+
+    if isinstance(error, WorkflowError):
+        code = "workflow_error"
+    elif isinstance(error, PolicyDenied):
         code = "policy_denied"
     elif isinstance(error, SpecialistError):
         code = "specialist_error"

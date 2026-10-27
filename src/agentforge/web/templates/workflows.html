@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% from "macros.html" import page_header, badge, timestamp %}
+{% block title %}Workflows · AgentForge{% endblock %}
+{% block location %}Workflows{% endblock %}
+{% block content %}
+{{ page_header("Workflows", "Bounded explicit plans. Each child uses the shared TaskEngine. Closing this page leaves accepted work running.") }}
+{% for workflow in workflows %}<section class="panel"><h2><a href="/workflows/{{ workflow.workflow_id }}">{{ workflow.workflow_id }}</a> {{ badge(workflow.state) }}</h2><p>Project {{ workflow.definition.project_id }} · Client {{ workflow.client_id or 'trusted local' }} · {{ workflow.steps|length }} steps</p><p>Created {{ timestamp(workflow.created_at) }} · Updated {{ timestamp(workflow.updated_at) }}</p></section>{% else %}<section class="panel"><h2>No workflows submitted</h2><p>Use the typed submit_workflow MCP operation with a registered Project and explicit targets.</p></section>{% endfor %}
+<nav aria-label="Workflow pages">{% if previous %}<a href="{{ previous }}">Previous</a>{% endif %} {% if next %}<a href="{{ next }}">Next</a>{% endif %}</nav>
+{% endblock %}

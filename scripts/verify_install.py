@@ -63,6 +63,7 @@ def package_checks():
         "db/migrations/versions/0002_gateway_client.py",
         "db/migrations/versions/0003_capability_policy.py",
         "db/migrations/versions/0004_specialists.py",
+        "db/migrations/versions/0005_workflows.py",
         "specialists/blender_script.py",
         "web/templates/base.html",
         "web/templates/tool_job.html",
@@ -118,6 +119,7 @@ def package_checks():
         "0002_gateway_client.py",
         "0003_capability_policy.py",
         "0004_specialists.py",
+        "0005_workflows.py",
     }
     for module in ("db.migrate", "mcp.server", "web.server"):
         result = subprocess.run(
@@ -234,7 +236,7 @@ async def smoke():
             with engine.connect() as connection:
                 assert (
                     MigrationContext.configure(connection).get_current_revision()
-                    == "0004_specialists"
+                    == "0005_workflows"
                 )
                 assert set(inspect(connection).get_table_names()) == {
                     *Base.metadata.tables,
@@ -639,6 +641,10 @@ async def smoke():
 
         with TemporaryDirectory() as adapter_directory:
             await real_adapter_acceptance(Path(adapter_directory).resolve())
+        from verify_workflows import acceptance as workflow_acceptance
+
+        with TemporaryDirectory() as workflow_directory:
+            await workflow_acceptance(Path(workflow_directory).resolve())
         from verify_director import integration as director_integration
 
         with TemporaryDirectory() as director_directory:

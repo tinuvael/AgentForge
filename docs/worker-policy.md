@@ -201,7 +201,7 @@ Old historical Tasks/Councils retain their identity; unknown historical connecti
 IDs remain null. Connection credentials/endpoints are not persisted. Fingerprints
 exclude credential values; rotation under the same environment name is not detectable.
 There is no automatic fallback or linked retry lifecycle. A Director can explicitly
-submit another authorized Task; linked retry workflows remain #53.
+submit another authorized Task; bounded linked retry workflows are described in [workflows](workflows.md).
 
 Deterministic CI validates protocol/policy behavior without credentials or GPUs.
 Physical RTX 4080 model/tool capability, authorized cloud quota observations,

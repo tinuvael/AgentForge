@@ -149,7 +149,7 @@ class SpecialistService:
             else None,
         )
 
-    def submit(self, *, client_id=None, **fields):
+    def submit(self, *, client_id=None, _limits=None, **fields):
         arguments = SubmitToolJob.model_validate(fields)
         tool = self.authorize(arguments.project_id, arguments.tool_id)
         if existing := self.repository.existing(arguments, client_id):
@@ -167,7 +167,7 @@ class SpecialistService:
             if task.project_id != arguments.project_id or task.client_id != client_id:
                 raise SpecialistError("specialist_input_invalid")
         with self.engine.storage_access():
-            job = self.repository.submit(arguments, tool, client_id)
+            job = self.repository.submit(arguments, tool, client_id, limits=_limits)
             self.engine.work_changed()
             return job
 
@@ -325,7 +325,14 @@ class SpecialistService:
         staged = []
         try:
             tool = self.authorize(job.project_id, job.tool_id)
-            deadline = monotonic() + tool.limits.runtime_seconds
+            runtime_seconds = (
+                self.engine.workflows.bound_timeout(
+                    job.request_id, job.limits.runtime_seconds
+                )
+                if self.engine.workflows is not None
+                else job.limits.runtime_seconds
+            )
+            deadline = monotonic() + runtime_seconds
             if tool.fingerprint() != job.tool_fingerprint:
                 raise SpecialistError("specialist_configuration_changed")
             inputs = tuple(
@@ -346,7 +353,7 @@ class SpecialistService:
                 adapter = Blender(tool, context)
             else:
                 adapter = ADAPTERS[tool.adapter]()
-            async with asyncio.timeout(tool.limits.runtime_seconds):
+            async with asyncio.timeout(runtime_seconds):
                 child = asyncio.create_task(adapter.run(job.parameters, inputs))
                 self._active[job.tool_job_id] = child
                 try:
@@ -355,7 +362,7 @@ class SpecialistService:
                     self._active.pop(job.tool_job_id, None)
                 if (
                     tuple(output.format for output in outputs) != tool.output_formats
-                    or sum(len(o.data) for o in outputs) > tool.limits.max_output_bytes
+                    or sum(len(o.data) for o in outputs) > job.limits.max_output_bytes
                 ):
                     raise SpecialistError("specialist_output_invalid")
                 for output in outputs:

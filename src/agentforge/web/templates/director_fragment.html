@@ -29,6 +29,7 @@
         <dt>Your Project pin</dt><dd>{{ conversation.project_id or 'No pin · Director selects' }}</dd>
         <dt>Your Worker pin</dt><dd>{{ conversation.worker_id or 'No pin · Director selects' }}</dd>
       </dl>
+      {% for workflow in conversation.workflows %}<section class="panel"><h3>Workflow {{ badge(workflow.state) }}</h3><a href="/workflows/{{ workflow.workflow_id }}">Inspect steps and review {{ workflow.workflow_id }}</a><p>Project {{ workflow.project_id }}</p></section>{% endfor %}
       {% if conversation.tasks %}
       <div class="director-tasks">
         <h3>Task evidence</h3><p>Recorded execution bindings</p>
@@ -54,7 +55,7 @@
       {% if conversation.progress %}<details class="director-progress" open><summary>Execution activity</summary><ol tabindex="0" aria-label="Recorded execution activity">{% for event in conversation.progress %}<li>{{ event }}</li>{% endfor %}</ol></details>{% endif %}
       {% for council in conversation.councils %}<p><a href="/councils/{{ council.council_id }}">Council {{ council.council_id }}</a> · independent participant results above</p>{% endfor %}
       <div class="verification-note">{{ icon('shield') }}<p><strong>Verification boundary</strong>Source-tool use is observed evidence. The Director cannot independently read or verify source. Review linked Task results before accepting findings.</p></div>
-      {% if not working and conversation.tasks and not conversation.pending %}<form method="post" action="/director/{{ conversation.id }}/resume" hx-post="/director/{{ conversation.id }}/resume" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button type="submit">Restore known Task results</button></form>{% endif %}
+      {% if not working and (conversation.tasks or conversation.workflows) and not conversation.pending %}<form method="post" action="/director/{{ conversation.id }}/resume" hx-post="/director/{{ conversation.id }}/resume" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button type="submit">Restore known execution results</button></form>{% endif %}
       <details class="session-details"><summary>Conversation details</summary><code>{{ conversation.id }}</code><p class="director-hint">Revision {{ conversation.revision }}</p></details>
       {% if not working %}<details class="director-clear"><summary>Clear this conversation</summary><p>Deletes its local transcript and approval. Gateway Task history and coding workspaces remain. Recover active Tasks before clearing.</p><form method="post" action="/director/{{ conversation.id }}/clear" hx-post="/director/{{ conversation.id }}/clear" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button class="danger" type="submit" name="confirm" value="clear">Clear conversation history</button></form></details>{% endif %}
     </aside>

@@ -39,6 +39,7 @@ class Worker(BaseModel):
     context_window: int | None = Field(default=None, gt=0)
     supports_streaming: bool = False
     supports_tools: bool | None = None
+    workflow_review_required: bool = False
     deployment_label: NonBlank | None = None
     timeout_seconds: float = Field(default=120.0, gt=0)
     options: dict[str, JsonValue] = Field(default_factory=dict, repr=False)

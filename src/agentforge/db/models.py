@@ -147,6 +147,7 @@ class RelationshipRecord(Base):
 
 
 class TaskRecord(Base):
+    execution_limits: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint(
@@ -357,3 +358,18 @@ class ArtifactRecord(Base):
     state: Mapped[str] = mapped_column(String(20))
     size_bytes: Mapped[int] = mapped_column(Integer)
     descriptor: Mapped[dict] = mapped_column(JSON)
+
+
+class WorkflowRecord(Base):
+    __tablename__ = "workflows"
+    __table_args__ = (
+        UniqueConstraint("owner_scope", "idempotency_key", name="uq_workflow_key"),
+        Index("ix_workflow_state", "state", "created_at"),
+    )
+    workflow_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    owner_scope: Mapped[str] = mapped_column(String(110))
+    idempotency_key: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(24))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict] = mapped_column(JSON)

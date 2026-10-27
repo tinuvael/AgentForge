@@ -23,6 +23,11 @@ from agentforge.tasks.models import TaskNotFound
 
 Name = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")]
 Tool = Literal[
+    "submit_workflow",
+    "get_workflow",
+    "pause_workflow",
+    "resume_workflow",
+    "cancel_workflow",
     "agentforge_status",
     "describe_capabilities",
     "list_projects",
@@ -68,7 +73,7 @@ class ClientPolicy(PolicyModel):
     token_sha256: str = Field(pattern=r"^[a-f0-9]{64}$", repr=False)
     enabled: bool = True
     expires_at: int | None = Field(default=None, ge=1)
-    tools: tuple[Tool, ...] = Field(default=(), max_length=32)
+    tools: tuple[Tool, ...] = Field(default=(), max_length=40)
     projects: tuple[ProjectGrant, ...] = Field(default=(), max_length=256)
     agents: tuple[Name, ...] = Field(default=(), max_length=256)
     read_shared: bool = False
@@ -256,6 +261,7 @@ class ClientApplication:
                     "council_operations",
                     "coding_operations",
                     "specialist_operations",
+                    "workflow_operations",
                 )
             }
         )
@@ -463,3 +469,52 @@ class ClientApplication:
             "retrieve_artifact", fields["project_id"], fields["artifact_id"]
         )
         return self.app.retrieve_artifact(**fields)
+
+    def submit_workflow(self, **fields):
+        client = self.require("submit_workflow")
+        return self.app.submit_workflow(**fields, client_id=client.client_id)
+
+    def workflow(self, operation, workflow_id):
+        from agentforge.workflows.models import WorkflowError
+
+        client = self.require(operation)
+        try:
+            value = self.app.get_workflow(workflow_id=workflow_id)
+        except WorkflowError:
+            raise ServiceError("access_denied") from None
+        if value.client_id != client.client_id or not any(
+            p.project_id == value.definition.project_id for p in client.projects
+        ):
+            raise ServiceError("access_denied")
+        # Workflow scope never confers child read rights after grant revocation.
+        for step in value.definition.steps:
+            if step.kind == "inference":
+                self.require("get_task")
+                self.binding(
+                    client,
+                    value.definition.project_id,
+                    step.agent_id,
+                    (step.worker_id,),
+                )
+            else:
+                self.require("get_tool_job")
+                self.require("inspect_artifact")
+                self.specialist_grant(
+                    operation, value.definition.project_id, step.tool_id
+                )
+        return value
+
+    def get_workflow(self, *, workflow_id):
+        return self.workflow("get_workflow", workflow_id)
+
+    def pause_workflow(self, *, workflow_id):
+        self.workflow("pause_workflow", workflow_id)
+        return self.app.pause_workflow(workflow_id=workflow_id)
+
+    def resume_workflow(self, *, workflow_id):
+        self.workflow("resume_workflow", workflow_id)
+        return self.app.resume_workflow(workflow_id=workflow_id)
+
+    def cancel_workflow(self, *, workflow_id):
+        self.workflow("cancel_workflow", workflow_id)
+        return self.app.cancel_workflow(workflow_id=workflow_id)

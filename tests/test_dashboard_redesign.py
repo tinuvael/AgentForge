@@ -50,6 +50,7 @@ class Navigation(HTMLParser):
         ("/councils", "/councils", 200),
         ("/director", "/director", 503),
         ("/tool-jobs", "/tool-jobs", 200),
+        ("/workflows", "/workflows", 200),
     ],
 )
 def test_navigation_matches_actual_routes(setup, path, active, status):
@@ -66,6 +67,7 @@ def test_navigation_matches_actual_routes(setup, path, active, status):
                 "/tasks",
                 "/councils",
                 "/tool-jobs",
+                "/workflows",
             ]
             assert [link["href"] for link in links if "aria-current" in link] == [
                 active
@@ -175,7 +177,7 @@ def test_director_long_output_restoration_and_active_task_recovery(setup, tmp_pa
                     assert 'aria-label="Full message" tabindex="0"' in response.text
                     assert "&lt;unsafe&gt;" in response.text
                     assert 'id="director-message"' in response.text
-                    assert "Restore known Task results" in response.text
+                    assert "Restore known execution results" in response.text
                     assert "Request Task cancellation approval" in response.text
                     assert "disabled>Send request" in response.text
                     assert f'href="/tasks/{task_id}"' in response.text

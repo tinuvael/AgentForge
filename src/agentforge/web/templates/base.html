@@ -16,7 +16,7 @@
     <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{ icon('forge') }}</span><span>AgentForge<small>ORCHESTRATION</small></span></a>
     <div class="nav-label">Workspace</div>
     <nav aria-label="Primary">
-      {% for path, label, symbol in [('/', 'Overview', 'overview'),('/director', 'Local Director', 'director'),('/projects', 'Projects', 'projects'),('/workers', 'Workers', 'workers'),('/tasks', 'Tasks', 'tasks'),('/councils', 'Councils', 'councils'),('/tool-jobs', 'ToolJobs', 'tasks')] %}
+      {% for path, label, symbol in [('/', 'Overview', 'overview'),('/director', 'Local Director', 'director'),('/projects', 'Projects', 'projects'),('/workers', 'Workers', 'workers'),('/tasks', 'Tasks', 'tasks'),('/councils', 'Councils', 'councils'),('/tool-jobs', 'ToolJobs', 'tasks'),('/workflows', 'Workflows', 'councils')] %}
       {% set active = request.url.path == path if path == '/' else request.url.path == path or request.url.path.startswith(path + '/') %}
       <a href="{{ path }}"{% if active %} aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span>{% if active %}<span class="nav-current" aria-hidden="true"></span>{% endif %}</a>
       {% endfor %}

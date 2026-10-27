@@ -207,7 +207,21 @@ browser behavior or MacBook access. Keep those checks pending in
 Specialist discovery is available through `list_specialist_tools` when Gateway
 grants permit it. Definitions distinguish deterministic fakes from configured,
 untested ComfyUI HTTP and local Blender adapters; discovery does not probe hosts. The
-Local Director inference loop does not submit/cancel specialist jobs or receive
-artifact content; those workflows need explicit specialist client/resume semantics
-in a later phase. Codex or an SDK client can use the complete bounded MCP contract.
+Local Director executes bounded specialist/inference chains through the shared
+workflow catalog and reads job/artifact metadata. Direct specialist writes and
+binary retrieval remain excluded. Scope review uses the trusted operator workflow
+page; pause/resume/cancel and recovery retain real workflow/child identities.
+See [workflow usage and acceptance](workflows.md).
 See [ToolJob and artifact contracts](specialists.md).
+
+
+## Workflow execution
+
+Use `submit_workflow` for explicit small artifact/text chains. The Director records
+its exact idempotent submission before I/O, observes `get_workflow`, persists IDs,
+and returns actual outcomes. Workflow attempts count against Director task bounds.
+After uncertain transport submission, resume can recover the same immutable key
+without creating another workflow. Models cannot approve steps or retrieve binary
+artifacts. The chat links workflow review pages and restores known workflow results;
+server step approval remains a trusted operator action. Workflow resume/cancel
+controls use the existing Director one-use human approval. See [examples](workflows.md).

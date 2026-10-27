@@ -57,6 +57,12 @@ class CouncilBinding(Record):
     task_ids: list[UUID] = Field(max_length=8)
 
 
+class WorkflowBinding(Record):
+    workflow_id: UUID
+    project_id: UUID
+    state: str
+
+
 class Conversation(Record):
     id: UUID = Field(default_factory=uuid4)
     owner: str
@@ -75,10 +81,12 @@ class Conversation(Record):
     ] = "idle"
     messages: list[VisibleMessage] = Field(default_factory=list, max_length=24)
     tasks: list[TaskBinding] = Field(default_factory=list, max_length=16)
+    workflows: list[WorkflowBinding] = Field(default_factory=list, max_length=8)
     councils: list[CouncilBinding] = Field(default_factory=list, max_length=8)
     project_id: UUID | None = None
     worker_id: str | None = None
     pending: Action | None = None
+    pending_workflow: dict | None = None
     submission: bool = False
     progress: list[str] = Field(default_factory=list, max_length=32)
     error: str | None = None

@@ -36,6 +36,7 @@ from agentforge.specialists.models import (
     ToolPage,
     ToolQuery,
 )
+from agentforge.workflows.models import SubmitWorkflow, Workflow, WorkflowQuery
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,47 @@ class ToolContract:
 
 
 TOOL_CONTRACTS = (
+    ToolContract(
+        "submit_workflow",
+        "submit_workflow",
+        "Submit an immutable bounded DAG with explicit targets and references. "
+        "An idempotency key recovers submission. Privileged steps wait for "
+        "trusted operator scope review.",
+        SubmitWorkflow,
+        Workflow,
+        False,
+    ),
+    ToolContract(
+        "get_workflow",
+        "get_workflow",
+        "Inspect step states, child IDs, attempts and artifact provenance.",
+        WorkflowQuery,
+        Workflow,
+    ),
+    ToolContract(
+        "pause_workflow",
+        "pause_workflow",
+        "Stop new dispatch; accepted children may finish.",
+        WorkflowQuery,
+        Workflow,
+        False,
+    ),
+    ToolContract(
+        "resume_workflow",
+        "resume_workflow",
+        "Recheck authorization and observe existing children before dispatch.",
+        WorkflowQuery,
+        Workflow,
+        False,
+    ),
+    ToolContract(
+        "cancel_workflow",
+        "cancel_workflow",
+        "Stop dispatch and request owned child cancellation through existing APIs.",
+        WorkflowQuery,
+        Workflow,
+        False,
+    ),
     ToolContract(
         "list_specialist_tools",
         "list_specialist_tools",
