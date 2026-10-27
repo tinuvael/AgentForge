@@ -422,6 +422,9 @@ Only matching final workspace evidence certifies success; incomplete or historic
 evidence fails closed. Local Director reserves workflow attempt budgets atomically
 with the pending idempotent request before I/O, then binds the response in one
 journal checkpoint. Recovery observes/reuses that charge and never resets it.
+Director CLI/browser journal deletion shares a core guard retaining every unfinished
+workflow identity, including approval and recovery states; cached terminality is
+refreshed through explicit resume. CLI results expose those same workflow bindings.
 
 Gateway installs a current identity-policy resolver before startup/recovery. Client
 credentials never enter workflow records. Every new dispatch revalidates bindings,

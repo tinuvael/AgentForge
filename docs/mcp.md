@@ -105,8 +105,10 @@ A kernel-backed nonblocking lock now rejects a second executor before schema
 checks or Task/coding recovery on supported local SQLite storage. See
 [ownership lifecycle and filesystem limits](executor-ownership.md). Do not connect two
 directors by launching two processes against the same database. Local stdio inherits
-the trust of the launching user. There is no HTTP MCP listener. Optional combined
-HTTP exposes trusted operator routes on loopback only, with no authentication layer.
+the trust of the launching user. The separate persistent authenticated
+[HTTP Gateway](gateway.md) serves multiple clients through that same executor.
+Optional combined HTTP exposes trusted operator routes on loopback only, with no
+authentication layer.
 
 ## Public typed tool contracts
 

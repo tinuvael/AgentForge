@@ -353,15 +353,20 @@ def test_executable_lookup_ignores_cwd_relative_and_worktree_paths(
     assert lookups == [r"C:\Tools\git.exe"]
 
 
+@pytest.mark.parametrize("architecture", ["mingw64", "mingw32", "ucrt64"])
+@pytest.mark.parametrize("entry", ["cmd", "bin", "direct"])
 def test_executable_lookup_uses_real_git_for_windows_binary(
-    mocked_windows, monkeypatch
+    mocked_windows, monkeypatch, architecture, entry
 ):
     s = mocked_windows
-    for path in (r"C:\Git", r"C:\Git\mingw64", r"C:\Git\mingw64\bin"):
+    for path in (r"C:\Git", rf"C:\Git\{architecture}", rf"C:\Git\{architecture}\bin"):
         s.api.add(path, directory=True)
-    executable = r"C:\Git\mingw64\bin\git.exe"
+    executable = rf"C:\Git\{architecture}\bin\git.exe"
     s.api.add(executable, b"real installed command")
-    monkeypatch.setenv("PATH", r"C:\Git\cmd")
+    monkeypatch.setenv(
+        "PATH",
+        rf"C:\Git\{architecture}\bin" if entry == "direct" else rf"C:\Git\{entry}",
+    )
     lookups = []
 
     def which(candidate):
@@ -372,7 +377,14 @@ def test_executable_lookup_uses_real_git_for_windows_binary(
     with s.registry.open_root(s.project.id) as (_, root):
         with ExitStack() as resources:
             assert windows_git._git_executable(s.backend, root, resources) == executable
-    assert lookups == [executable]
+    candidates = [
+        rf"C:\Git\{name}\bin\git.exe" for name in ("mingw64", "mingw32", "ucrt64")
+    ]
+    assert lookups == (
+        [executable]
+        if entry == "direct"
+        else candidates[: candidates.index(executable) + 1]
+    )
 
 
 @pytest.mark.parametrize("ancestor", [False, True])

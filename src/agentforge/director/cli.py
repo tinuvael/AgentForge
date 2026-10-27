@@ -36,6 +36,7 @@ def display(item):
                 "error": item.error,
                 "messages": [m.model_dump() for m in item.messages],
                 "tasks": [t.model_dump(mode="json") for t in item.tasks],
+                "workflows": [w.model_dump(mode="json") for w in item.workflows],
                 "councils": [c.model_dump(mode="json") for c in item.councils],
                 "approval": item.pending.model_dump() if item.pending else None,
                 "progress": item.progress,
@@ -76,12 +77,7 @@ async def execute(args):
             else director.load(args.session, "cli")
         )
         if args.operation == "clear":
-            if item.submission or any(
-                t.state not in {"completed", "failed", "cancelled", "interrupted"}
-                for t in item.tasks
-            ):
-                raise DirectorError("recover_or_reject_before_clear")
-            director.journal.path(item.id).unlink()
+            director.clear(item)
             return 0
         if args.operation == "cancel":
             task = next((t for t in item.tasks if str(t.task_id) == args.task), None)

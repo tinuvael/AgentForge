@@ -25,6 +25,11 @@ The [transport decision](gateway-design.md) records verified SDK/client behavior
 
 ## Install on Windows
 
+For a complete wheel build/install and disposable Project sequence, use the
+[checked first-launch guide](first-launch.md). It includes current Git for Windows
+paths and binary dependency installation; the authorization/lifecycle details below
+remain authoritative.
+
 Use ordinary local fixed NTFS for database/state and supported repositories; do
 not put SQLite on SMB, OneDrive, a shared drive or an unsupported filesystem.
 Install Python 3.12+ and Git for Windows as described in
@@ -34,9 +39,9 @@ use example absolute paths. No command provisions a paid Provider or performs a
 real inference probe.
 
 ```powershell
-py -3.12 -m venv C:\AgentForge\venv
+py -3.13 -m venv C:\AgentForge\venv
 $afPython = 'C:\AgentForge\venv\Scripts\python.exe'
-& $afPython -m pip install C:\Downloads\agentforge-0.1.0-py3-none-any.whl
+& $afPython -m pip install --only-binary=:all: C:\Downloads\agentforge-0.1.0-py3-none-any.whl
 New-Item -ItemType Directory -Force C:\AgentForgeState
 $afAccount = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 icacls C:\AgentForgeState /inheritance:r /grant:r "${afAccount}:(OI)(CI)F"

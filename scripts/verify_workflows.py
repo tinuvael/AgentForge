@@ -14,6 +14,7 @@ import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -25,17 +26,11 @@ from verify_gateway import call, client, free_port, listener
 from agentforge.application.access import ClientPolicy, Policies, ProjectGrant
 from agentforge.application.service import Application
 from agentforge.coding.config import CodingConfig, ValidationCommand
-from agentforge.core.worker import Worker
-from agentforge.db.database import create_database_engine
-from agentforge.db.migrate import upgrade_database
-from agentforge.director.config import DirectorConfig
-from agentforge.director.core import Director
 from agentforge.gateway.auth import CredentialStore, fingerprint, save_policies
 from agentforge.gateway.server import GatewayConfig, create_gateway
 from agentforge.mcp.server import TOOL_CONTRACTS
-from agentforge.providers.ollama import OllamaProvider
 from agentforge.specialists.models import SpecialistConfig, SpecialistTool
-from agentforge.workers.config import WorkersConfig
+from agentforge.web.combined import CompanionConfig
 from agentforge.workflows.models import (
     Definition,
     InferenceStep,
@@ -46,8 +41,23 @@ from agentforge.workflows.models import (
 
 
 async def acceptance(root):
+    async with AsyncExitStack() as services:
+        await scenario(root, services)
+
+
+async def scenario(root, services):
+    def operator(*arguments):
+        result = subprocess.run(
+            [sys.executable, "-m", "agentforge", *map(str, arguments)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)
+
     url = "sqlite:///" + (root / "workflows.db").as_posix()
-    upgrade_database(url)
+    operator("db", "upgrade", "--database-url", url)
     repo = root / "project"
     repo.mkdir()
     (repo / "source.py").write_text("original\n", encoding="utf-8")
@@ -121,6 +131,7 @@ async def acceptance(root):
         },
     )
     worker_requests = []
+    entered, release = asyncio.Event(), asyncio.Event()
 
     def inference(request):
         body = json.loads(request.content)
@@ -157,33 +168,76 @@ async def acceptance(root):
             200, json={"model": "scripted", "done": True, "message": message}
         )
 
-    provider = OllamaProvider(transport=httpx.MockTransport(inference))
-    workers = WorkersConfig(
-        workers=[
-            Worker(
-                id="local",
-                provider="ollama",
-                model="scripted",
-                endpoint="http://127.0.0.1:1",
-                supports_tools=True,
-                trust="local",
-            )
-        ]
+    async def worker_endpoint(request):
+        body = await request.body()
+        if any(
+            m.get("content") == "cancel fixture" for m in json.loads(body)["messages"]
+        ):
+            entered.set()
+            await release.wait()
+        return JSONResponse(
+            inference(
+                httpx.Request("POST", "http://fixture/api/chat", content=body)
+            ).json()
+        )
+
+    endpoint = await services.enter_async_context(
+        listener(
+            Starlette(routes=[Route("/api/chat", worker_endpoint, methods=["POST"])])
+        )
     )
+    workers_path, coding_path, specialists_path = (
+        root / "workers.toml",
+        root / "coding.toml",
+        root / "specialists.toml",
+    )
+    workers_path.write_text(
+        '[[workers]]\nid="local"\nprovider="ollama"\nmodel="scripted"\n'
+        f'endpoint={json.dumps(endpoint)}\nsupports_tools=true\ntrust="local"\n'
+    )
+    coding_path.write_text(
+        f"workspace_parent={json.dumps(str(worktrees))}\n"
+        f"git_executable={json.dumps(str(git))}\n[validations.check]\n"
+        f"argv={json.dumps(coding.validations['check'].argv)}\n"
+    )
+    specialists_path.write_text(
+        f"artifact_directory={json.dumps(str(private))}\n"
+        + "\n".join(
+            "[[tools]]\n"
+            + "\n".join(
+                f"{key}={json.dumps(value)}"
+                for key, value in tool.model_dump(mode="json").items()
+                if key
+                in {
+                    "tool_id",
+                    "kind",
+                    "adapter",
+                    "connection_id",
+                    "enabled",
+                    "input_formats",
+                    "output_formats",
+                }
+            )
+            for tool in specialists.tools
+        )
+    )
+    operator("worker", "config-check", "--workers", workers_path)
+    operator("worker", "list", "--workers", workers_path)
+    operator("agent", "list", "--coding", coding_path)
 
     def factory():
-        return Application(
-            create_database_engine(url),
-            workers,
-            providers={"ollama": provider},
-            specialist_config=specialists,
-            coding_config=coding,
+        return Application.from_config(
+            database_url=url,
+            workers_path=str(workers_path),
+            specialists_path=str(specialists_path),
+            coding_path=str(coding_path),
             concurrency=1,
         )
 
-    setup = factory()
-    project = setup.projects.register_project("Workflow fixture", repo)
-    setup.database.dispose()
+    registered = operator(
+        "project", "add", repo, "--name", "Workflow fixture", "--database-url", url
+    )
+    project = SimpleNamespace(id=UUID(registered["registration"]["project_id"]))
     image_plan = Definition(
         project_id=project.id,
         steps=(
@@ -239,19 +293,64 @@ async def acceptance(root):
                 specialists=("image", "blender"),
             ),
         ),
-        agents=("repo_explorer", "coder"),
+        agents=("general_agent", "repo_explorer", "coder"),
         coding_submit=True,
     )
     auth = root / "auth.json"
     save_policies(auth, Policies(clients=(policy,)), expected=None)
     application = factory()
     gateway_port = free_port()
+    companion_port = free_port()
     gateway = create_gateway(
-        lambda: application, CredentialStore(auth), GatewayConfig(port=gateway_port)
+        lambda: application,
+        CredentialStore(auth),
+        GatewayConfig(port=gateway_port),
+        companion=CompanionConfig(port=companion_port),
     )
     async with AsyncExitStack() as stack:
         base = await stack.enter_async_context(listener(gateway, port=gateway_port))
         async with client(base + "/mcp", token) as (sdk, _):
+            assert (await call(sdk, "list_projects"))["projects"][0][
+                "project_id"
+            ] == str(project.id)
+            assert (await call(sdk, "list_workers"))["workers"][0][
+                "worker_id"
+            ] == "local"
+            assert {
+                a["agent_id"] for a in (await call(sdk, "list_agents"))["agents"]
+            } == {"general_agent", "repo_explorer", "coder"}
+
+            async def task(request):
+                return await call(
+                    sdk,
+                    "delegate_task",
+                    dict(
+                        project_id=str(project.id),
+                        agent_id="general_agent",
+                        worker_id="local",
+                        task=request,
+                    ),
+                )
+
+            async def terminal(identity):
+                async with asyncio.timeout(10):
+                    while True:
+                        value = await call(sdk, "get_task", {"task_id": identity})
+                        if value["state"] not in {"queued", "running"}:
+                            return value
+                        await asyncio.sleep(0.01)
+
+            first = await task("Read source.py")
+            assert (await terminal(first["task_id"]))["state"] == "completed"
+            cancelled = await task("cancel fixture")
+            async with asyncio.timeout(5):
+                await entered.wait()
+            assert (await call(sdk, "watch_task", {"task_id": cancelled["task_id"]}))[
+                "state"
+            ] == "running"
+            await call(sdk, "cancel_task", {"task_id": cancelled["task_id"]})
+            release.set()
+            assert (await terminal(cancelled["task_id"]))["state"] == "cancelled"
             arguments = dict(
                 definition=image_plan.model_dump(mode="json"), idempotency_key="images"
             )
@@ -292,16 +391,23 @@ async def acceptance(root):
                 ),
             )
             review = await observe(code_workflow["workflow_id"], {"approval"})
-            assert len(application.tasks.history()) == 1
+            assert len(application.tasks.history()) == 3
             scope = application.workflows.review_scope(
                 UUID(review["workflow_id"]), "code"
             )
             assert "repository_write" in scope.effects
-            application.workflows.review(
-                workflow_id=scope.workflow_id,
-                step_id="code",
-                scope_hash=scope.attempt.scope_hash,
-            )
+            async with httpx.AsyncClient(
+                base_url=f"http://127.0.0.1:{companion_port}", trust_env=False
+            ) as browser:
+                path = f"/workflows/{scope.workflow_id}"
+                assert (await browser.get(path)).status_code == 200
+                review_path = path + f"/review/code/{scope.attempt.scope_hash}/approve"
+                fields = {
+                    "csrf": browser.cookies.get("agentforge_csrf"),
+                    "confirm": "yes",
+                }
+                assert (await browser.post(review_path, data=fields)).status_code == 303
+                assert (await browser.post(review_path, data=fields)).status_code == 409
             code_workflow = await observe(review["workflow_id"], {"completed"})
             task_id = code_workflow["steps"][-1]["attempts"][-1]["task_id"]
             result = await call(sdk, "get_coding_workspace", {"task_id": task_id})
@@ -359,31 +465,41 @@ async def acceptance(root):
         )
         os.environ["AGENTFORGE_WORKFLOW_FIXTURE_TOKEN"] = token
         try:
-            config = DirectorConfig(
-                gateway_url=base + "/mcp",
-                token_env="AGENTFORGE_WORKFLOW_FIXTURE_TOKEN",
-                journal=root / "journal",
-                model="director",
-                inference={
-                    "id": "director",
-                    "type": "ollama",
-                    "base_url": endpoint,
-                    "trust": "local",
-                },
+            config = root / "director.toml"
+            config.write_text(
+                f"gateway_url={json.dumps(base + '/mcp')}\n"
+                'token_env="AGENTFORGE_WORKFLOW_FIXTURE_TOKEN"\n'
+                f'journal={json.dumps(str(root / "journal"))}\nmodel="director"\n'
+                f'[inference]\nid="director"\ntype="ollama"\nbase_url={json.dumps(endpoint)}\ntrust="local"\n'
             )
-            async with Director(config) as director:
-                item = director.create("fixture")
-                item = await director.run(
-                    item.id,
-                    "fixture",
-                    "Run the explicit synthetic workflow and observe the output.",
-                )
-                assert item.state == "completed", item.error
-                assert (
-                    len(item.workflows) == 1 and item.workflows[0].state == "completed"
-                )
-                assert len(director_requests) == 2
-                assert len(application.specialists.repository.jobs()) == 4
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "agentforge",
+                "director",
+                "run",
+                "--config",
+                str(config),
+                "Run the explicit synthetic workflow and observe the output.",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                out, err = await asyncio.wait_for(process.communicate(), 30)
+            except BaseException:
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
+                raise
+            assert process.returncode == 0, (out, err)
+            item = json.loads(out)
+            assert item["state"] == "completed", item
+            assert (
+                len(item["workflows"]) == 1
+                and item["workflows"][0]["state"] == "completed"
+            )
+            assert len(director_requests) == 2
+            assert len(application.specialists.repository.jobs()) == 4
         finally:
             os.environ.pop("AGENTFORGE_WORKFLOW_FIXTURE_TOKEN", None)
     # Completed children and artifact provenance remain inspectable on restart.
@@ -400,7 +516,11 @@ async def acceptance(root):
             ).status
             == "ready"
         )
-        assert len(restarted.tasks.history()) == 2
+        assert len(restarted.tasks.history()) == 4
+        assert restarted.get_task(task_id=UUID(first["task_id"])).state == "completed"
+        assert (
+            restarted.get_task(task_id=UUID(cancelled["task_id"])).state == "cancelled"
+        )
     finally:
         await restarted.close()
     print(

@@ -303,12 +303,11 @@ def add_director_routes(web, render, valid_csrf):
     @web.post("/director/{identity}/clear")
     async def clear(request: Request, identity: UUID):
         svc, item, data = await mutation(request, identity, {"confirm"})
-        if (
-            data.get("confirm") != "clear"
-            or item.submission
-            or any(t.state not in TERMINAL for t in item.tasks)
-        ):
+        if data.get("confirm") != "clear":
             raise HTTPException(409)
-        svc.director.journal.path(item.id).unlink()
+        try:
+            svc.director.clear(item)
+        except DirectorError:
+            raise HTTPException(409) from None
         svc.catalogs.pop(item.id, None)
         return redirect(request)

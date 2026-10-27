@@ -179,6 +179,7 @@ def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch
     before = {p: p.read_bytes() for p in (git_root / ".git").rglob("*") if p.is_file()}
 
     def checked_run(args, **kwargs):
+        original_args = args
         (fd,) = kwargs["pass_fds"]
         if sys.platform == "darwin":
             assert args[:2] == [sys.executable, "-I"]
@@ -196,11 +197,13 @@ def test_git_inspection_is_read_only_and_bounded(registry, git_root, monkeypatch
         assert kwargs["env"]["GIT_OPTIONAL_LOCKS"] == "0"
         assert kwargs["env"]["GIT_CONFIG_GLOBAL"] == os.devnull
         invocations.append(args)
-        return original_run(args, **kwargs)
+        return original_run(original_args, **kwargs)
 
     monkeypatch.setattr(git_backend.subprocess, "Popen", checked_run)
     project = registry.register_project("Git", git_root)
-    assert registry.inspect_project(project.id).git.status == "repository"
+    metadata = registry.inspect_project(project.id).git
+    assert metadata.status == "repository"
+    assert metadata.repository_root == git_root
     after = {p: p.read_bytes() for p in (git_root / ".git").rglob("*") if p.is_file()}
     assert after == before
     assert len(invocations) == 4

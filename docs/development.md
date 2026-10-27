@@ -10,7 +10,8 @@ layout exercises installed imports:
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[dev]'
+python -m pip install --upgrade pip
+python -m pip install --only-binary=:all: -e '.[dev]'
 python -m pytest -ra
 ruff check .
 ruff format --check .
@@ -109,13 +110,18 @@ in a fresh venv outside the checkout, with no editable install or source PYTHONP
 
 ```sh
 python -m venv ../agentforge-wheel-check
-../agentforge-wheel-check/bin/python -m pip install dist/agentforge-0.1.0-py3-none-any.whl
+../agentforge-wheel-check/bin/python -m pip install --only-binary=:all: dist/agentforge-0.1.0-py3-none-any.whl
 cd ..
 agentforge-wheel-check/bin/python AgentForge/scripts/verify_install.py
 agentforge-wheel-check/bin/python -m pip check
 ```
 
 On Windows use `agentforge-wheel-check\Scripts\python.exe` instead of `bin/python`.
+Use binary dependencies rather than implicitly compiling transitive Rust/OpenSSL
+packages. `--only-binary=:all:` lets pip resolve compatible wheels within the
+declared ranges; it introduces no local constraint or arbitrary old-version pin.
+If a supported Python/platform has no solution, preserve pip's resolution error
+and investigate that platform/index instead of silently compiling or pinning.
 Installation requires available dependency distributions, or an operator-prepared
 wheelhouse with `pip install --no-index --find-links <wheelhouse> ...`. The smoke
 itself is offline and creates only temporary synthetic storage. Git is not required
@@ -231,3 +237,15 @@ validation, concurrency-one progress, retained child/artifact identities on rest
 and actual Local Director workflow calls through native scripted HTTP inference
 and the authenticated Gateway. This acceptance requires local Git; it never runs
 Blender, ComfyUI, GPU or billable inference. See [workflow checks](workflows.md).
+
+`scripts/ci_verify_wheel.py` now independently installs the wheel **and the sdist**
+in separate fresh venvs, builds the directly named sdist with binary build/runtime
+dependencies, checks pip consistency and runs the full installed acceptance for
+both. Helpers and sanitized examples are copied outside the checkout, into paths
+containing spaces. Source imports, editable packages, user site packages, inherited
+Python paths, pip constraint/config files, caches and the developer PATH are excluded;
+only the selected venv, declared Git dependency and OS helper paths are retained.
+Windows additionally runs `verify_windows_setup.ps1` with native PowerShell for
+absolute SQLite paths, private directories/credentials, committed Project setup,
+configuration/discovery and reversible HTTP client registration. CI records distinct
+`wheel.json` / `sdist.json` and dependency reports in every OS/Python job.

@@ -237,9 +237,10 @@ mocked Provider and a **scripted Director**, producing these asserted interactio
 This demonstrates protocol and policy-compatible scripted cases, **not** actual
 Codex reasoning or enforcement of Director-side data-egress authorization. Existing
 MCP tests separately cover standard progress tokens, lifecycle and security checks.
-The pre-existing POSIX Git/coding implementation uses Linux descriptor paths
-(`/proc/self/fd`); successful macOS configuration tests do not establish native
-macOS Git/coding runtime support. That runtime is not changed by this integration.
+Native Mac-local execution is now supported on local APFS through descriptor-based
+Git/coding operations. See [macOS setup](macos.md) for its separate local database
+and explicit Windows-hosted inference configuration. Configuration tests alone
+remain insufficient evidence for runtime or physical-device acceptance.
 
 The installed-wheel smoke also installs/inspects/removes the integration in a
 fresh temporary home and launches its generated stdio argv without inference.

@@ -61,7 +61,7 @@ def coding(registry, database, tmp_path):
     parent.mkdir(mode=0o700)
     executable = Path(shutil.which("git")).resolve()
     if os.name == "nt" and executable.parent.name.lower() in {"cmd", "bin"}:
-        for architecture in ("mingw64", "mingw32"):
+        for architecture in ("mingw64", "mingw32", "ucrt64"):
             real = executable.parent.parent / architecture / "bin/git.exe"
             if real.is_file():
                 executable = real
