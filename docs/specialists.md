@@ -1,13 +1,13 @@
-# Specialist ToolJobs and private artifacts (#52 Phase A)
+# Specialist ToolJobs and private artifacts (#52)
 
-Phase A implements durable specialist execution with **deterministic fake adapters**.
-No ComfyUI, Blender, GPU, external inference, paid call or network request is made.
-A text Worker never becomes a specialist tool. The output is a valid 2×2 RGB PNG
-and a self-contained glTF 2.0 triangle mesh. The triangle is synthetic; the fake
-Blender adapter records the image relationship without image-to-3D inference.
-Neither output quality nor 3D printability is established. Phase B and physical
-acceptance remain open in [#52](https://github.com/tinuvael/AgentForge/issues/52)
-and [#31](https://github.com/tinuvael/AgentForge/issues/31).
+AgentForge supports disabled-by-default **real ComfyUI HTTP** and **local headless
+Blender 4.5 LTS** adapters alongside the unchanged deterministic fake adapters.
+Specialists are separate from inference Workers. An external Codex/SDK client
+explicitly selects the tool and passes authorized artifact IDs through existing MCP.
+Real application, RTX 4080, GUI, image quality and manufacturing acceptance remain
+**untested** until recorded in [#31](https://github.com/tinuvael/AgentForge/issues/31).
+Blender creates known blockout geometry using image dimensions and a temporary image
+reference; it does **not** reconstruct a 3D object from pixels.
 
 ## Composition and lifecycle
 
@@ -45,8 +45,10 @@ Project and submitting client; correlations confer no additional rights.
 
 Queued jobs surviving restart revalidate live Project identity, current egress and
 the exact tool fingerprint before executing. Configuration drift fails safely.
-Running jobs become `interrupted/recovery_required`; an already committed cancel
-wins. Running recovery occurs even if specialists are now disabled. Staged-file
+Running jobs become `interrupted/recovery_required`; known ComfyUI receipts may
+re-enter the shared queue for observation/retrieval only. An already committed cancel
+wins. Running recovery occurs even if specialists are now disabled; receipt reconciliation
+requires the original enabled tool fingerprint and current Project policy. Staged-file
 cleanup waits for the configured, identity-checked store to be available. Shutdown
 interrupts active operations and retains queued jobs. Cancellation before claim
 prevents execution; running adapter cancellation is cooperative. Finalization yields
@@ -91,10 +93,14 @@ payloads never enter ordinary SQLite records, Task answers or Director prompts.
 
 The current verified profiles are noninterlaced 8-bit RGB/RGBA PNG (CRC, dimensions,
 bounded decompression and scanline filters) and self-contained indexed triangle
-glTF with finite positions, bounded views/indices and embedded buffers. External
-resources/extensions/scripts are outside this profile. `blend`, `stl` and
+glTF with finite positions, bounded views/indices and embedded buffers. PNG permits bounded opaque `tEXt` metadata from ComfyUI
+SaveImage (never authorization/provenance). glTF also accepts the selected Blender
+exporter's names, finite transforms, accessor offsets and uint16/uint32 indices;
+triangle mode may be omitted per glTF defaults. Only one mesh/primitive/node and
+POSITION attributes are supported. External resources, images, textures, materials,
+animations, extensions and scripts are outside this profile. `blend`, `stl` and
 `gaussian_splat` are reserved distinct format identities and currently **rejected**
-by the validator. Phase B must add reviewed validators before emitting them.
+by the validator. Adding extensions to filenames does not enable formats.
 `geometry=mesh` only means the checked representation contains mesh primitives;
 `printability=not_assessed` is mandatory. Gaussian splats must never be relabeled
 as meshes or printable geometry.
@@ -118,7 +124,7 @@ agentforge db upgrade --database-url sqlite:////absolute/private/agentforge.db
 Copy [specialists.example.toml](../config/specialists.example.toml) into private
 operator configuration, set a pre-created absolute directory, and explicitly set
 `enabled=true` for the two fake definitions to exercise them. There is no default
-configuration and both example tools are disabled. Enable with the existing host:
+configuration and all example tools are disabled. Enable with the existing host:
 
 ```sh
 agentforge mcp --database-url sqlite:////absolute/private/agentforge.db \
@@ -164,8 +170,8 @@ The shared typed catalog adds:
 
 | Operation | Required identity and behavior |
 | --- | --- |
-| `list_specialist_tools` | Project UUID, bounded pagination; permitted enabled fake definitions and diagnostic evidence. |
-| `submit_tool_job` | Project/tool IDs, input artifact IDs, `parameters={"seed":0}`, request UUID and idempotency key; returns promptly with durable identity. |
+| `list_specialist_tools` | Project UUID, bounded pagination; permitted enabled definitions with simulation/configuration evidence and diagnostic evidence. |
+| `submit_tool_job` | Project/tool IDs, input artifact IDs, typed parameters (see below), request UUID and idempotency key; returns promptly with durable identity. |
 | `get_tool_job` | Job UUID; server looks up Project/tool/owner. |
 | `cancel_tool_job` | Job UUID; durable cancellation, safe to repeat. |
 | `list_artifacts` | Project UUID and bounded pagination; descriptors only. |
@@ -179,8 +185,8 @@ request independently reauthorizes and checks the entire bounded file; there are
 no public URLs or capability tokens that survive revocation.
 
 Codex can use the new Gateway/stdio catalog. Local Director discovers permitted
-fake tool definitions through the shared catalog; specialist mutations, job/artifact
-content and binary retrieval remain outside its Phase A inference loop. This keeps
+tool definitions through the shared catalog; specialist mutations, job/artifact
+content and binary retrieval remain outside its inference loop. This keeps
 its existing conversation ownership, approvals and resume semantics intact until
 a dedicated specialist client workflow is designed. No real application
 availability is inferred from a tool being listed.
@@ -192,6 +198,7 @@ script available outside the checkout:
 
 ```sh
 python scripts/verify_specialists.py
+python scripts/verify_specialist_adapters.py
 python -m pytest -ra tests/test_specialists.py
 python -m pytest -ra
 ruff check .
@@ -206,58 +213,210 @@ Gateway-style scoped access, retrieves the files, repeats submission without
 duplicate execution, restarts Application and verifies the same descriptors/hash.
 The image is a deterministic colored square and the glTF is a known triangle. No
 workflow graph or model quality judgment is involved. Installed-wheel verification
-includes the demo. The unchanged nine-job Ubuntu/Windows/macOS × Python
+includes both the unchanged fake demo and real-adapter code exercised through
+mocked HTTP and a real bounded executable fixture. The unchanged nine-job
+Ubuntu/Windows/macOS × Python
 3.12/3.13/3.14 matrix also runs the security, process-loss and lifecycle regressions.
 
-## Phase B adapter integration and native acceptance (not implemented/tested)
+## Real adapter topology and setup
 
-Extend the typed specialist definition with a new **explicit** adapter and
-operator-owned connection configuration; never reinterpret Worker endpoints.
-The async `Adapter.run(parameters, inputs)` contract receives only validated
-parameters and authorized verified input bytes and returns declared `Output`
-objects (name, format, MIME, bounded bytes). The application owns job IDs, policies,
-provenance, deadlines, quotas, finalization, cancellation and terminal persistence.
-Adapters must bound reads **before buffering**, respect cancellation, report fixed
-safe errors and avoid returning success for incomplete exports. Add named operations
-and validators to the contract without replacing ToolJobs/private storage. A
-non-idempotent remote submission must save its remote receipt before further I/O;
-recovery must reconcile that receipt explicitly rather than blindly resubmitting.
-Real adapters may require new safe persisted receipt fields and migrations.
+The **single Application host** owns SQLite, private artifact storage and TaskEngine.
+ComfyUI runs on an explicitly configured reachable service; Blender runs on this
+Application host. Neither a remote Gateway client nor an inference Worker's machine
+implicitly becomes an execution host. No generic bridge/remote shell is provided.
+Keep SQLite on local supported storage and use the existing protected Gateway for
+remote clients. No service is probed by discovery or dashboard page loads.
 
-ComfyUI must use an operator-approved workflow and exact authorized connection.
-Bound request/poll/result sizes, disallow arbitrary node installation or filesystem
-selection, authorize retrieval origins and validate every downloaded output. A
-remote interrupt endpoint may affect other jobs: define ownership-specific cancel
-semantics before enabling it. Blender must accept named approved scene operations
-and scoped inputs/exports, with bounded process/host resource and descendant cleanup.
-Never accept arbitrary Blender Python from a model. A native bridge or Blender
-Python is trusted host execution, **not an OS/network sandbox**; deployment needs
-separate OS isolation when code/plugins are not trusted.
+The [configuration example](../config/specialists.example.toml) contains two real
+and two fake definitions, all disabled. Create a separate private staging directory
+outside repositories **and outside the artifact store**, `0700` on POSIX or a private
+operator ACL on Windows. Select an absolute Blender 4.5 executable, set its SHA-256,
+and enable only the required tools. For example:
 
-The following native diagnostics are optional trusted-operator prerequisites,
-**not AgentForge real-adapter commands** and not proof of generation:
+```sh
+mkdir -m 700 /absolute/private/blender-staging
+shasum -a 256 /absolute/Blender/4.5/blender
+```
+
+Windows uses the actual installed drive-absolute executable, for example
+`C:\Program Files\Blender Foundation\Blender 4.5\blender.exe`; get its hash with
+`Get-FileHash -Algorithm SHA256`. On macOS choose the executable inside the app
+bundle. Tool fingerprints bind configuration, approved workflow, executable hash
+and packaged script hash. Updating any binding requires new job requests; queued
+jobs cannot silently change execution identity.
+
+ComfyUI configuration embeds a reviewed **API-format** workflow as `workflow_json`
+(maximum 256 KiB / 256 nodes). Export API format from ComfyUI, review all node code,
+model names, network and filesystem effects, then copy into private TOML. The
+example uses built-in nodes and an operator-selected **already installed** checkpoint.
+AgentForge does not install models, custom nodes, plugins or Blender. Set a fixed
+batch of one and one configured `SaveImage` node. Extra outputs are not published.
+The adapter replaces that node's filename prefix with a ToolJob-specific flat prefix.
+
+Only these client parameters are supported:
+
+| Adapter | Parameters | Authorized input / output |
+| --- | --- | --- |
+| Fake adapters | `seed`: uint32 (default 0) | Same synthetic PNG / triangle as Phase A |
+| ComfyUI | `seed`: uint32; `text`: at most 2,000 characters | No inputs; exactly one PNG from the configured SaveImage node |
+| Blender | `operation="reference_blockout"`; `depth`: 0.01–2 metres (default 0.25) | Exactly one ready authorized PNG; one self-contained glTF mesh |
+
+Seed maps only to an approved `KSampler.seed`; text maps only to an approved
+`CLIPTextEncode.text`. Omit mappings to keep those workflow values fixed (nondefault
+client values then fail). No workflow/node classes, URLs, host paths, Python,
+executable arguments or importer/exporter names are accepted from a model.
+`list_specialist_tools.parameter_contracts` reports the allowed fields; private
+workflow, executable, staging and auth configuration are excluded from responses.
+Discovery says `configured_untested` for real adapters. Per-job evidence reports
+actual observation and validated output, distinct from physical owner acceptance.
+
+Use literal loopback HTTP (`127.0.0.1` or `[::1]`) for local ComfyUI; DNS names are
+not allowed for cleartext operation. Other origins require HTTPS, valid server TLS,
+and any operator-configured bearer credential via `api_key_env`. No URL credentials,
+queries, fragments, base paths, redirects (even same-origin), environment proxies
+or compressed HTTP responses are accepted. The service must support its origin's
+classic `/prompt`, `/queue`, `/history/{prompt_id}` and `/view` routes. JSON responses
+and PNG downloads are bounded while streaming, with per-request timeouts plus the
+ToolJob deadline. Remote cloud trust requires the Project connection allowlist;
+setting a local label is an operator trust decision, not network attestation.
+
+ComfyUI/its nodes and Blender/Python are **trusted host execution, not an OS/network
+sandbox**. Run only reviewed nodes and trusted Blender installations/scripts under
+an appropriately restricted OS account/container when needed. The Blender process
+uses factory startup, disables auto-execution, a conservative credential-free
+environment, no stdin/shell and a fixed packaged script. It loads only the staged
+PNG and builds a cuboid whose longest image-plane dimension is one metre and whose
+depth is explicit. Its image-reference empty is temporary and is omitted from the
+export; pixels are not a mesh/texture in the output. Only the selected known mesh
+is exported, with normals/materials/textures/animations disabled. Blender writes
+`scene.gltf` plus `scene.bin`; the adapter accepts only those fixed regular files,
+embeds the sole checked buffer and validates before publication. No `.blend`, STL,
+GLB, Gaussian splats, arbitrary imports or destructive scene operations are enabled.
+The factory scene is disposable; no existing user scene is opened or overwritten.
+`geometry_source=known_blockout`, input IDs/hash chain and `printability=not_assessed`
+remain in descriptors. Valid format is not image reconstruction or manufacturing
+assessment. Runtime/log/output/storage caps do not constitute an OS CPU/RAM/disk/GPU
+sandbox; trusted applications must not write unbounded intermediate data.
+
+## Durable recovery and cancellation
+
+ToolJob JSON payloads add optional typed `execution` evidence; the existing
+`0004_specialists` tables already support additive payload fields, so **no DDL
+migration is necessary**. Old descriptors and Phase A request hashes remain readable.
+Execution binding records host class, safe connection origin, configuration hash,
+parameters and input IDs; no credential values or raw remote errors/logs are stored.
+
+| Evidence | Meaning |
+| --- | --- |
+| `not_submitted` | No submission intent committed |
+| `submission_unknown` + intent SHA-256 | Intent committed before submission; process loss may mean the service accepted it, even without a receipt |
+| `accepted` + remote job UUID | ComfyUI receipt committed before polling; queue/history states are observations |
+| `outputs_validated` + output hash/size | Retrieved/exported bytes passed validation; only `state=completed` makes descriptors visible |
+| `remote_may_continue=true` | Remote completion is not established; local cancel/timeout never proves remote termination |
+
+ComfyUI receives one POST only. Classic submission is **not exactly-once**: a
+crash/network timeout after acceptance but before receipt persistence cannot be
+resolved by repeating POST. Same-key AgentForge retries return the existing job.
+On restart, interrupted jobs with known receipts and unchanged authorization/config
+are queued for history/queue reads and retrieval, never a second submission.
+Reconciliation respects the 256-job admission cap; excess interrupted receipts
+remain retained for a later restart/operator recovery. A previously validated
+output hash/size cannot change on reconciliation.
+Missing history/queue entries are not proof of non-execution: observation ends at
+the deadline with `interrupted/recovery_required`. No blind replay of ambiguous
+ComfyUI or interrupted local Blender work occurs. Cancellation remains terminal.
+
+For a missing receipt, stop the Gateway/other executor and back up SQLite + private
+files. On the **authorized ComfyUI service**, inspect queue/history and private
+operator logs for `client_id=<ToolJob UUID>` and prefix `agentforge_<UUID without
+hyphens>`. Do not paste workflow bodies or credentials into issues. If a matching
+receipt is found, use the same config and owning host:
+
+```sh
+python scripts/reconcile_specialist.py \
+  --database-url sqlite:////absolute/private/agentforge.db \
+  --workers /absolute/private/workers.toml \
+  --specialists /absolute/private/specialists.toml \
+  --job TOOLJOB-UUID --receipt COMFYUI-PROMPT-UUID
+```
+
+The operator-only method verifies **both** identities in upstream history/queue
+before attaching the immutable receipt and re-entering the existing execution queue.
+It is absent from MCP/Director/web. A wrong receipt, cancelled job or changed binding
+is refused. This recovery process owns the same database lock and also resumes
+eligible existing queued work. Restart the Gateway after it exits. If no matching
+receipt can be established, retain the recovery-required job and investigate the
+service manually. Absence from a pruned history is not safe replay authorization.
+Only an operator's separately considered new request may start a new operation.
+
+ComfyUI cancellation stops local observation/retrieval and publication. **It does
+not stop the remote job**, delete its files/queue entry or release remote GPU work.
+The adapter sends no `/interrupt` or cancellation request: older/global interrupt
+behavior and version-dependent targeted routes do not provide this adapter's
+cross-client isolation contract. Receipt/intent and possible continued execution
+remain visible after cancellation and restart. Use ComfyUI's own trusted operator
+controls after identifying the correct job and any impact on other clients.
+
+Blender timeout/cancellation awaits existing process-group cleanup on POSIX or
+kill-on-close Windows Job cleanup, including descendants, before removing staging.
+After a hard Application/OS crash, do not assume POSIX descendants died: inspect
+operator processes/cwds for `job-<ToolJob hex>-*`, stop only the identified process
+tree, then remove its private leftover staging directory. Windows Job close normally
+terminates descendants, but verify after a host failure. Interrupted Blender jobs
+are never auto-launched again. Logs are drained with caps; oversize logs cause
+failure, and raw host paths/log bodies never become public failure metadata.
+Partial exports/downloads/publications never become ready artifacts. Startup cleans
+staged artifact rows/files; unknown Blender staging remains for operator inspection.
+
+## Native acceptance commands — opt-in, currently untested
+
+First record installed AgentForge SHA, OS/filesystem/ACL, actual Blender 4.5 version,
+ComfyUI commit, reviewed workflow/node/model hashes and GPU/driver versions in #31.
+Start the existing authenticated Gateway with the reviewed `--specialists` config,
+a disposable registered Project and a client granting the seven specialist
+operations and explicit real tool IDs. Keep secrets in private environment only.
 
 ```powershell
 nvidia-smi
 & 'C:\Program Files\Blender Foundation\Blender 4.5\blender.exe' --version
-# Only after selecting and authorizing the local ComfyUI host/port:
 Invoke-RestMethod 'http://127.0.0.1:8188/system_stats'
 ```
 
-Use the actual installed Blender path/version. After Phase B lands, add/run its
-explicit adapter acceptance entrypoint on the RTX 4080 host. Keep these checklist
-items untested until evidence is recorded in #31:
+Then (with `AGENTFORGE_ACCEPTANCE_TOKEN` already set securely):
 
-- Actual approved ComfyUI workflow, image quality, GPU/VRAM/time, output formats and
-  bounded retrieval; no install of unapproved custom nodes or implicit paid calls.
-- Actual Blender import of the authorized image, named scene operation/export,
-  scene/mesh versus Gaussian splat truthfulness, file integrity and host integration.
-- Native queued/running/finalization cancellation, process crash, reconnect and
-  ambiguous non-idempotent remote submission recovery without duplicate execution.
-- Two real scoped Codex clients, egress denials, local NTFS/APFS private ACL/path
-  boundaries, simultaneous ordinary Tasks and ToolJobs, limits and retained files.
-- Independent mesh topology/manifold/scale checks and, only when separately tested,
-  manufacturing suitability. A valid glTF/STL or a fake triangle proves none of it.
+```sh
+# Actual ComfyUI/RTX 4080 generation + actual local Blender exchange:
+python scripts/accept_specialists_native.py \
+  --gateway https://YOUR-PROTECTED-GATEWAY/mcp --project PROJECT-UUID \
+  --image-tool comfy-image --blender-tool blender-blockout --seed 42
+# Blender alone with an existing authorized PNG from the same client/Project:
+python scripts/accept_specialists_native.py \
+  --gateway https://YOUR-PROTECTED-GATEWAY/mcp --project PROJECT-UUID \
+  --blender-tool blender-blockout --input-artifact ARTIFACT-UUID
+```
 
-No Phase B executable/CLI is shipped here; do not mark these checks complete from
-hosted CI or this synthetic demo.
+The command submits typed MCP requests, checks exact duplicate identity, polls,
+retrieves bounded chunks and verifies full SHA-256, printing sanitized job/descriptor
+evidence. It neither installs applications nor verifies visual quality, GPU use,
+GUI integration or printability. An SDK timeout may leave accepted work running;
+retain the printed job ID and inspect/recover instead of rerunning the command.
+Separately exercise queued/running/finalization cancellation, two scoped clients,
+revocation, egress denials, shared capacity, service loss, receipt ambiguity and
+forced restart. Inspect the glTF in the real target application and independently
+assess any intended manufacturing use. All physical rows stay **untested** in #31
+until actual evidence exists; hosted mocks do not complete them.
+
+## Verified upstream contracts
+
+Reviewed official [ComfyUI routes](https://docs.comfy.org/development/comfyui-server/comms_routes),
+[server.py](https://github.com/comfyanonymous/ComfyUI/blob/master/server.py),
+[queue history](https://github.com/comfyanonymous/ComfyUI/blob/master/execution.py)
+and [SaveImage](https://github.com/comfyanonymous/ComfyUI/blob/master/nodes.py).
+The adapter deliberately uses the classic server-generated prompt ID API rather
+than assuming newer client-ID deduplication or per-job cancellation support.
+
+Blender [4.5 command line](https://docs.blender.org/manual/en/4.5/advanced/command_line/arguments.html),
+[exporter API](https://docs.blender.org/api/4.5/bpy.ops.export_scene.html) and
+[4.5 exporter source](https://github.com/blender/blender/blob/blender-v4.5-release/scripts/addons_core/io_scene_gltf2/__init__.py)
+define the supported invocation and separate glTF export. Embedded-export preference
+is not assumed; AgentForge embeds the sole controlled `.bin` after export.

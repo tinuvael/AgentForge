@@ -161,12 +161,13 @@ def create_server(
                 name=t.name,
                 description=t.description,
                 inputSchema=t.arguments.model_json_schema(),
-                outputSchema=t.response.model_json_schema(),
+                outputSchema=t.response.model_json_schema(mode="serialization"),
                 annotations=types.ToolAnnotations(
                     readOnlyHint=t.read_only,
                     destructiveHint=t.name == "cleanup_coding_workspace",
                     idempotentHint=t.name not in {"delegate_task", "delegate_council"},
-                    openWorldHint=t.name in {"delegate_task", "delegate_council"},
+                    openWorldHint=t.name
+                    in {"delegate_task", "delegate_council", "submit_tool_job"},
                 ),
             )
             for t in TOOL_CONTRACTS

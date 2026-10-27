@@ -63,6 +63,7 @@ def package_checks():
         "db/migrations/versions/0002_gateway_client.py",
         "db/migrations/versions/0003_capability_policy.py",
         "db/migrations/versions/0004_specialists.py",
+        "specialists/blender_script.py",
         "web/templates/base.html",
         "web/templates/tool_job.html",
         "web/templates/tool_jobs.html",
@@ -634,6 +635,10 @@ async def smoke():
 
         with TemporaryDirectory() as specialist_directory:
             await specialist_acceptance(Path(specialist_directory).resolve())
+        from verify_specialist_adapters import acceptance as real_adapter_acceptance
+
+        with TemporaryDirectory() as adapter_directory:
+            await real_adapter_acceptance(Path(adapter_directory).resolve())
         from verify_director import integration as director_integration
 
         with TemporaryDirectory() as director_directory:

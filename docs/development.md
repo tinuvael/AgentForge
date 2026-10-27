@@ -37,7 +37,7 @@ explicitly. No command wipes, stamps or silently adopts an old database.
 
 The current head is `0004_specialists`, adding ToolJobs, private store identity and
 artifact descriptors (binary bytes stay outside SQLite). See
-[specialist validation and Phase B boundary](specialists.md).
+[specialist adapters, recovery and native acceptance](specialists.md).
 `0003_capability_policy` adds default-local Project egress,
 Task connection/policy snapshots and bounded connection resource evidence.
 `0002_gateway_client` adds nullable durable Task client ownership. The released
@@ -123,7 +123,10 @@ and CLI configuration listing only; they do not establish coding host readiness.
 Actual coding host/runtime validation still requires a real Git executable and
 the configured private workspace parent. The smoke checks:
 
-- All production module imports resolve under the clean venv.
+- All production module imports resolve under the clean venv, including the
+  import-safe packaged Blender script. Real ComfyUI/Blender adapter contracts run
+  with HTTP/executable fixtures, private publication and restart verification;
+  actual application/GPU acceptance remains opt-in in #31.
 - Migration scripts/template and dashboard templates, CSS, JS, HTMX/license data.
 - Console-script metadata and `--help` for the operator CLI and retained modules.
 - Installed diagnostic CLI health/probe/read with offline synthetic Providers,

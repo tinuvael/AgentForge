@@ -204,8 +204,9 @@ Scripted acceptance does not establish model quality, actual GPU use, Windows
 browser behavior or MacBook access. Keep those checks pending in
 [physical acceptance #31](https://github.com/tinuvael/AgentForge/issues/31).
 
-Phase A specialist discovery is available through `list_specialist_tools` when
-Gateway grants permit it. All shipped definitions are deterministic fakes. The
+Specialist discovery is available through `list_specialist_tools` when Gateway
+grants permit it. Definitions distinguish deterministic fakes from configured,
+untested ComfyUI HTTP and local Blender adapters; discovery does not probe hosts. The
 Local Director inference loop does not submit/cancel specialist jobs or receive
 artifact content; those workflows need explicit specialist client/resume semantics
 in a later phase. Codex or an SDK client can use the complete bounded MCP contract.
