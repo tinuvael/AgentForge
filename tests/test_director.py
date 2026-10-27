@@ -297,11 +297,14 @@ def test_policy_denial_and_explicit_selection(setup, tmp_path):
 
 def test_cancellation_timeout_and_bounded_active_requests(setup, tmp_path):
     async def scenario():
-        async with fixture(setup, tmp_path, limits={"active": 1, "seconds": 1}) as f:
+        # Cancellation must exercise an entered inference call. Discovery of the
+        # full typed catalog can legitimately consume a one-second run budget.
+        async with fixture(setup, tmp_path, limits={"active": 1, "seconds": 30}) as f:
             f.provider.release.clear()
             item = f.director.create("cli")
             running = asyncio.create_task(f.director.run(item.id, "cli", "Inspect."))
-            await f.provider.entered.wait()
+            async with asyncio.timeout(10):
+                await f.provider.entered.wait()
             other = f.director.create("other")
             with pytest.raises(DirectorError, match="director_busy"):
                 await f.director.run(other.id, "other", "Inspect.")
@@ -310,6 +313,13 @@ def test_cancellation_timeout_and_bounded_active_requests(setup, tmp_path):
                 await running
             assert f.director.load(item.id, "cli").state == "cancelled"
             assert not f.director.active and f.provider.cleaned == 1
+            # Keep the original strict timeout check as a separate phase. It is
+            # valid for this deadline to expire during discovery or inference.
+            f.director.config = f.director.config.model_copy(
+                update={
+                    "limits": f.director.config.limits.model_copy(update={"seconds": 1})
+                }
+            )
             timed = await f.director.run(other.id, "other", "Inspect.")
             assert timed.error == "timeout" and not f.director.active
 
@@ -417,5 +427,31 @@ def test_interactive_input_eof_and_cancellation(monkeypatch):
                 await pending
         finally:
             release.set()
+
+    asyncio.run(scenario())
+
+
+def test_deadline_during_discovery_does_not_require_inference_entry(setup, tmp_path):
+    async def scenario():
+        async with fixture(setup, tmp_path, limits={"active": 1, "seconds": 1}) as f:
+            entered = asyncio.Event()
+            release = asyncio.Event()
+
+            @asynccontextmanager
+            async def waiting_connector(_):
+                entered.set()
+                await release.wait()
+                yield None
+
+            f.director.connector = waiting_connector
+            item = f.director.create("cli")
+            running = asyncio.create_task(f.director.run(item.id, "cli", "Inspect."))
+            async with asyncio.timeout(5):
+                await entered.wait()
+                result = await running
+            assert result.state == "failed" and result.error == "timeout"
+            assert not f.provider.entered.is_set() and not f.provider.requests
+            assert not f.director.active and not result.submission
+            assert not setup.app.tasks.history()
 
     asyncio.run(scenario())
