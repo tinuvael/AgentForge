@@ -6,13 +6,14 @@ import os
 import subprocess
 import sys
 import sysconfig
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
 
-from agentforge.coding.config import ValidationCommand, load_coding
+from agentforge.coding.config import ValidationCommand
 from agentforge.director.models import WorkflowBinding
 from agentforge.workflows.models import Definition, InferenceStep
 from tests.test_coding_validation import run_validation
@@ -142,13 +143,15 @@ def test_shipped_pytest_validator_certifies_first_run_without_changing_inputs(
     )
     (purelib / "audit-tools.pth").write_text(sysconfig.get_path("purelib") + "\n")
     python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    example = load_coding(
-        str(Path(__file__).resolve().parents[1] / "config/coding.example.toml")
-    ).validations["pytest"]
+    # The shipped host paths are explicit POSIX placeholders. Bind the actual
+    # host executable before validating, exactly as an operator must on Windows.
+    example = tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "config/coding.example.toml").read_text()
+    )["validations"]["pytest"]["argv"]
     coding.manager.config = coding.manager.config.model_copy(
         update={
             "validations": {
-                "check": ValidationCommand(argv=(str(python), *example.argv[1:]))
+                "check": ValidationCommand(argv=(str(python), *example[1:]))
             }
         }
     )

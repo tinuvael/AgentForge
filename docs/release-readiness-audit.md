@@ -11,8 +11,8 @@ Starting SHA: `01314210f8875610711805850d9c5d8e85708beb`. Dedicated branch:
 The release revision is the PR head containing this report: resolve it with
 `git rev-parse HEAD`; its exact final SHA and final-head CI links are recorded in
 the [review PR #73](https://github.com/tinuvael/AgentForge/pull/73) description.
-Implementation revision: `16c8222eaeec27b7b2f2b40357a0e3e28e156ba9`; subsequent
-report-only checkpoints retain that implementation. A report cannot embed its own
+Runtime implementation revision: `16c8222eaeec27b7b2f2b40357a0e3e28e156ba9`;
+subsequent verification/report corrections retain that runtime. A report cannot embed its own
 containing commit's hash.
 Existing unrelated local `reports/` were preserved. No main update, merge or
 automatic merge was performed.
@@ -139,6 +139,13 @@ remote termination. Error-path tests retain a usable service or report it unavai
 The initial hosted workflow was rejected before job creation due to YAML parsing
 of the colon in the new binary-install argument. It was corrected to a command
 block and checked with a YAML parser; no failed test was hidden or assertion relaxed.
+The first native Windows regression run exposed one new test-fixture error:
+**1 failed / 1,699 passed / 89 skipped** on Python 3.12. The new validator test
+validated the sample's POSIX placeholder host paths before substituting its Windows
+executable. It now parses the shipped arguments, binds the actual host path and
+validates/runs that command; no skip or freshness assertion was relaxed. That same
+job passed both installed-distribution acceptances and both native PowerShell setup
+runs with Git **2.56.0.windows.2**, including the current `ucrt64` layout.
 
 Follow the checked [fresh-Windows sequence](first-launch.md), then #31's physical
 acceptance. Final-head check results and immutable hosted artifacts are linked from
