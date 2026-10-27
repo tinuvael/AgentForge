@@ -64,6 +64,8 @@ def package_checks():
         "db/migrations/versions/0003_capability_policy.py",
         "db/migrations/versions/0004_specialists.py",
         "db/migrations/versions/0005_workflows.py",
+        "web/templates/workflow.html",
+        "web/templates/workflows.html",
         "specialists/blender_script.py",
         "web/templates/base.html",
         "web/templates/tool_job.html",
@@ -511,7 +513,7 @@ async def smoke():
             assert {t.name for t in discovered.tools} == {
                 t.name for t in TOOL_CONTRACTS
             }
-            assert len(discovered.tools) == 23
+            assert len(discovered.tools) == 28
             watch_contract = next(t for t in discovered.tools if t.name == "watch_task")
             assert watch_contract.inputSchema["required"] == ["task_id"]
             assert "timeline" in watch_contract.outputSchema["properties"]

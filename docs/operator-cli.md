@@ -31,8 +31,9 @@ Status opens existing files read-only and never creates a missing database. It
 reports `current`, `uninitialized`, `unsupported`, `out_of_date` or `inaccessible`.
 `current` means the recorded revision matches the packaged head; this is not a
 full schema/data integrity audit. The first supported baseline is `0001_initial`;
-the current head is `0002_gateway_client`, adding durable submitting-client
-identity while preserving existing history. Old development revisions
+the current head is `0005_workflows`, adding bounded workflow history.
+`0002_gateway_client` added durable submitting-client identity; all subsequent
+additive revisions preserve existing history. Old development revisions
 remain `unsupported`. Empty storage is `uninitialized`;
 unstamped storage with existing tables/views is `unsupported` and cannot be
 adopted. Upgrade uses packaged Alembic migrations, does not wipe/stamp storage,

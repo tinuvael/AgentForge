@@ -44,7 +44,7 @@ icacls C:\AgentForgeState /inheritance:r /grant:r "${afAccount}:(OI)(CI)F"
 ```
 
 Existing installations must stop executors and back up the database/workspaces
-before upgrading to the current head (`0004_specialists`).
+before upgrading to the current head (`0005_workflows`).
 `0003_capability_policy` adds default-local Project egress,
 Task policy/connection snapshots and resource evidence; the earlier
 `0002_gateway_client` adds nullable submitting-client identity without changing old
