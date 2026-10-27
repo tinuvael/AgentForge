@@ -1094,3 +1094,26 @@ def test_operator_resource_review_and_revoked_read_scope(setup):
             await app.close()
 
     run(scenario())
+
+
+def test_default_review_flag_preserves_existing_worker_fingerprints(setup):
+    import hashlib
+    import json
+
+    app = setup.make(concurrency=1)
+    try:
+        worker = app._workers["text"]
+        legacy = {
+            "worker": worker.model_dump(
+                mode="json", exclude={"workflow_review_required"}
+            ),
+            "connection": None,
+        }
+        expected = hashlib.sha256(
+            json.dumps(legacy, sort_keys=True).encode()
+        ).hexdigest()
+        assert app.worker_policy.binding(worker)["target_fingerprint"] == expected
+        changed = worker.model_copy(update={"workflow_review_required": True})
+        assert app.worker_policy.binding(changed)["target_fingerprint"] != expected
+    finally:
+        app.database.dispose()
