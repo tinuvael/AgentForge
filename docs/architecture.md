@@ -32,6 +32,7 @@ guide for scoped credentials, one-use approvals and authenticated SSH forwarding
 | Task | Persists an explicit Project/Agent/Worker request and lifecycle. |
 | Council | Groups independent Tasks on explicitly selected Workers, preserving all outcomes. |
 | SpecialistTool | Explicit opt-in file-producing definition independent of inference Workers; ComfyUI HTTP and local headless Blender, alongside deterministic fakes. |
+| Workflow | Immutable bounded DAG and attempt history; dispatches ordinary children at TaskEngine queue boundaries. |
 | ToolJob / Artifact | Durable specialist lifecycle and private file descriptors in the same database; execution shares TaskEngine slots and ownership. |
 | CodingWorkspaceManager | Owns creation, authorization, inspection and explicit cleanup of Task worktrees. |
 
@@ -77,9 +78,9 @@ Real ComfyUI uses approved workflows and durable intent/receipt evidence. Blende
 4.5 runs a packaged reference-blockout operation on the Application host in private
 staging, using the existing bounded process-tree runner. PNG metadata and the
 selected self-contained glTF exporter profile have explicit bounded validators. The local-only
-Director may discover those definitions; specialist writes/binary content are
-excluded from its inference loop. Native physical acceptance and mesh manufacturing checks remain #31; a workflow
-DAG remains #53. Known ComfyUI receipts reconcile through existing slots without
+Director can execute approved specialist chains through bounded workflows; binary
+content and direct specialist submissions remain excluded from its inference loop.
+Native physical acceptance and mesh manufacturing checks remain #31. Known ComfyUI receipts reconcile through existing slots without
 resubmission; ambiguous submissions stay recovery-required. Local cancellation
 does not claim remote interruption. Trusted node/Blender Python execution is not
 an OS/network sandbox. No new schema is needed for optional ToolJob JSON evidence.
@@ -399,3 +400,35 @@ filtered before pagination. `application.selection` only projects advisory evide
 the Director retains exact selection. New Task connection/fingerprint snapshots
 prevent queued-target rebinding; historical identities remain unchanged.
 See [policy design, migration and operator trust assumptions](worker-policy.md).
+
+
+## Bounded workflow coordination (#53)
+
+`workflows` owns typed immutable plans, dependency/result validation and bounded
+attempt state. Application composes it over the existing SQLite sessions. TaskEngine
+calls synchronous coordination at queue boundaries, then executes ordinary children
+in its existing slots. The idle executor wakes for workflow deadlines; there is no
+second executor, independent polling scheduler, workflow background task or pool.
+One workflow accepts one active child at a time. Concurrency one makes progress.
+
+An attempt intent commits its deterministic dispatch identity and exact resolved
+inputs before child creation. Task primary-key idempotency and existing ToolJob
+request uniqueness reconcile creation/linkage process death. Completed children are
+observed, never rerun. `0005_workflows` adds retained plan/attempt snapshots and
+optional restricted Task execution limits. Existing schema/data remain preserved.
+Required coder validation uses the latest durable invocation per named validator,
+with pre/post workspace content/mode identity and the existing write counter.
+Only matching final workspace evidence certifies success; incomplete or historical
+evidence fails closed. Local Director reserves workflow attempt budgets atomically
+with the pending idempotent request before I/O, then binds the response in one
+journal checkpoint. Recovery observes/reuses that charge and never resets it.
+
+Gateway installs a current identity-policy resolver before startup/recovery. Client
+credentials never enter workflow records. Every new dispatch revalidates bindings,
+Project/client authorization, policy and inputs. Trusted operator scope review is
+outside the model catalog; Local Director uses existing authenticated MCP and its
+human approval controls for resume/cancel. Private artifact bytes/paths are absent
+from inference result references. Recovery-required effects never become automatic
+new attempts; existing ComfyUI receipt observation remains intact. See
+[workflow lifecycle, recovery and limits](workflows.md) and the
+[pre-implementation design](issue-53-design.md).

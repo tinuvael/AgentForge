@@ -346,3 +346,9 @@ and may be intentionally LAN-bound by the operator. It is not an embedded Codex 
 Optional per-device [global Codex MCP setup](docs/codex-integration.md) provides
 discovery and delegation guidance across repositories with a single-client local
 stdio deployment. Real client acceptance remains separate from offline tests.
+
+
+Bounded artifact/text workflows are available to external Codex and Local Director
+through the shared authenticated MCP catalog. See [workflow examples, scoped human
+review and recovery](docs/workflows.md). The [roadmap](docs/roadmap.md) distinguishes
+automated acceptance from untested physical-device checks in #31.

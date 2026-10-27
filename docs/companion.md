@@ -203,3 +203,13 @@ all authenticated MCP clients. Companion remains a trusted loopback-only operato
 surface on port 8765; MCP ingress on port 8766 contains no Dashboard routes.
 Closing a Codex client does not stop the service or Tasks. See the
 [Gateway operator guide](gateway.md) for lifecycle, access grants and private TLS.
+
+
+## Workflow operations
+
+The shared operator surface exposes `/workflows` with full step/attempt lifecycle,
+dependencies, scope review, exact inputs/targets/limits, child Task/ToolJob links,
+retained workspace and artifact metadata, safe failures and recovery state.
+Controls reuse Host/Origin/CSRF and explicit confirmation. The Companion and Local
+Director chat link to these views. Refresh reads persisted facts; closing a page
+or Director request does not cancel accepted work. See [workflows](workflows.md).

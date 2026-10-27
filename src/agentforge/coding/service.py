@@ -2,6 +2,7 @@
 
 import difflib
 import hashlib
+import json
 import os
 import stat
 import sys
@@ -412,6 +413,56 @@ class CodingWorkspaceManager:
         with self._git(row) as git:
             return git.tree(row["base_commit"], row["prefix"])
 
+    def validation_identity(self, task_id):
+        """Bounded content/mode identity of all validator inputs below tool root.
+
+        Unlike public source/diff traversal, include private and ignored files.
+        Only the root Git association is excluded. Unsafe/uninspectable trees
+        cannot certify validation; no bytes or paths enter the public identity.
+        """
+        digest = hashlib.sha256()
+        entries = total = 0
+
+        def visit(root, parts=()):
+            nonlocal entries, total
+            if len(parts) > 64:
+                raise CodingLimit("Validation inspection depth exceeded")
+            location = (
+                "\\\\?\\" + root.path if isinstance(root, WindowsDirectory) else root.fd
+            )
+            with os.scandir(location) as scan:
+                names = sorted(entry.name for entry in scan)
+            for name in names:
+                if not parts and name == ".git":
+                    continue
+                entries += 1
+                if entries > 10_000:
+                    raise CodingLimit("Validation inspection entry limit exceeded")
+                self.filesystem.validate_parts((name,))
+                info = self.filesystem.stat(root, name)
+                path = (*parts, name)
+                if stat.S_ISDIR(info.st_mode):
+                    with self.filesystem.directory(
+                        root, (name,), expected=info
+                    ) as child:
+                        visit(child, path)
+                    value = [path, "directory"]
+                else:
+                    data, partial = fs.read_bytes(root, name, 2_097_152)
+                    total += len(data)
+                    if partial or total > 256 * 1024 * 1024:
+                        raise CodingLimit("Validation inspection byte limit exceeded")
+                    value = [
+                        path,
+                        info.st_mode & 0o777,
+                        hashlib.sha256(data).hexdigest(),
+                    ]
+                digest.update(json.dumps(value, ensure_ascii=True).encode() + b"\n")
+
+        with self.open_root(task_id) as (_, root):
+            visit(root)
+        return digest.hexdigest()
+
     def diff(self, task_id, *, max_bytes=None):
         row = self._record(task_id)
         cap = min(
@@ -585,6 +636,14 @@ class CodingWorkspaceManager:
             ValidationRun.model_validate(run)
             for run in observations.get("validation_runs", [])
         )
+        workspace_sha256 = observations.get("workspace_sha256")
+        if inspect_current:
+            workspace_sha256 = None
+            if diff is not None and runs:
+                try:
+                    workspace_sha256 = self.validation_identity(task_id)
+                except Exception:
+                    pass  # Missing/unsafe evidence cannot certify final validation.
         # A retained diff snapshot (including an empty one) supersedes edited
         # paths. Edits already enforce max_changed_files before persisting paths;
         # cached reads reuse those bounded facts without computing a live diff.
@@ -611,6 +670,7 @@ class CodingWorkspaceManager:
             write_calls=observations.get("write_calls", 0),
             bytes_written=observations.get("bytes_written", 0),
             validation_duration_seconds=sum(run.duration_seconds for run in runs),
+            workspace_sha256=workspace_sha256,
         )
 
     def finalize(self, task):
@@ -619,6 +679,14 @@ class CodingWorkspaceManager:
             return
         observations = dict(row["observations"])
         observations["termination_reason"] = getattr(task, "reason", None)
+        observations["workspace_sha256"] = None
+        if observations.get("validation_runs"):
+            try:
+                observations["workspace_sha256"] = self.validation_identity(
+                    task.task_id
+                )
+            except Exception:
+                pass
         try:
             diff = self.diff(task.task_id)
         except Exception:
@@ -975,7 +1043,23 @@ class CodingSession:
         if row["state"] != "ready":
             raise CodingError("Only the active coding Task may run validation")
         observations["validation_count"] = count + 1
+        # Reserve an ordered invocation BEFORE inspection/process I/O. Failure
+        # before a result is saved must supersede an earlier successful run too.
+        runs = observations.get("validation_runs", [])
+        run_index = len(runs)
+        observations["validation_runs"] = [
+            *runs,
+            ValidationRun(
+                name=arguments.name, exit_code=None, duration_seconds=0
+            ).model_dump(mode="json"),
+        ]
         self.manager.repository.update(self.task.task_id, observations=observations)
+        workspace_sha256 = None
+        try:
+            workspace_sha256 = self.manager.validation_identity(self.task.task_id)
+        except Exception:
+            pass  # Ordinary named validation still runs; it cannot certify freshness.
+        write_calls = observations.get("write_calls", 0)
         executable = Path(command.argv[0])
         _, tool_root = self.manager._paths(row)
 
@@ -1001,6 +1085,17 @@ class CodingSession:
                 redact(run.stderr),
                 self.manager.config.limits.max_validation_output_bytes,
             )
+            current = self.manager._record(self.task.task_id)["observations"]
+            unchanged = False
+            try:
+                unchanged = (
+                    workspace_sha256 is not None
+                    and current.get("write_calls", 0) == write_calls
+                    and self.manager.validation_identity(self.task.task_id)
+                    == workspace_sha256
+                )
+            except Exception:
+                pass
             run = run.model_copy(
                 update={
                     "name": arguments.name,
@@ -1008,13 +1103,12 @@ class CodingSession:
                     "stderr": err,
                     "stdout_truncated": run.stdout_truncated or out_partial,
                     "stderr_truncated": run.stderr_truncated or err_partial,
+                    "workspace_sha256": workspace_sha256 if unchanged else None,
+                    "workspace_write_calls": write_calls,
                 }
             )
             observations = dict(self.manager._record(self.task.task_id)["observations"])
-            observations["validation_runs"] = [
-                *observations.get("validation_runs", []),
-                run.model_dump(mode="json"),
-            ]
+            observations["validation_runs"][run_index] = run.model_dump(mode="json")
             self.manager.repository.update(self.task.task_id, observations=observations)
             self._observe_validation(
                 run.exit_code == 0 and not run.timed_out and not run.cancelled,

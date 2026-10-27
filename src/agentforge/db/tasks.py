@@ -123,9 +123,14 @@ class TaskRepository:
         target_fingerprint: str | None = None,
         task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
         now: datetime,
+        task_id: UUID | None = None,
+        execution_limits=None,
     ) -> TaskRecord:
         return TaskRecord(
-            task_id=uuid4(),
+            task_id=task_id or uuid4(),
+            execution_limits=execution_limits.model_dump(mode="json")
+            if execution_limits
+            else None,
             client_id=client_id,
             provider_connection=provider_connection,
             target_fingerprint=target_fingerprint,
@@ -154,9 +159,34 @@ class TaskRepository:
         provider_connection: str | None = None,
         target_fingerprint: str | None = None,
         task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
+        task_id: UUID | None = None,
+        execution_limits=None,
     ) -> Task:
         with self._session() as session:
+            if task_id is not None and (existing := session.get(TaskRecord, task_id)):
+                value = _task(existing)
+                if (
+                    value.project_id,
+                    value.agent_id,
+                    value.worker_id,
+                    value.request,
+                    value.client_id,
+                    value.task_policy,
+                    value.execution_limits,
+                ) != (
+                    project_id,
+                    agent_id,
+                    worker_id,
+                    request,
+                    client_id,
+                    task_policy,
+                    execution_limits,
+                ):
+                    raise TaskValidationError("Dispatch identity conflict")
+                return value
             record = self._queued_record(
+                task_id=task_id,
+                execution_limits=execution_limits,
                 now=datetime.now(UTC),
                 provider_connection=provider_connection,
                 target_fingerprint=target_fingerprint,

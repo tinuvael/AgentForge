@@ -267,7 +267,7 @@ def add_director_routes(web, render, valid_csrf):
     @web.post("/director/{identity}/resume")
     async def resume(request: Request, identity: UUID):
         svc, item, data = await mutation(request, identity, set())
-        if data or item.pending or item.submission:
+        if data or item.pending or (item.submission and not item.pending_workflow):
             raise HTTPException(409)
         svc.start(item, request.state.director_owner, resume=True)
         await asyncio.sleep(0)

@@ -28,6 +28,7 @@ RequestText = Annotated[
     str, StringConstraints(strict=True, min_length=1, max_length=32_768, pattern=r"\S")
 ]
 ErrorCode = Literal[
+    "workflow_error",
     "access_denied",
     "resource_limit",
     "policy_denied",
@@ -133,6 +134,7 @@ class Capabilities(Contract):
     advisory_operations: tuple[str, ...] = ("suggest_workers",)
     council_operations: tuple[str, ...]
     coding_operations: tuple[str, ...] = ()
+    workflow_operations: tuple[str, ...] = ()
     specialist_operations: tuple[str, ...] = ()
     council_max_participants: Literal[16] = MAX_PARTICIPANTS
     repository_access: Literal[

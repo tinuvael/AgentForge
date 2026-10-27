@@ -128,6 +128,16 @@ class CredentialStore(TokenVerifier):
                 break
         raise ServiceError("access_denied")
 
+    def client(self, client_id):
+        for client in self.load().clients:
+            if (
+                client.client_id == client_id
+                and client.enabled
+                and (client.expires_at is None or time.time() < client.expires_at)
+            ):
+                return client
+        raise ServiceError("access_denied")
+
     async def verify_token(self, token: str) -> AccessToken | None:
         if not 32 <= len(token) <= 256 or not token.isascii():
             return None

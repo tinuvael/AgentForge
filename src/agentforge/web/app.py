@@ -37,6 +37,7 @@ from agentforge.tasks.models import (
 from agentforge.tasks.observation import ObservationUnavailable
 from agentforge.telemetry.models import TelemetryUnavailable
 from agentforge.workers.diagnostics import DiagnosticsUnavailable
+from agentforge.workflows.models import WorkflowError
 
 _ASSETS = Path(__file__).parent
 _COOKIE = "agentforge_csrf"
@@ -215,6 +216,8 @@ def create_app(
         request.state.csrf = token
         try:
             response = await call_next(request)
+        except WorkflowError as error:
+            response = failure(request, error.code, 409)
         except SpecialistError:
             response = failure(request, "specialist_unavailable", 409)
         except CodingError:
@@ -348,6 +351,56 @@ def create_app(
     @web.get("/tasks/{task_id}", response_class=HTMLResponse)
     async def task(request: Request, task_id: UUID):
         return detail_response(request, task_id)
+
+    @web.get("/workflows", response_class=HTMLResponse)
+    async def workflows(request: Request):
+        values = query(request)
+        items = core().workflows.repository.list(
+            limit=values.limit + 1, offset=values.offset
+        )
+        return render(
+            request,
+            "workflows.html",
+            workflows=items[: values.limit],
+            **pagination(request, values, len(items) > values.limit),
+        )
+
+    @web.get("/workflows/{workflow_id}", response_class=HTMLResponse)
+    async def workflow(request: Request, workflow_id: UUID):
+        value = core().get_workflow(workflow_id=workflow_id)
+        return render(
+            request,
+            "workflow.html",
+            workflow=value,
+            rows=tuple(zip(value.definition.steps, value.steps, strict=True)),
+        )
+
+    @web.post("/workflows/{workflow_id}/{operation}", response_class=HTMLResponse)
+    async def workflow_control(request: Request, workflow_id: UUID, operation: str):
+        if operation not in {"pause", "resume", "cancel"}:
+            raise HTTPException(404)
+        await check_cancellation(request)
+        getattr(core(), operation + "_workflow")(workflow_id=workflow_id)
+        return RedirectResponse(f"/workflows/{workflow_id}", status_code=303)
+
+    @web.post("/workflows/{workflow_id}/review/{step_id}/{scope_hash}/{decision}")
+    async def workflow_review(
+        request: Request,
+        workflow_id: UUID,
+        step_id: str,
+        scope_hash: str,
+        decision: str,
+    ):
+        if decision not in {"approve", "reject"}:
+            raise HTTPException(404)
+        await check_cancellation(request)
+        core().workflows.review(
+            workflow_id=workflow_id,
+            step_id=step_id,
+            scope_hash=scope_hash,
+            approve=decision == "approve",
+        )
+        return RedirectResponse(f"/workflows/{workflow_id}", status_code=303)
 
     @web.get("/tool-jobs", response_class=HTMLResponse)
     async def tool_jobs(request: Request):

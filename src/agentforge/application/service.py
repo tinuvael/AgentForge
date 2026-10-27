@@ -183,6 +183,11 @@ class Application:
         )
         if self.specialists is not None:
             self.specialists.engine = self.tasks
+        from agentforge.db.workflows import WorkflowRepository
+        from agentforge.workflows.service import WorkflowService
+
+        self.workflows = WorkflowService(self, WorkflowRepository(sessions))
+        self.tasks.workflows = self.workflows
         self.councils = CouncilService(
             CouncilRepository(sessions),
             self.tasks,
@@ -292,6 +297,13 @@ class Application:
             )
             if self.coding
             else (),
+            workflow_operations=(
+                "submit_workflow",
+                "get_workflow",
+                "pause_workflow",
+                "resume_workflow",
+                "cancel_workflow",
+            ),
             specialist_operations=(
                 "list_specialist_tools",
                 "submit_tool_job",
@@ -337,6 +349,21 @@ class Application:
             ),
             next_offset=offset + limit if len(values) > limit else None,
         )
+
+    def submit_workflow(self, **fields):
+        return self.workflows.submit(**fields)
+
+    def get_workflow(self, *, workflow_id):
+        return self.workflows.repository.get(workflow_id)
+
+    def pause_workflow(self, *, workflow_id):
+        return self.workflows.control(workflow_id, "pause")
+
+    def resume_workflow(self, *, workflow_id):
+        return self.workflows.control(workflow_id, "resume")
+
+    def cancel_workflow(self, *, workflow_id):
+        return self.workflows.control(workflow_id, "cancel")
 
     def specialist_service(self):
         if self.specialists is None:
@@ -415,6 +442,8 @@ class Application:
         task: str,
         client_id: str | None = None,
         task_policy: TaskPolicy = DEFAULT_TASK_POLICY,
+        _dispatch_id=None,
+        _execution_limits=None,
     ) -> TaskSnapshot:
         if not self.tasks.available:
             raise ServiceError("service_unavailable")
@@ -430,6 +459,8 @@ class Application:
                 agent_id=agent_id,
                 worker_id=worker_id,
                 task=task,
+                _dispatch_id=_dispatch_id,
+                _execution_limits=_execution_limits,
                 task_policy=task_policy,
                 client_id=client_id,
             )

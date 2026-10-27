@@ -56,7 +56,12 @@ class WorkerPolicy:
     def binding(self, worker):
         connection = self.connection(worker)
         payload = {
-            "worker": worker.model_dump(mode="json"),
+            "worker": worker.model_dump(
+                mode="json",
+                exclude={"workflow_review_required"}
+                if not worker.workflow_review_required
+                else set(),
+            ),
             "connection": connection.model_dump(mode="json") if connection else None,
         }
         return {

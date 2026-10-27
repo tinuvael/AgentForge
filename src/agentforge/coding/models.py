@@ -57,6 +57,9 @@ class ValidationRun(BaseModel):
     stderr: str = ""
     stdout_truncated: bool = False
     stderr_truncated: bool = False
+    # Missing evidence in historical/interrupted runs never certifies final code.
+    workspace_sha256: str | None = None
+    workspace_write_calls: int | None = None
 
 
 class CodingResult(BaseModel):
@@ -85,6 +88,19 @@ class CodingResult(BaseModel):
     write_calls: int = 0
     bytes_written: int = 0
     validation_duration_seconds: float = 0.0
+    workspace_sha256: str | None = None
+
+    def validators_succeeded(self, names):
+        latest = {run.name: run for run in self.validation_runs}
+        return bool(self.inspection_available and self.workspace_sha256) and all(
+            (run := latest.get(name)) is not None
+            and run.exit_code == 0
+            and not run.timed_out
+            and not run.cancelled
+            and run.workspace_sha256 == self.workspace_sha256
+            and run.workspace_write_calls == self.write_calls
+            for name in names
+        )
 
 
 class CodingDiff(BaseModel):

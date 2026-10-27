@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% from "macros.html" import page_header, badge, timestamp %}
+{% block title %}Workflow {{ workflow.workflow_id }} · AgentForge{% endblock %}
+{% block location %}Workflows{% endblock %}
+{% block content %}
+{{ page_header("Workflow", "Review exact effects before approval. Accepted children may finish while paused. Cancellation can leave remote effects running and coding workspaces retained.") }}
+<p><a href="/workflows">← Workflows</a> · <a href="{{ request.url.path }}">Refresh status</a> · <a href="/companion">Companion</a></p>
+<section class="panel"><h2>{{ badge(workflow.state) }} {{ workflow.workflow_id }}</h2>
+<dl class="facts"><dt>Project / submitting client</dt><dd>{{ workflow.definition.project_id }} / {{ workflow.client_id or 'trusted local' }}</dd>
+<dt>Created / updated / finished (UTC)</dt><dd>{{ timestamp(workflow.created_at) }} / {{ timestamp(workflow.updated_at) }} / {{ timestamp(workflow.finished_at) }}</dd>
+<dt>Failure / recovery</dt><dd>{{ workflow.failure_category|known }}</dd><dt>Limits</dt><dd>{{ workflow.definition.max_attempts }} total attempts · {{ workflow.definition.timeout_seconds }} seconds, including waits</dd></dl>
+{% if workflow.state not in ['completed', 'failed', 'cancelled'] %}<div class="actions">{% for operation in ['pause', 'resume', 'cancel'] %}<form method="post" action="/workflows/{{ workflow.workflow_id }}/{{ operation }}"><input type="hidden" name="csrf" value="{{ csrf }}"><label><input type="checkbox" name="confirm" value="yes" required> Confirm {{ operation }}</label><button type="submit">{{ operation|capitalize }} workflow</button></form>{% endfor %}</div>{% endif %}
+</section>
+<ol>{% for step, run in rows %}<li><section class="panel"><h2>{{ step.step_id }} {{ badge(run.state) }}</h2>
+<p>Dependencies: {{ step.depends_on|join(', ') or 'None' }} · {{ step.kind }} · Target {{ step.tool_id if step.kind == 'specialist' else step.agent_id ~ ' / ' ~ step.worker_id }}</p>
+<details><summary>Recorded execution target</summary><pre>{{ workflow.targets[loop.index0]|tojson(indent=2) if workflow.targets else "Historical target" }}</pre></details>
+<p>Intended effect: {{ step.intended_effect }}</p><p>Failure: {{ run.failure_category|known }} · Attempts {{ run.attempts|length }} / {{ step.retry.max_attempts }}</p>
+<details><summary>Immutable step and applicable limits</summary><pre>{{ step.model_dump_json(indent=2) }}</pre></details>
+{% for attempt in run.attempts %}<h3>Attempt {{ attempt.number }} · {{ attempt.state }}</h3><p>Review reasons: {{ attempt.effects|join(", ") or "No additional review required" }}</p><dl class="facts"><dt>Created / started / finished</dt><dd>{{ timestamp(attempt.created_at) }} / {{ timestamp(attempt.started_at) }} / {{ timestamp(attempt.finished_at) }}</dd><dt>Approval</dt><dd>{{ timestamp(attempt.approved_at) }} · Scope <code>{{ attempt.scope_hash }}</code></dd><dt>Failure / recovery</dt><dd>{{ attempt.failure_category|known }}</dd><dt>Child / retained result</dt><dd>{% if attempt.task_id %}<a href="/tasks/{{ attempt.task_id }}">Task and retained workspace {{ attempt.task_id }}</a>{% endif %}{% if attempt.tool_job_id %}<a href="/tool-jobs/{{ attempt.tool_job_id }}">ToolJob and artifact metadata {{ attempt.tool_job_id }}</a>{% endif %}</dd><dt>Artifact outputs</dt><dd>{% for aid in attempt.artifact_ids %}<code>{{ aid }}</code> {% else %}None{% endfor %}</dd></dl>
+<details{% if run.state == 'approval' %} open{% endif %}><summary>Exact resolved inputs for this attempt</summary><pre>{{ attempt.inputs|tojson(indent=2) }}</pre></details>
+{% if attempt.result_text %}<pre>{{ attempt.result_text }}</pre>{% endif %}
+{% if run.state == 'approval' and loop.last and workflow.state not in ['cancelled', 'cancelling', 'failed'] %}<p>Approval authorizes this exact immutable operation, target, inputs, limits and attempt. Current permissions and input integrity are checked again before dispatch.</p>{% for decision in ['approve', 'reject'] %}<form method="post" action="/workflows/{{ workflow.workflow_id }}/review/{{ step.step_id }}/{{ attempt.scope_hash }}/{{ decision }}"><input type="hidden" name="csrf" value="{{ csrf }}"><label><input type="checkbox" name="confirm" value="yes" required> Confirm {{ decision }} of step {{ step.step_id }}</label><button type="submit">{{ decision|capitalize }} this scope</button></form>{% endfor %}{% endif %}
+{% endfor %}</section></li>{% endfor %}</ol>
+{% endblock %}

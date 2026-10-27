@@ -35,8 +35,9 @@ Their databases are not an upgrade source. Preserve/export any development histo
 and uncommitted workspaces you need, then select a fresh database and register roots
 explicitly. No command wipes, stamps or silently adopts an old database.
 
-The current head is `0004_specialists`, adding ToolJobs, private store identity and
-artifact descriptors (binary bytes stay outside SQLite). See
+The current head is `0005_workflows`, adding durable bounded workflow snapshots
+and optional per-Task runtime restrictions. `0004_specialists` adds ToolJobs,
+private store identity and artifact descriptors (binary bytes stay outside SQLite). See
 [specialist adapters, recovery and native acceptance](specialists.md).
 `0003_capability_policy` adds default-local Project egress,
 Task connection/policy snapshots and bounded connection resource evidence.
@@ -222,3 +223,11 @@ and the [operator/physical acceptance guide](gateway.md).
 The existing nine-job acceptance matrix also runs on `codex/**` branch pushes,
 so a dedicated task branch can be validated before opening its review PR.
 PR validation and the native APFS acceptance step remain unchanged.
+
+
+Workflow installed-package acceptance runs `scripts/verify_workflows.py`, including
+synthetic artifact exchange, source exploration, isolated coder with named trusted
+validation, concurrency-one progress, retained child/artifact identities on restart,
+and actual Local Director workflow calls through native scripted HTTP inference
+and the authenticated Gateway. This acceptance requires local Git; it never runs
+Blender, ComfyUI, GPU or billable inference. See [workflow checks](workflows.md).

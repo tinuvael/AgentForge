@@ -120,6 +120,8 @@ class Journal:
     def create(self, owner, gateway_identity):
         if sum(1 for _ in self.root.glob("*.json")) >= self.limit:
             raise ValueError("Conversation capacity reached; clear old conversations")
-        item = Conversation(owner=owner, gateway_identity=gateway_identity)
+        item = Conversation(
+            owner=owner, gateway_identity=gateway_identity, workflow_reservations={}
+        )
         self.save(item)
         return item

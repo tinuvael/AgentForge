@@ -285,3 +285,13 @@ labels simulated outputs. Integrity status, formats, hashes, input relationships
 expiry and unassessed printability are inspectable; binary transfers use the
 explicitly authorized MCP retrieval operation. The page explains opt-in setup when
 specialists are disabled. See [specialist operators guide](specialists.md).
+
+
+## Workflow operations
+
+The shared operator surface exposes `/workflows` with full step/attempt lifecycle,
+dependencies, scope review, exact inputs/targets/limits, child Task/ToolJob links,
+retained workspace and artifact metadata, safe failures and recovery state.
+Controls reuse Host/Origin/CSRF and explicit confirmation. The Companion and Local
+Director chat link to these views. Refresh reads persisted facts; closing a page
+or Director request does not cancel accepted work. See [workflows](workflows.md).

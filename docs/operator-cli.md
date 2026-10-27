@@ -31,8 +31,9 @@ Status opens existing files read-only and never creates a missing database. It
 reports `current`, `uninitialized`, `unsupported`, `out_of_date` or `inaccessible`.
 `current` means the recorded revision matches the packaged head; this is not a
 full schema/data integrity audit. The first supported baseline is `0001_initial`;
-the current head is `0002_gateway_client`, adding durable submitting-client
-identity while preserving existing history. Old development revisions
+the current head is `0005_workflows`, adding bounded workflow history.
+`0002_gateway_client` added durable submitting-client identity; all subsequent
+additive revisions preserve existing history. Old development revisions
 remain `unsupported`. Empty storage is `uninitialized`;
 unstamped storage with existing tables/views is `unsupported` and cannot be
 adopted. Upgrade uses packaged Alembic migrations, does not wipe/stamp storage,
@@ -208,3 +209,15 @@ for explicit paths, dry runs, backups and the mandatory single-client restrictio
 `--allow-connection <id>` sets durable operator authorization while executors are
 stopped. It requires `--database-url`; no remote/Agent tool can run this operation.
 Legacy/new Projects default to local-only. See [policy migration and examples](worker-policy.md).
+
+
+## Workflow operator setup
+
+Upgrade stopped storage to `0005_workflows` using the existing migration command;
+start the same single Gateway/Application with normal Worker/coding/specialist
+configuration. No workflow daemon or second SQLite owner is needed. Grant the
+five workflow operations plus each planned step's underlying operations and exact
+bindings in the private client policy. Mark GPU-heavy local Workers with
+`workflow_review_required = true`. Use `/workflows` in the trusted loopback
+Dashboard/Companion for scoped review and pause/resume/cancel. See
+[workflow setup, limits and recovery](workflows.md).

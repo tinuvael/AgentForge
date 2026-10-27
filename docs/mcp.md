@@ -525,7 +525,20 @@ Real ComfyUI HTTP and local headless Blender 4.5 adapters are disabled by defaul
 deterministic fake adapters remain available. Typed parameters, operator-approved
 workflows/operations and durable receipt evidence do not grant arbitrary execution.
 ComfyUI cancellation stops local work; remote execution may continue. Local Director
-remains discovery-only for specialists with its approval/resume boundary unchanged.
+can submit bounded workflows and inspect job/artifact metadata; binary retrieval
+and direct specialist writes remain outside its inference loop.
 Binary retrieval is explicit,
 Project/client authorized and capped at 49152 bytes per base64 chunk; keep these
 bytes out of model prompts. See [contracts, demo and security](specialists.md).
+
+
+## Workflows (#53)
+
+`submit_workflow(definition, idempotency_key)` returns a typed immutable definition
+and durable workflow/step/attempt snapshot. `get_workflow(workflow_id)` reads it;
+`pause_workflow`, `resume_workflow` and `cancel_workflow` control it without changing
+the plan. Workflow ownership is transport-derived, scoped to one submitting client.
+No MCP approval operation exists. Required underlying per-step grants, retry rules,
+references, limits, lifecycle and recovery are specified in [workflows](workflows.md).
+Submission safely reuses a durable idempotency identity after disconnect; waiting
+and transport lifetime do not own execution. Old single-Task contracts remain valid.
