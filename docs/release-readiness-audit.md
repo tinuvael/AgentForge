@@ -10,7 +10,10 @@ Starting SHA: `01314210f8875610711805850d9c5d8e85708beb`. Dedicated branch:
 `audit/release-readiness-20261027`, created directly from fetched `origin/main`.
 The release revision is the PR head containing this report: resolve it with
 `git rev-parse HEAD`; its exact final SHA and final-head CI links are recorded in
-the PR description. A report cannot embed its own containing commit's hash.
+the [review PR #73](https://github.com/tinuvael/AgentForge/pull/73) description.
+Implementation revision: `16c8222eaeec27b7b2f2b40357a0e3e28e156ba9`; subsequent
+report-only checkpoints retain that implementation. A report cannot embed its own
+containing commit's hash.
 Existing unrelated local `reports/` were preserved. No main update, merge or
 automatic merge was performed.
 
@@ -44,7 +47,8 @@ error. These are recorded as execution-environment failures, not release passes.
 The full immutable baseline above used the necessary loopback/process permissions.
 The existing deliberately invalid SQLite-URI test emits one SQLAlchemy warning.
 
-Available locally: native macOS/APFS, Git, Python, Codex configuration parser,
+Available locally: native macOS/APFS, Git, Python, Codex 0.164.0-alpha.11.1 configuration parser,
+Swift/Xcode 26.6 (17F113; project validators not exercised),
 loopback HTTP/TLS and subprocesses. No Windows OS, RTX 4080, NVIDIA driver,
 Ollama model, real ComfyUI service or owner's Mac/Windows client connection was
 available. Official Blender **4.5.9 LTS**, build `8bf95cbd38d1`, was temporarily
@@ -98,8 +102,12 @@ remote termination. Error-path tests retain a usable service or report it unavai
 
 ## Reproducible release evidence
 
-- `python -m pytest -ra --tb=short --junitxml=...`: complete local result recorded in
-  the PR; exact platform skips remain in JUnit. Full hosted regression and installed
+- Local full suite: **1,760 passed / 29 skipped / 0 failed**, **787.69 s**, one
+  existing SQLite configuration warning. The final focused external-cwd Git check
+  and release regressions also passed (**11 passed**). Source-suite venv differences
+  from the fresh baseline above: pip 24.3.1, Starlette 1.9.0, sse-starlette 3.5.0,
+  ruff 0.17.2. Fresh installed environments used Starlette 1.10.0/sse-starlette 3.6.0.
+- `python -m pytest -ra --tb=short --junitxml=...`: exact platform skips remain in JUnit. Full hosted regression and installed
   acceptance run on Ubuntu 24.04, Windows 2025 and macOS 15 × Python 3.12/3.13/3.14.
 - `ruff check .`, `ruff format --check .`, `git diff --check` and committed
   `scripts/ci_check_whitespace.py --base 01314210f8875610711805850d9c5d8e85708beb`
@@ -108,6 +116,10 @@ remote termination. Error-path tests retain a usable service or report it unavai
   each independently with uncached binary dependencies; helpers/config examples,
   cwd and package imports live outside source. Every job uploads exact environment,
   dependency freeze, pytest/skip evidence and separate wheel/sdist results.
+  Both clean local installations **passed**, including pip consistency and all
+  installed public-interface helpers. The local wheel SHA-256 is
+  `0aaadd2113ff3319af6eafe61e8fb009786d2aab3a6ae1eda32c2991d2a99162`;
+  final per-job source/wheel digests and complete freezes are in CI artifacts.
 - `verify_workflows.py` follows CLI migration/registration/configuration → one
   Gateway + Companion → authenticated discovery/Task/get/watch/cancel → artifact
   workflow → Explorer/Coder/required validator and real CSRF scope review → actual
@@ -118,6 +130,15 @@ remote termination. Error-path tests retain a usable service or report it unavai
   adapter/process/artifact/restart path on CPU with a fixture ComfyUI transport.
   [Captured profile and checksum](../scripts/fixtures/README.md) permit reproduction;
   default CI uses executable fixtures and claims no real Blender invocation.
+- Actual in-app browser review of the disposable offline approval page at
+  **375×812** and **844×390**: document width equalled viewport width (375/844),
+  one main region, exact approval binding and expanded Clear recovery guidance
+  visible in DOM/accessibility state. This is a Mac browser fixture check; it does
+  not replace Windows browser or device acceptance. Preview server/tab were closed.
+
+The initial hosted workflow was rejected before job creation due to YAML parsing
+of the colon in the new binary-install argument. It was corrected to a command
+block and checked with a YAML parser; no failed test was hidden or assertion relaxed.
 
 Follow the checked [fresh-Windows sequence](first-launch.md), then #31's physical
 acceptance. Final-head check results and immutable hosted artifacts are linked from
