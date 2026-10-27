@@ -989,7 +989,10 @@ asyncio.run(main())
     run(recover())
 
 
-def test_overall_deadline_bounds_running_child_with_one_slot(setup):
+@pytest.mark.parametrize("early_timer", [False, True])
+def test_overall_deadline_bounds_running_child_with_one_slot(
+    setup, monkeypatch, early_timer
+):
     async def scenario():
         app = setup.make(concurrency=1)
         provider = provider_for(app)
@@ -1010,6 +1013,16 @@ def test_overall_deadline_bounds_running_child_with_one_slot(setup):
                 ),
                 idempotency_key="deadline",
             )
+            if early_timer:
+                # Reproduce a monotonic budget expiring while UTC is still before
+                # the nominal deadline, as with coarse Windows asyncio timers.
+                import agentforge.workflows.service as coordination
+
+                monkeypatch.setattr(
+                    coordination,
+                    "now",
+                    lambda: value.created_at + timedelta(seconds=0.5),
+                )
             await provider.entered.wait()
             value = await until(app, value.workflow_id, ("cancelled",))
             assert value.failure_category == "workflow_timeout"

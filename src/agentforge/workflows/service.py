@@ -371,19 +371,39 @@ class WorkflowService:
                 access.cancel_tool_job(tool_job_id=child.tool_job_id)
 
     def bound_timeout(self, child_id, seconds):
-        """Restrict accepted child execution at claim time, including queue delay."""
+        """Persist which budget bounds a child before I/O, including queue delay.
+
+        asyncio timers can fire before UTC advances to their nominal deadline
+        (notably with Windows' coarse clock). The recorded budget, not a later
+        wall-clock comparison, identifies an exhausted workflow timeout.
+        """
         for workflow in self.repository.list(active=True, limit=128):
-            if any(
-                child_id in {a.dispatch_id, a.task_id, a.tool_job_id}
-                for run in workflow.steps
-                for a in run.attempts
-            ):
-                remaining = (
-                    workflow.created_at
-                    + timedelta(seconds=workflow.definition.timeout_seconds)
-                    - now()
-                ).total_seconds()
-                return min(seconds, max(0.000001, remaining))
+            for index, run in enumerate(workflow.steps):
+                for ordinal, attempt in enumerate(run.attempts):
+                    if child_id not in {
+                        attempt.dispatch_id,
+                        attempt.task_id,
+                        attempt.tool_job_id,
+                    }:
+                        continue
+                    remaining = (
+                        workflow.created_at
+                        + timedelta(seconds=workflow.definition.timeout_seconds)
+                        - now()
+                    ).total_seconds()
+                    if remaining < seconds and not attempt.deadline_limited:
+                        attempt = attempt.model_copy(update={"deadline_limited": True})
+                        run = run.model_copy(
+                            update={
+                                "attempts": (
+                                    *run.attempts[:ordinal],
+                                    attempt,
+                                    *run.attempts[ordinal + 1 :],
+                                )
+                            }
+                        )
+                        self.repository.save(self.replace(workflow, index, run))
+                    return min(seconds, max(0.000001, remaining))
         return seconds
 
     def child(self, workflow, step, attempt):
@@ -537,6 +557,18 @@ class WorkflowService:
             failure = (
                 child.reason if step.kind == "inference" else child.failure_category
             )
+            if (
+                attempt.deadline_limited
+                and child.state == "failed"
+                and failure in {"timeout", "specialist_timeout"}
+            ):
+                workflow = workflow.model_copy(
+                    update={
+                        "state": "cancelling",
+                        "failure_category": "workflow_timeout",
+                    }
+                )
+                stopping = True
             if child.state in {"queued", "running"}:
                 active = True
                 if workflow.state == "cancelling":

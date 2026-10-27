@@ -164,6 +164,7 @@ class Attempt(Model):
     inputs: dict = Field(default_factory=dict)
     scope_hash: str
     effects: tuple[str, ...] = ()
+    deadline_limited: bool = False
     approved_at: datetime | None = None
 
 

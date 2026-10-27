@@ -78,6 +78,9 @@ Workflow/step snapshots expose pending dependencies, approval, queued/running,
 completed/failed, paused, cancelling/cancelled, blocked and recovery-required states.
 Attempts retain dispatch/child IDs, exact resolved inputs, approved scope hash,
 created/started/finished/approved UTC timestamps, safe failures and bounded results.
+The selected deadline budget is recorded before child execution, so an exhausted
+workflow budget remains distinguishable from a step timeout when monotonic timers
+fire before UTC advances to the nominal deadline.
 Unstarted work has no invented start timestamp. One child per workflow is dispatched
 at a time; separate workflows and ordinary work share all configured slots.
 
