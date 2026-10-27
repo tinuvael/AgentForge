@@ -63,6 +63,12 @@ class WorkflowBinding(Record):
     state: str
 
 
+class WorkflowReservation(Record):
+    definition_sha256: str
+    attempt_budget: int = Field(ge=1, le=48)
+    workflow_id: UUID | None = None
+
+
 class Conversation(Record):
     id: UUID = Field(default_factory=uuid4)
     owner: str
@@ -87,6 +93,11 @@ class Conversation(Record):
     worker_id: str | None = None
     pending: Action | None = None
     pending_workflow: dict | None = None
+    # None identifies journals predating durable workflow accounting. Entries
+    # belong to the current human request, like the delegated counter.
+    workflow_reservations: dict[str, WorkflowReservation] | None = Field(
+        default=None, max_length=8
+    )
     submission: bool = False
     progress: list[str] = Field(default_factory=list, max_length=32)
     error: str | None = None

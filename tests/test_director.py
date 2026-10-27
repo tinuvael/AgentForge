@@ -28,6 +28,220 @@ from tests.test_mcp import setup as setup_fixture
 setup = setup_fixture
 
 
+def workflow_arguments(setup, key="budget"):
+    from agentforge.workflows.models import Definition, InferenceStep, Retry
+
+    return {
+        "definition": Definition(
+            project_id=setup.project.id,
+            steps=(
+                InferenceStep(
+                    step_id="read",
+                    kind="inference",
+                    agent_id="repo_explorer",
+                    worker_id="home-i5",
+                    request="Read source.py",
+                    intended_effect="Read only",
+                    retry=Retry(max_attempts=2),
+                ),
+            ),
+        ).model_dump(mode="json"),
+        "idempotency_key": key,
+    }
+
+
+def test_workflow_lost_response_recovery_preserves_budget(setup, tmp_path):
+    async def scenario():
+        arguments = workflow_arguments(setup)
+        async with fixture(
+            setup,
+            tmp_path,
+            limits={"tasks": 2, "result_bytes": 48000},
+            turns=[tool("submit_workflow", arguments)],
+        ) as f:
+            setup.app.workflows.client_access = lambda _: f.access
+            original = f.director.rpc
+            accepted = []
+
+            async def lost(item, name, arguments):
+                value = await original(item, name, arguments)
+                if name == "submit_workflow":
+                    accepted.append(value["workflow_id"])
+                    raise DirectorError("submission_ambiguous")
+                return value
+
+            f.director.rpc = lost
+            item = f.director.create("cli")
+            item = await f.director.run(item.id, "cli", "Run a bounded workflow")
+            assert item.state == "ambiguous" and len(accepted) == 1, item
+            f.director.rpc = original
+            for _ in range(2):
+                f.provider.turns = [GenerationResult(content="Recovered", model="fake")]
+                item = await f.director.run(item.id, "cli", resume=True)
+                assert item.state == "completed", item.error
+                assert len(item.workflows) == 1
+                assert str(item.workflows[0].workflow_id) == accepted[0]
+                assert item.delegated == 2
+                assert f.director.load(item.id, "cli").delegated == 2
+            await f.director.discover(item)
+            with pytest.raises(DirectorError, match="task_limit"):
+                await f.director.perform(
+                    item, "submit_workflow", workflow_arguments(setup, "second")
+                )
+            assert len(setup.app.workflows.repository.list()) == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "window",
+    ["before_reserve", "after_reserve", "after_accept", "before_bind", "after_bind"],
+)
+def test_workflow_budget_atomic_journal_crash_windows(setup, tmp_path, window):
+    class ProcessLoss(BaseException):
+        pass
+
+    async def scenario():
+        arguments = workflow_arguments(setup)
+        async with fixture(
+            setup,
+            tmp_path,
+            limits={"tasks": 2, "result_bytes": 48000},
+            turns=[tool("submit_workflow", arguments)],
+        ) as f:
+            setup.app.workflows.client_access = lambda _: f.access
+            original_save, original_rpc = f.director.journal.save, f.director.rpc
+            submissions = []
+
+            def checkpoint(item):
+                reserve = item.pending_workflow is not None and item.delegated == 2
+                bound = bool(item.workflows) and item.pending_workflow is None
+                if (window == "before_reserve" and reserve) or (
+                    window == "before_bind" and bound
+                ):
+                    raise ProcessLoss
+                original_save(item)
+                if (window == "after_reserve" and reserve) or (
+                    window == "after_bind" and bound
+                ):
+                    raise ProcessLoss
+
+            async def rpc(item, name, values):
+                result = await original_rpc(item, name, values)
+                if name == "submit_workflow":
+                    submissions.append(values)
+                    if window == "after_accept":
+                        raise ProcessLoss
+                return result
+
+            f.director.journal.save, f.director.rpc = checkpoint, rpc
+            item = f.director.create("cli")
+            with pytest.raises(ProcessLoss):
+                await f.director.run(item.id, "cli", "Run bounded work")
+            # Discard all mutated in-memory records and reopen the atomic file.
+            f.director.journal.save = original_save
+            f.director.journal.close()
+            provider = ScriptedProvider()
+            async with Director(
+                f.director.config, provider=provider, connector=f.connector
+            ) as restarted:
+                for _ in range(2):
+                    provider.turns = [
+                        GenerationResult(content="Recovered", model="fake")
+                    ]
+                    recovered = await restarted.run(item.id, "cli", resume=True)
+                    assert recovered.state == "completed", recovered.error
+                    expected = 0 if window == "before_reserve" else 2
+                    assert recovered.delegated == expected
+                    assert len(recovered.workflows) == (expected != 0)
+                    persisted = restarted.load(item.id, "cli")
+                    assert persisted.delegated == expected
+                    assert persisted.pending_workflow is None
+                    if expected:
+                        reservation = persisted.workflow_reservations["budget"]
+                        assert reservation.attempt_budget == 2
+                        assert (
+                            reservation.workflow_id
+                            == recovered.workflows[0].workflow_id
+                        )
+                assert len(setup.app.workflows.repository.list()) == (expected != 0)
+                assert all(values == arguments for values in submissions)
+
+    asyncio.run(scenario())
+
+
+def test_workflow_normal_and_duplicate_response_account_once(setup, tmp_path):
+    async def scenario():
+        arguments = workflow_arguments(setup)
+        async with fixture(
+            setup,
+            tmp_path,
+            limits={"tasks": 2, "result_bytes": 48000},
+            turns=[
+                tool("submit_workflow", arguments),
+                GenerationResult(content="Done", model="fake"),
+            ],
+        ) as f:
+            setup.app.workflows.client_access = lambda _: f.access
+            item = f.director.create("cli")
+            item = await f.director.run(item.id, "cli", "Run workflow")
+            assert item.state == "completed", item.error
+            assert item.delegated == 2 and len(item.workflows) == 1
+            await f.director.discover(item)
+            await f.director.perform(item, "submit_workflow", arguments)
+            assert item.delegated == 2 and len(item.workflows) == 1
+            assert f.director.load(item.id, "cli").delegated == 2
+            assert len(setup.app.workflows.repository.list()) == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_legacy_workflow_journal_conservative_budget(setup, tmp_path, pending):
+    import json
+
+    async def scenario():
+        arguments = workflow_arguments(setup)
+        async with fixture(
+            setup,
+            tmp_path,
+            limits={"tasks": 2, "result_bytes": 48000},
+            turns=[
+                tool("submit_workflow", arguments),
+                GenerationResult(content="Done", model="fake"),
+            ],
+        ) as f:
+            setup.app.workflows.client_access = lambda _: f.access
+            item = f.director.create("cli")
+            item = await f.director.run(item.id, "cli", "Run workflow")
+            assert item.state == "completed", item.error
+            path = f.director.journal.path(item.id)
+            old = json.loads(path.read_text())
+            old.pop("workflow_reservations")
+            old["delegated"] = 0
+            if pending:
+                old.update(
+                    pending_workflow=arguments,
+                    workflows=[],
+                    submission=True,
+                    state="ambiguous",
+                )
+            path.write_text(json.dumps(old))
+            for _ in range(2):
+                f.provider.turns = [GenerationResult(content="Recovered", model="fake")]
+                item = await f.director.run(item.id, "cli", resume=True)
+                assert item.state == "completed", item.error
+                assert item.delegated == 2 and len(item.workflows) == 1
+            await f.director.discover(item)
+            with pytest.raises(DirectorError, match="task_limit"):
+                await f.director.perform(
+                    item, "submit_workflow", workflow_arguments(setup, "next")
+                )
+            assert len(setup.app.workflows.repository.list()) == 1
+
+    asyncio.run(scenario())
+
+
 def config(root, **limits):
     return DirectorConfig(
         gateway_url="http://127.0.0.1:8766/mcp",

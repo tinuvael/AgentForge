@@ -591,16 +591,18 @@ class WorkflowService:
                     fields["artifact_ids"] = child.output_artifact_ids
                 elif step.required_validators:
                     result = child.coding_result
-                    if result is None or any(
-                        not any(
-                            v.name == name
-                            and v.exit_code == 0
-                            and not v.timed_out
-                            and not v.cancelled
-                            for v in result.validation_runs
-                        )
-                        for name in step.required_validators
-                    ):
+                    valid = result is not None and result.validators_succeeded(
+                        step.required_validators
+                    )
+                    if valid:
+                        try:
+                            valid = (
+                                self.app.coding.validation_identity(child.task_id)
+                                == result.workspace_sha256
+                            )
+                        except Exception:
+                            valid = False  # No current workspace evidence: fail closed.
+                    if not valid:
                         fields.update(
                             state="failed", failure_category="validation_required"
                         )

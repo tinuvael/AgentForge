@@ -73,6 +73,110 @@ def test_known_command_cwd_environment_and_nonzero(coding, monkeypatch):
     assert len(report.validation_runs) == 1 and report.validation_runs[0].exit_code == 7
 
 
+@pytest.mark.parametrize("outcome", ["failure", "timeout", "cancelled", "lost"])
+def test_latest_validation_attempt_supersedes_success(coding, monkeypatch, outcome):
+    from agentforge.coding.models import ValidationRun
+
+    setup = coding.create()
+    assert asyncio.run(run_validation(setup))["exit_code"] == 0
+    assert coding.manager.get(coding.task.task_id).validators_succeeded(("check",))
+
+    async def later(*_args, **_kwargs):
+        if outcome == "lost":
+            raise RuntimeError("Process launch/result unavailable")
+        return ValidationRun(
+            name="check",
+            exit_code=1 if outcome == "failure" else 0,
+            duration_seconds=0.01,
+            timed_out=outcome == "timeout",
+            cancelled=outcome == "cancelled",
+        )
+
+    monkeypatch.setattr("agentforge.coding.service.validation_process", later)
+    if outcome == "lost":
+        with pytest.raises(RuntimeError, match="Process launch/result unavailable"):
+            asyncio.run(run_validation(setup))
+    else:
+        asyncio.run(run_validation(setup))
+    report = coding.manager.get(coding.task.task_id)
+    assert len(report.validation_runs) == 2
+    assert report.validation_runs[0].exit_code == 0
+    assert not report.validators_succeeded(("check",))
+
+
+@pytest.mark.parametrize("path", ["source.py", ".env", "ignored/new.bin"])
+def test_validator_identity_detects_out_of_band_changes(coding, path):
+    setup = coding.create()
+    assert asyncio.run(run_validation(setup))["exit_code"] == 0
+    before = coding.manager.get(coding.task.task_id)
+    assert before.validators_succeeded(("check",))
+    target = setup.tool_root / path
+    target.parent.mkdir(exist_ok=True)
+    target.write_bytes(b"different\n")
+    after = coding.manager.get(coding.task.task_id)
+    assert after.write_calls == before.write_calls == 0
+    assert after.workspace_sha256 != before.workspace_sha256
+    assert not after.validators_succeeded(("check",))
+
+
+def test_validator_that_changes_workspace_does_not_certify_its_output(coding):
+    setup = coding.create()
+    name = command(
+        coding, "from pathlib import Path; Path('source.py').write_text('changed')"
+    )
+    assert asyncio.run(run_validation(setup, name))["exit_code"] == 0
+    report = coding.manager.get(coding.task.task_id)
+    assert report.validation_runs[0].workspace_sha256 is None
+    assert not report.validators_succeeded((name,))
+    assert asyncio.run(run_validation(setup))["exit_code"] == 0
+    assert coding.manager.get(coding.task.task_id).validators_succeeded(("check",))
+
+
+def test_historical_validation_without_freshness_evidence_is_insufficient(coding):
+    setup = coding.create()
+    assert asyncio.run(run_validation(setup))["exit_code"] == 0
+    row = coding.manager._record(coding.task.task_id)
+    observations = row["observations"]
+    for run in observations["validation_runs"]:
+        run.pop("workspace_sha256")
+        run.pop("workspace_write_calls")
+    coding.manager.repository.update(coding.task.task_id, observations=observations)
+    report = coding.manager.get(coding.task.task_id)
+    assert report.validation_runs[0].exit_code == 0
+    assert not report.validators_succeeded(("check",))
+
+
+def test_edit_then_revert_requires_revalidation(coding):
+    from tests.test_coding_workspaces import sha
+
+    setup = coding.create()
+    assert asyncio.run(run_validation(setup))["exit_code"] == 0
+    before = coding.manager.get(coding.task.task_id)
+    write(setup, "source.py", "temporary\n", expected=sha("original\n"))
+    write(setup, "source.py", "original\n", expected=sha("temporary\n"))
+    after = coding.manager.get(coding.task.task_id)
+    assert after.workspace_sha256 == before.workspace_sha256
+    assert after.write_calls == 2
+    assert not after.validators_succeeded(("check",))
+    assert asyncio.run(run_validation(setup))["exit_code"] == 0
+    assert coding.manager.get(coding.task.task_id).validators_succeeded(("check",))
+
+
+def test_missing_snapshot_preserves_named_validation_but_cannot_certify(
+    coding, monkeypatch
+):
+    setup = coding.create()
+
+    def unavailable(_):
+        raise CodingLimit("Validation inspection byte limit exceeded")
+
+    monkeypatch.setattr(coding.manager, "validation_identity", unavailable)
+    assert asyncio.run(run_validation(setup))["exit_code"] == 0
+    report = coding.manager.get(coding.task.task_id)
+    assert report.validation_runs[0].workspace_sha256 is None
+    assert not report.validators_succeeded(("check",))
+
+
 @pytest.mark.parametrize(
     "values",
     [

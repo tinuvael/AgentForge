@@ -52,8 +52,18 @@ on the explorer and supply
 `text_inputs: [{"step_id": "explore", "max_chars": 2000}]` plus
 `required_validators: ["check"]`. Configure `check` as a trusted named validator
 using [coding setup](coding.md). The coder writes only its isolated workspace.
-Required validator evidence must show a successful actual run before step success;
-a model claim alone is insufficient. Validation belongs to that coder Task's
+Each required validator's **latest invocation** must succeed on the final workspace.
+A later failure, timeout, cancellation or unfinished invocation supersedes earlier
+success. Invocations are recorded before process I/O and bound to an unchanged
+bounded SHA-256 file-content/mode snapshot and the existing durable write counter.
+Edits after validation (even edits subsequently reverted) require validation again.
+The snapshot includes private/ignored files beneath the validation root, excluding
+its Git association; bytes and paths are not exposed by the digest. Uninspectable,
+oversized or historical workspaces without this evidence cannot certify success.
+Validators that modify their inputs must be followed by a successful check of the
+unchanged result. Actual execution stays in named trusted coder validators; no
+automatic revalidation or workspace replay is introduced. A model claim alone is
+insufficient. Validation belongs to that coder Task's
 workspace, not a fresh unrelated successor Task. Review its retained Task/workspace
 and diff using existing operations; no workflow step commits, publishes or cleans it.
 
@@ -151,6 +161,17 @@ child IDs and artifact IDs. Resume/cancel controls reuse its existing expiring
 one-use human action approval. For server step review it links to `/workflows/<id>`;
 the operator reviews there and restores known execution results in Director chat.
 Binary retrieval remains excluded from the Director inference loop.
+
+Local Director reserves each workflow's declared attempt budget in the same atomic
+journal checkpoint as the exact pending submission, **before** transport I/O.
+A per-request reservation keyed by the existing idempotency key binds the immutable
+definition and recovered workflow ID. Normal responses, lost-response recovery and
+repeated resume consume it exactly once. An uncertain/denied submission retains its
+reservation; observation does not refund or re-charge it. Remaining request limits
+still apply after recovery. Old journals remain readable: a pending submission is
+reserved before recovery; historical bindings with unknown accounting conservatively
+exhaust the request's remaining credit. A new explicit human request starts the
+existing fresh request budget; resume does not reset it.
 
 ## Inputs and provenance
 

@@ -416,6 +416,12 @@ inputs before child creation. Task primary-key idempotency and existing ToolJob
 request uniqueness reconcile creation/linkage process death. Completed children are
 observed, never rerun. `0005_workflows` adds retained plan/attempt snapshots and
 optional restricted Task execution limits. Existing schema/data remain preserved.
+Required coder validation uses the latest durable invocation per named validator,
+with pre/post workspace content/mode identity and the existing write counter.
+Only matching final workspace evidence certifies success; incomplete or historical
+evidence fails closed. Local Director reserves workflow attempt budgets atomically
+with the pending idempotent request before I/O, then binds the response in one
+journal checkpoint. Recovery observes/reuses that charge and never resets it.
 
 Gateway installs a current identity-policy resolver before startup/recovery. Client
 credentials never enter workflow records. Every new dispatch revalidates bindings,

@@ -220,6 +220,14 @@ See [ToolJob and artifact contracts](specialists.md).
 Use `submit_workflow` for explicit small artifact/text chains. The Director records
 its exact idempotent submission before I/O, observes `get_workflow`, persists IDs,
 and returns actual outcomes. Workflow attempts count against Director task bounds.
+The full declared attempt budget is reserved with the exact pending submission in
+one atomic journal checkpoint before sending. Recovery reuses that reservation and
+idempotency key, so response loss, process loss and repeated resume cannot omit or
+double-charge it. Reservations remain charged when acceptance is uncertain. Resume
+retains the request budget; only a new human request resets it. Older journals with
+workflow bindings but no accounting evidence permit observation while conservatively
+exhausting the remaining request credit. Pending legacy submissions are reserved
+before retrying their same idempotent request. See [workflow accounting](workflows.md).
 After uncertain transport submission, resume can recover the same immutable key
 without creating another workflow. Models cannot approve steps or retrieve binary
 artifacts. The chat links workflow review pages and restores known workflow results;

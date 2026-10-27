@@ -23,6 +23,7 @@ from agentforge.director.models import (
     TaskBinding,
     VisibleMessage,
     WorkflowBinding,
+    WorkflowReservation,
 )
 from agentforge.providers.factory import PROVIDER_TYPES
 
@@ -101,6 +102,14 @@ class Director:
 
     def load(self, identity, owner):
         item = self.journal.read(identity, owner, self.identity)
+        if item.workflow_reservations is None:
+            # Old bindings lack the declared budget/request epoch. They cannot
+            # safely establish remaining credit. Preserve observations/recovery,
+            # but exhaust this request's credit until the next human request.
+            if item.workflows:
+                item.delegated = max(item.delegated, self.config.limits.tasks)
+            item.workflow_reservations = {}
+            self.journal.save(item)
         if item.state == "running" and item.id not in self.active:
             item.state = "ambiguous" if item.submission else "interrupted"
             item.error = (
@@ -230,6 +239,71 @@ class Director:
         item.state = "approval"
         self.event(item, "Approval required; no privileged action has been executed.")
 
+    async def submit_workflow(self, item, arguments, *, recovery=False):
+        """Reserve once before I/O; atomically bind the idempotent response.
+
+        The pending request, reservation and counter share one journal replace.
+        Recovery never invents a key or charges an existing reservation again.
+        """
+        definition = arguments["definition"]
+        if item.pending_workflow is not None and item.pending_workflow != arguments:
+            raise DirectorError("submission_ambiguous")
+        key = arguments["idempotency_key"]
+        fingerprint = hashlib.sha256(
+            json.dumps(definition, sort_keys=True).encode()
+        ).hexdigest()
+        budget = sum(s["retry"]["max_attempts"] for s in definition["steps"])
+        reservations = item.workflow_reservations
+        if reservations is None:
+            raise DirectorError("workflow_accounting_unavailable")
+        reservation = reservations.get(key)
+        if reservation:
+            if (
+                reservation.definition_sha256 != fingerprint
+                or reservation.attempt_budget != budget
+            ):
+                raise DirectorError("binding_denied")
+        else:
+            if not recovery and (
+                len(item.workflows) >= 8
+                or len(reservations) >= 8
+                or item.delegated + budget > self.config.limits.tasks
+            ):
+                raise DirectorError("task_limit")
+            reservation = WorkflowReservation(
+                definition_sha256=fingerprint, attempt_budget=budget
+            )
+            reservations[key] = reservation
+            item.delegated += budget
+        item.pending_workflow = arguments
+        item.submission = True
+        self.journal.save(item)
+        result = await self.rpc(item, "submit_workflow", arguments)
+        binding = WorkflowBinding(
+            workflow_id=result["workflow_id"],
+            project_id=result["definition"]["project_id"],
+            state=result["state"],
+        )
+        if (
+            result["definition"] != definition
+            or result["client_id"] != item.client_id
+            or result["idempotency_key"] != key
+            or reservation.workflow_id not in {None, binding.workflow_id}
+        ):
+            raise DirectorError("submission_ambiguous")
+        known = next(
+            (w for w in item.workflows if w.workflow_id == binding.workflow_id), None
+        )
+        if known and known.project_id != binding.project_id:
+            raise DirectorError("binding_denied")
+        if known is None:
+            item.workflows.append(binding)
+        reservation.workflow_id = binding.workflow_id
+        item.submission = False
+        item.pending_workflow = None
+        self.journal.save(item)
+        return binding
+
     async def perform(self, item, name, arguments, *, approved=False):
         if name not in ALLOWED:
             raise DirectorError("unknown_tool")
@@ -246,12 +320,6 @@ class Director:
         if name == "submit_workflow":
             definition = arguments["definition"]
             steps = definition["steps"]
-            attempt_budget = sum(s["retry"]["max_attempts"] for s in steps)
-            if (
-                len(item.workflows) >= 8
-                or item.delegated + attempt_budget > self.config.limits.tasks
-            ):
-                raise DirectorError("task_limit")
             for step in steps:
                 if step["kind"] == "inference":
                     await self.binding(
@@ -261,27 +329,7 @@ class Director:
                     item.project_id and str(item.project_id) != definition["project_id"]
                 ):
                     raise DirectorError("binding_denied")
-            # Persist the exact idempotent submission before transport I/O. A
-            # disconnected Director can safely recover the SAME request on resume.
-            item.pending_workflow = arguments
-            item.submission = True
-            self.journal.save(item)
-            result = await self.rpc(item, name, arguments)
-            binding = WorkflowBinding(
-                workflow_id=result["workflow_id"],
-                project_id=result["definition"]["project_id"],
-                state=result["state"],
-            )
-            if (
-                result["definition"] != definition
-                or result["client_id"] != item.client_id
-            ):
-                raise DirectorError("submission_ambiguous")
-            item.workflows.append(binding)
-            item.delegated += attempt_budget
-            item.submission = False
-            item.pending_workflow = None
-            self.journal.save(item)
+            binding = await self.submit_workflow(item, arguments)
             return await self.observe_workflow(item, binding)
         if name in {
             "get_workflow",
@@ -520,21 +568,7 @@ class Director:
             )
         elif resume:
             if item.pending_workflow:
-                arguments = item.pending_workflow
-                result = await self.rpc(item, "submit_workflow", arguments)
-                if not any(
-                    str(w.workflow_id) == result["workflow_id"] for w in item.workflows
-                ):
-                    item.workflows.append(
-                        WorkflowBinding(
-                            workflow_id=result["workflow_id"],
-                            project_id=result["definition"]["project_id"],
-                            state=result["state"],
-                        )
-                    )
-                item.pending_workflow = None
-                item.submission = False
-                self.journal.save(item)
+                await self.submit_workflow(item, item.pending_workflow, recovery=True)
             for binding in item.workflows:
                 result = await self.observe_workflow(item, binding)
                 messages.append(
@@ -664,6 +698,7 @@ class Director:
             if any(t.state not in TERMINAL for t in item.tasks):
                 raise DirectorError("resume_known_tasks_first")
             item.turns = item.calls = item.delegated = 0
+            item.workflow_reservations = {}
             item.messages = (
                 item.messages + [VisibleMessage(role="user", content=text)]
             )[-24:]
