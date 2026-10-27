@@ -26,6 +26,11 @@ from agentforge.workers.config import WorkersConfig
 
 PRIVATE = "PRIVATE_SQL_CREDENTIAL_REASONING_SOURCE"
 PUBLIC_TOOLS = {
+    "submit_workflow",
+    "get_workflow",
+    "pause_workflow",
+    "resume_workflow",
+    "cancel_workflow",
     "list_specialist_tools",
     "submit_tool_job",
     "get_tool_job",
