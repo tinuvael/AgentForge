@@ -149,6 +149,11 @@ HMAC key. The server validates signature and constant-time cookie/form equality,
 confirmation and bounded form bodies. Cookies use HttpOnly, SameSite=Strict and
 Secure when the request scheme is HTTPS. Cross-site Fetch Metadata and mismatched
 Origin headers are rejected. Restart invalidates old tokens; reload before retrying.
+Workflow approval/control and ToolJob cancellation forms use HTMX and reload the
+detail page through a GET redirect. This preserves a concrete same-origin `Origin`
+under the existing `no-referrer` policy; ordinary browser navigation POSTs can send
+`Origin: null`, which remains rejected. ASGI clients do not simulate that browser
+behavior. Fresh scope checks and one-use approval semantics remain server-enforced.
 There are no database-backed browser sessions or full identity/authentication layer.
 
 Trusted Host validation defaults to explicit loopback hosts to resist DNS rebinding.

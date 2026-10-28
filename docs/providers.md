@@ -407,6 +407,11 @@ MCP and Council boundaries: two independently authenticated remote connections,
 one local connection, Workers sharing a connection, overlapping calls, independent
 failures and stable configured identities. Existing finish-reason tests verify
 incomplete generation discards tool calls/answers without continuation.
+Compatible responses accept only `stop`, `length` and `tool_calls` terminal
+signals. `content_filter` means content was omitted; it, deprecated
+`function_call` and unknown signals fail with `invalid_response` before returning
+calls or a successful terminal chunk. A stream may already have exposed text
+deltas; consumers must await its validated terminal event before accepting results.
 
 These are mocked wire contracts, not proof that every compatible service/model
 works or behaves identically. No live compatibility or GPU claim follows from

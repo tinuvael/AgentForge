@@ -99,6 +99,10 @@ at a time; separate workflows and ordinary work share all configured slots.
 - Resume rechecks current client grants; dispatch rechecks Project/root, Agent,
   Worker/tool fingerprint, egress, resource policy and input readiness/integrity.
   Revoked/unavailable authorization blocks safely. Restoration never grants approval.
+- Required named validation stays bound to the current isolated workspace until
+  workflow completion. Editing or cleaning up that workspace during a successor's
+  review wait, pause or restart fails acceptance with `validation_required`;
+  the successor is not dispatched. The original Task/result remains in history.
 - Cancellation durably stops dispatch before requesting owned active child
   cancellation through existing Task/ToolJob APIs. If current policy denies child
   cancellation, cancelling intent remains; an operator must restore rights or

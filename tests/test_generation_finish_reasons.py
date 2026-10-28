@@ -15,9 +15,14 @@ from agentforge.workers.config import ProviderConnection, WorkersConfig
 from tests.test_mcp import run
 
 
-@pytest.mark.parametrize("protocol", ["ollama", "openai_compatible"])
 @pytest.mark.parametrize(
-    "case", ["stop", "length", "tools", "truncated_tools", "absent"]
+    "protocol,case",
+    [
+        (protocol, case)
+        for protocol in ("ollama", "openai_compatible")
+        for case in ("stop", "length", "tools", "truncated_tools", "absent")
+    ]
+    + [("openai_compatible", case) for case in ("filtered", "filtered_tools")],
 )
 def test_wire_finish_reason_controls_durable_task(
     database, registry, tmp_path, protocol, case
@@ -32,8 +37,13 @@ def test_wire_finish_reason_controls_durable_task(
     def handler(request):
         payload = json.loads(request.content)
         requests.append(payload)
-        tools = case in {"tools", "truncated_tools"} and len(requests) == 1
+        tools = (
+            case in {"tools", "truncated_tools", "filtered_tools"}
+            and len(requests) == 1
+        )
         reason = "length" if case in {"length", "truncated_tools"} else "stop"
+        if case.startswith("filtered"):
+            reason = "content_filter"
         function = {"name": "read_file", "arguments": {"path": "evidence.txt"}}
         message = {
             "role": "assistant",
@@ -111,7 +121,8 @@ def test_wire_finish_reason_controls_durable_task(
                 "output_limit"
                 if case in {"length", "truncated_tools"}
                 else "provider_error"
-                if protocol == "openai_compatible" and case == "absent"
+                if protocol == "openai_compatible"
+                and case in {"absent", "filtered", "filtered_tools"}
                 else "completed"
             )
             assert final.reason == reason == expected
