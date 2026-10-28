@@ -5,8 +5,10 @@ NTFS Project outside junction/OneDrive/reparse paths, a normal Git for Windows
 installation with an absolute PATH entry (no installation junctions), and a
 reachable Ollama with a native tool-capable model. No WSL is required.
 Use exactly one executor process per database for Issue #31 acceptance. The owner
-guard is only in-process; it does not enforce this across OS processes. A second
-owner's startup recovery can interrupt live Tasks and affect coding workspaces.
+guard rejects competing processes before recovery on supported local NTFS. See
+[executor ownership](executor-ownership.md). Use the installed-wheel
+[first-launch sequence](first-launch.md) for the shared Gateway deployment; the
+exclusive stdio smoke below is an alternative after stopping that Gateway.
 TEMP and the installation must be trusted local NTFS.
 These steps perform real inference and are never executed by pytest.
 
@@ -14,7 +16,7 @@ These steps perform real inference and are never executed by pytest.
 
    ```powershell
    python -m venv .venv
-   .venv\Scripts\python.exe -m pip install -e '.[dev]'
+   .venv\Scripts\python.exe -m pip install --only-binary=:all: -e '.[dev]'
    .venv\Scripts\alembic.exe upgrade head
    .venv\Scripts\python.exe -m pytest -m windows -rs
    ```

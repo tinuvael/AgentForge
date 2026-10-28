@@ -191,6 +191,14 @@ text: apply normal private host storage/backups. Task history remains at Gateway
 when a conversation is cleared. Capacity limits fail closed rather than silently
 discarding recovery identities.
 
+CLI output includes retained workflow IDs and observed states. CLI and browser
+Clear share one guard: submission ambiguity, unfinished Tasks or any workflow
+outside `completed`/`failed`/`cancelled` prevents journal deletion. Approval, paused,
+blocked and recovery-required workflows retain their identities. Resume refreshes
+cached bindings after Gateway completion; investigate/cancel unresolved work before
+clearing. Clear never cancels Gateway work. Ordinary terminal conversations remain
+clearable, and stale browser revisions remain rejected.
+
 ## Outages and physical acceptance
 
 If Ollama is unavailable or returns 429, the request stops with a bounded error;

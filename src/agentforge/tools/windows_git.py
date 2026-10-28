@@ -215,10 +215,11 @@ def _git_executable(backend, repository, resources):
             backend.same_component(directory.name, "bin")
             and not backend.same_component(directory.parent.name, "mingw64")
             and not backend.same_component(directory.parent.name, "mingw32")
+            and not backend.same_component(directory.parent.name, "ucrt64")
         ):
             candidates = [
                 directory.parent / architecture / "bin" / "git.exe"
-                for architecture in ("mingw64", "mingw32")
+                for architecture in ("mingw64", "mingw32", "ucrt64")
             ]
         else:
             candidates = [candidate]

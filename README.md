@@ -133,15 +133,24 @@ git clone https://github.com/tinuvael/AgentForge.git
 cd AgentForge
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install --upgrade pip
+python -m pip install --only-binary=:all: -e .
 cp config/workers.example.toml workers.local.toml
 ```
 
 In Windows PowerShell activate with `.venv\Scripts\Activate.ps1` and copy with
 `Copy-Item config/workers.example.toml workers.local.toml`. You can also install a
-built wheel with `python -m pip install dist/agentforge-0.1.0-py3-none-any.whl`;
+built wheel with `python -m pip install --only-binary=:all: dist/agentforge-0.1.0-py3-none-any.whl`;
 migrations and web assets are included. [Development](docs/development.md)
 explains building it.
+
+Binary-only dependency installation avoids unexpected Rust/OpenSSL/compiler builds
+from transitive packages such as `cryptography`. pip selects compatible published
+wheels within the supported ranges; no machine-specific version pin is needed.
+If resolution fails, retain the error and check your Python/architecture and package
+index instead of installing arbitrary old pins. See the checked
+[fresh Windows launch sequence](docs/first-launch.md), which uses an installed wheel,
+private absolute paths and one authenticated Gateway for all clients.
 
 Edit `workers.local.toml` for your installed model and reachable endpoint. The
 minimal supported Ollama configuration is:
@@ -226,7 +235,9 @@ agentforge mcp --database-url sqlite:///agentforge.db --workers workers.local.to
 Use absolute interpreter/config/database paths in client settings; relative paths
 use the server's working directory. [MCP setup](docs/mcp.md) has a client JSON example.
 MCP uses stdio, so launching the command in a terminal waits for a client protocol
-session. There is no HTTP MCP listener or interactive terminal REPL.
+session. For multiple clients, use the persistent authenticated
+[HTTP Gateway](docs/gateway.md), which owns one executor. The stdio command has no
+interactive terminal REPL.
 
 Discover with `list_projects`, `list_workers` and `list_agents`. Then call
 `delegate_task` with actual discovered IDs:

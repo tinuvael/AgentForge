@@ -116,8 +116,8 @@ built through authorized handles while the registered root remains pinned:
 
 Executable lookup examines only absolute PATH entries, never the implicit current
 directory, and refuses candidates inside the original worktree. Standard Git for
-Windows `cmd`/`bin` PATH entries resolve to the installed `mingw64/bin/git.exe` or
-`mingw32/bin/git.exe` command rather than its launcher. The executable and its
+Windows `cmd`/`bin` PATH entries resolve to the installed `ucrt64/bin/git.exe`,
+`mingw64/bin/git.exe` or `mingw32/bin/git.exe` command rather than its launcher. The executable and its
 ancestry are also pinned with no-reparse handles for the operation. Git installation
 paths must therefore be ordinary local NTFS paths; junction-based installations
 are unsupported. PATH and the executable installation remain trusted runtime

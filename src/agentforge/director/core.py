@@ -100,6 +100,24 @@ class Director:
     def create(self, owner):
         return self.journal.create(owner, self.identity)
 
+    def clear(self, item):
+        """Retain recovery identities until known work is terminal.
+
+        Cached nonterminal bindings require resume before clear, even if the
+        Gateway has since completed them. No transport failure implies completion.
+        """
+        if (
+            item.id in self.active
+            or item.submission
+            or any(t.state not in TERMINAL for t in item.tasks)
+            or any(
+                w.state not in {"completed", "failed", "cancelled"}
+                for w in item.workflows
+            )
+        ):
+            raise DirectorError("recover_or_reject_before_clear")
+        self.journal.path(item.id).unlink()
+
     def load(self, identity, owner):
         item = self.journal.read(identity, owner, self.identity)
         if item.workflow_reservations is None:

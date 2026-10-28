@@ -18,7 +18,7 @@ jobs:
   acceptance:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -37,29 +37,25 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install development tools
-        run: python -m pip install -e ".[dev]"
+        run: |
+          python -m pip install --only-binary=:all: -e ".[dev]"
+      - name: Verify dependency consistency
+        run: python -m pip check
       - name: Record environment
         run: python scripts/ci_report.py environment
-      - name: Prepare supported Windows Git and canonical temporary root
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'PortableGit.7z.exe'
-          $gitRoot = Join-Path $env:RUNNER_TEMP 'agentforge-git'
-          Invoke-WebRequest 'https://github.com/git-for-windows/git/releases/download/v2.51.2.windows.1/PortableGit-2.51.2-64-bit.7z.exe' -OutFile $archive
-          $digest = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($digest -ne 'f5764d546ff9a2511b50ec4e20424c5f4669de1695abc3fa4128e7f7d4a7b2cd') { throw 'Git archive checksum mismatch' }
-          $extraction = Start-Process -FilePath $archive -ArgumentList '-y', "-o$gitRoot" -Wait -PassThru
-          if ($extraction.ExitCode -ne 0) { throw "Git extraction failed: $($extraction.ExitCode)" }
-          if (!(Test-Path (Join-Path $gitRoot 'mingw64/bin/git.exe'))) { throw 'Supported Git binary missing' }
-      - name: Finalize ordinary Windows host files
+      - name: Prepare current Windows Git and canonical temporary root
         if: runner.os == 'Windows'
         shell: python
         run: |
           import hashlib, os, shutil
           from pathlib import Path
           root = Path(os.environ["RUNNER_TEMP"])
-          executable = root / "agentforge-git/mingw64/bin/git.exe"
+          executable = Path(shutil.which("git")).resolve()
+          if executable.parent.name.lower() in {"cmd", "bin"}:
+              candidates = [executable.parent.parent / a / "bin/git.exe"
+                            for a in ("ucrt64", "mingw64", "mingw32")]
+              executable = next((p for p in candidates if p.is_file()), executable)
+          assert executable.parent.parent.name.lower() in {"ucrt64", "mingw64", "mingw32"}
           digest = hashlib.sha256(executable.read_bytes()).digest()
           independent = executable.with_name("git-ci-copy.exe")
           shutil.copyfile(executable, independent)
@@ -94,7 +90,7 @@ jobs:
         id: build
         if: ${{ !cancelled() }}
         run: python -m build
-      - name: Verify clean installed wheel outside checkout
+      - name: Verify clean wheel and sdist installations outside checkout
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: python scripts/ci_verify_wheel.py
       - name: Write acceptance status

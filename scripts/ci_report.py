@@ -98,10 +98,13 @@ def summary():
                 + ("passed" if image_result.exists() else "not verified")
                 + ".",
             ]
-    wheel = REPORTS / "wheel.json"
     lines += [
         "",
-        "Clean installed wheel: " + ("passed" if wheel.exists() else "not verified"),
+        *(
+            f"Clean installed {kind}: "
+            + ("passed" if (REPORTS / f"{kind}.json").exists() else "not verified")
+            for kind in ("wheel", "sdist")
+        ),
         "",
         "Physical MacBook/APFS/FieldForge/Xcode and Windows/Ollama/RTX 4080 "
         "acceptance (#31): NOT RUN. "

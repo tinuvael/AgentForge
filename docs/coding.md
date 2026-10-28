@@ -57,7 +57,8 @@ workspace storage, executable installation and operator configuration are truste
 
 The Git executable and each validator executable must be explicit absolute real
 files outside source/workspace trees, with no-follow ancestry. On Windows select
-Git for Windows's real `mingw64/bin/git.exe` (or `mingw32/bin/git.exe`), not its
+Git for Windows's real `ucrt64/bin/git.exe` (older installations:
+`mingw64/bin/git.exe` or `mingw32/bin/git.exe`), not its
 `cmd` launcher, and direct `.exe` validators, not `.bat`/`.cmd` files. For a POSIX
 virtual environment, use `python -m venv --copies` outside source/workspace trees:
 resolving a virtualenv interpreter symlink to the base interpreter loses the
@@ -65,6 +66,17 @@ virtualenv's installed packages. The host pins executables while they
 run. Tool schemas advertise configured validation IDs, never executable paths or
 argv. Configuration is global to this host instance; per-Project
 validation profiles are not implemented.
+
+Required workflow validation hashes private and ignored inputs as well as public
+source. Ordinary pytest, ruff, coverage and build commands can create caches or
+outputs, invalidating their own pre/post evidence despite exit code zero. The
+shipped Python example uses `python -B -m pytest -p no:cacheprovider`; ruff uses
+`check --no-cache`. Disable output generation or direct it to an operator-selected
+location outside the workspace. A second check certifies a stable result only if
+all hashed inputs stay unchanged. Do not exclude arbitrary ignored/build directories
+from the freshness boundary: they can contain validator inputs. Source-modifying
+formatters require a subsequent read-only validation. Swift/Xcode/build validators
+need the same explicit output-location review; their physical acceptance is #31.
 
 Migrate explicitly with
 `agentforge db upgrade --database-url sqlite:///agentforge.db`.

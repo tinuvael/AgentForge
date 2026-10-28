@@ -131,6 +131,11 @@ AgentForge was 0.1.0 (editable source for pytest; installed wheel for artifact s
 
 ## Remaining operator constraints
 
+Historical constraints at that report's revision follow. Current cross-process
+ownership and authenticated HTTP deployment supersede them; use
+[first launch](first-launch.md), [executor ownership](executor-ownership.md) and
+[Gateway setup](gateway.md) for this release.
+
 Exactly one executor process per SQLite database is required, including Issue #31
 acceptance. The guard is in-process only; another OS process can start and its
 recovery can interrupt live Tasks or affect coding workspace state. Combined MCP

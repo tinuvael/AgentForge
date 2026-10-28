@@ -1,10 +1,12 @@
 """Offline installed-wheel acceptance for real adapter code with service fixtures."""
 
+import argparse
 import asyncio
 import base64
 import hashlib
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -17,7 +19,7 @@ from agentforge.application.service import Application
 from agentforge.coding.process import validation_process
 from agentforge.db.database import create_database_engine
 from agentforge.db.migrate import upgrade_database
-from agentforge.specialists.adapters import FakeBlender, FakeComfyUI
+from agentforge.specialists.adapters import FakeComfyUI
 from agentforge.specialists.comfyui import ComfyUI
 from agentforge.specialists.models import (
     TERMINAL,
@@ -28,13 +30,13 @@ from agentforge.specialists.models import (
 from agentforge.workers.config import WorkersConfig
 
 
-async def acceptance(root):
+async def acceptance(root, *, blender=None):
     root.mkdir(parents=True, exist_ok=True)
     for name in ("artifacts", "staging", "project"):
         (root / name).mkdir(mode=0o700)
     url = URL.create("sqlite", database=str(root / "adapters.db"))
     upgrade_database(url)
-    executable = Path(sys.executable).resolve()
+    executable = Path(blender or sys.executable).resolve()
     workflow = {
         "1": {"class_type": "SaveImage", "inputs": {"filename_prefix": "approved"}}
     }
@@ -79,8 +81,14 @@ async def acceptance(root):
         ),
     )
     (image,) = await FakeComfyUI().run(Parameters(), ())
-    (mesh,) = await FakeBlender().run(Parameters(), ())
-    document = json.loads(mesh.data)
+    # Captured from the actual packaged script under Blender 4.5.9 LTS. The
+    # deterministic fake's triangle does not establish a normal exporter profile.
+    document = json.loads(
+        Path(__file__)
+        .with_name("fixtures")
+        .joinpath("blender-4.5.9-reference-blockout.gltf")
+        .read_bytes()
+    )
     binary = base64.b64decode(document["buffers"][0]["uri"].split(",", 1)[1])
     document["buffers"][0]["uri"] = "scene.bin"
     fixture = root / "fixture.py"
@@ -143,7 +151,9 @@ async def acceptance(root):
     evidence = []
     with (
         patch.object(ComfyUI, "__init__", initialize),
-        patch("agentforge.specialists.blender.validation_process", process),
+        nullcontext()
+        if blender
+        else patch("agentforge.specialists.blender.validation_process", process),
     ):
         app = application()
         project = app.projects.register_project("Adapter fixtures", root / "project")
@@ -194,15 +204,24 @@ async def acceptance(root):
             {
                 "scenario": "real adapter contracts with HTTP/executable fixtures",
                 "restart_verified": True,
-                "physical_applications_tested": False,
+                "real_blender_tested": bool(blender),
+                "real_comfyui_tested": False,
+                "physical_acceptance_issue_31": False,
             }
         )
     )
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--blender",
+        type=Path,
+        help="Opt in to an installed Blender 4.5 executable (CPU-only blockout)",
+    )
+    args = parser.parse_args()
     with TemporaryDirectory(prefix="agentforge-adapter-smoke-") as directory:
-        asyncio.run(acceptance(Path(directory).resolve()))
+        asyncio.run(acceptance(Path(directory).resolve(), blender=args.blender))
 
 
 if __name__ == "__main__":

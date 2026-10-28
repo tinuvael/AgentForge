@@ -10,11 +10,13 @@ git_executable = "/usr/bin/git"
 # validators use `python -m venv --copies`; do not use repository executables.
 # No model argv or environment override exists. No dependencies are installed.
 [validations.pytest]
-argv = ["/opt/agentforge-validation/bin/python3.12", "-m", "pytest"]
+# Required validation hashes ALL inputs, including ignored caches. Keep checks
+# read-only on their first invocation: no bytecode, pytest cache or ruff cache.
+argv = ["/opt/agentforge-validation/bin/python3.13", "-B", "-m", "pytest", "-p", "no:cacheprovider"]
 timeout_seconds = 60.0
 
 [validations.ruff_check]
-argv = ["/opt/agentforge-validation/bin/ruff", "check", "."]
+argv = ["/opt/agentforge-validation/bin/ruff", "check", "--no-cache", "."]
 timeout_seconds = 30.0
 
 [limits]

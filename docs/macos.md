@@ -24,7 +24,7 @@ AF_STATE="$HOME/Library/AgentForge"
 mkdir -p "$AF_STATE" "$AF_STATE/worktrees"
 chmod 700 "$AF_STATE" "$AF_STATE/worktrees"
 python3.12 -m venv --copies "$AF_STATE/venv"
-"$AF_STATE/venv/bin/python" -m pip install /absolute/path/agentforge-0.1.0-py3-none-any.whl
+"$AF_STATE/venv/bin/python" -m pip install --only-binary=:all: /absolute/path/agentforge-0.1.0-py3-none-any.whl
 AF_CLI="$AF_STATE/venv/bin/agentforge"
 AF_DB="sqlite:///$AF_STATE/mac.sqlite"
 "$AF_CLI" db upgrade --database-url "$AF_DB"
@@ -48,6 +48,7 @@ Create `$AF_STATE/workers.toml` with operator-approved endpoint/model values:
 id = "windows_inference"
 type = "ollama"
 base_url = "http://windows-ollama.private:11434"
+trust = "local" # Explicitly authorized private Windows inference host.
 
 [[workers]]
 id = "windows_4080"
