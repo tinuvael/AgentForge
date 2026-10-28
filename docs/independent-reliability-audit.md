@@ -109,8 +109,11 @@ duplicate external submission was found in the exercised idempotent paths.
 
 ## Final validation
 
-Final source regression, installed-distribution results and exact-head CI are
-recorded in the review PR after completion. No pending check is counted as passed.
+Full final source regression: **1,757 passed / 29 skipped / 0 failed**, **771.63 s**.
+All skips require native Windows; the deliberately invalid SQLite-URI test retains
+its existing warning. Exact published head and its CI results are recorded in
+[review PR #74](https://github.com/tinuvael/AgentForge/pull/74). No pending check is
+counted as passed.
 Both independent clean installed-distribution acceptances and their `pip check`
 completed successfully on this Mac. Ruff lint/format and working-tree whitespace
 also passed. A focused helper run without native loopback permission produced
@@ -128,6 +131,8 @@ run outside the checkout. `verify_gateway.installed_gateway` now commits its
 synthetic Project before registration, preserving the existing CLI → authenticated
 Task → observation → restart acceptance. Full installed smoke additionally checks
 isolated coding/named validation, workflows, Director, ownership and fixtures.
+The final rebuilt wheel is byte-identical to the accepted wheel, SHA-256
+`9833156f07c9bf2f103d3731be2279415137542a21dc15b3910111ee8280d7f3`.
 
 ## Remaining boundaries
 
