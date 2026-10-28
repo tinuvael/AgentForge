@@ -109,11 +109,13 @@ duplicate external submission was found in the exercised idempotent paths.
 
 ## Final validation
 
-Full final source regression: **1,757 passed / 29 skipped / 0 failed**, **771.63 s**.
+Full source regression before the CI fixture correction below:
+**1,757 passed / 29 skipped / 0 failed**, **771.63 s**.
 All skips require native Windows; the deliberately invalid SQLite-URI test retains
 its existing warning. Exact published head and its CI results are recorded in
 [review PR #74](https://github.com/tinuvael/AgentForge/pull/74). No pending check is
 counted as passed.
+The final-head full regression is recorded there after completion.
 Both independent clean installed-distribution acceptances and their `pip check`
 completed successfully on this Mac. Ruff lint/format and working-tree whitespace
 also passed. A focused helper run without native loopback permission produced
@@ -133,6 +135,32 @@ Task → observation → restart acceptance. Full installed smoke additionally c
 isolated coding/named validation, workflows, Director, ownership and fixtures.
 The final rebuilt wheel is byte-identical to the accepted wheel, SHA-256
 `9833156f07c9bf2f103d3731be2279415137542a21dc15b3910111ee8280d7f3`.
+
+### CI investigation and native APFS verification
+
+At head `1685805`, all nine main regression jobs initially passed. The macOS/
+Python 3.14 APFS job passed 120 checks, then failed normal image detach with
+`Resource busy`. Its same-head retry passed both APFS variants and normal detach,
+but its main suite found the existing `test_timeout_kills_descendants` marker.
+Neither failure was silently classified as unrelated or counted as a pass.
+
+That test allowed its child to write after 0.5 s, independently of when supervision
+returned. Controlled delay at the real process launch on the unchanged baseline
+reproduced its failure and recorded the marker **before the first group stop**.
+The corrected fixture requires a real child to become ready, then releases its
+action only after the validator has returned. Both ordinary and delayed launch
+are exercised; the production **0.1 s timeout stays unchanged**. Both checks pass,
+and deliberately killing only the parent makes the corrected test fail. This is
+a stronger process-lifecycle check, not a timeout increase or ignored assertion.
+Production process supervision was not changed. CI's original marker alone cannot
+establish whether an action happened before or after termination.
+
+The same native APFS helper was additionally run on this Intel Mac, using an
+external source archive and separate reports: case-sensitive **120 passed /
+3 skipped**, **206.93 s**; case-insensitive **121 passed / 2 skipped**, **208.40 s**.
+Both images detached normally, without force. The two existing platform skips and
+the deliberate SQLite-URI warning remain. These are native filesystem/process
+tests with disposable repositories, not GPU or Windows application acceptance.
 
 ## Remaining boundaries
 
