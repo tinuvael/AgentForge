@@ -877,6 +877,25 @@ async def installed_gateway():
         (checkout / "README.md").write_text(
             "Windows checkout evidence\n", encoding="utf-8"
         )
+        for command in (
+            ["init"],
+            ["add", "README.md"],
+            [
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-m",
+                "Disposable acceptance project",
+            ],
+        ):
+            subprocess.run(
+                ["git", "-C", str(checkout), *command],
+                check=True,
+                capture_output=True,
+                timeout=15,
+            )
         project = operator(
             "project",
             "add",

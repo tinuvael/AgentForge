@@ -658,6 +658,42 @@ def test_mcp_typed_exchange_and_web_metadata(setup):
     run(execute())
 
 
+@pytest.mark.parametrize("htmx", [False, True])
+def test_dashboard_tool_job_cancellation_preserves_origin(setup, monkeypatch, htmx):
+    from tests.test_web import client_for
+
+    async def blocked(*_):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(FakeComfyUI, "run", blocked)
+
+    async def scenario():
+        app = setup.make()
+        async with client_for(app) as (browser, _):
+            job = app.submit_tool_job(**arguments(setup))
+            detail = f"/tool-jobs/{job.tool_job_id}"
+            path = detail + "/cancel"
+            page = await browser.get(detail)
+            assert f'hx-post="{path}"' in page.text
+            token = browser.cookies.get("agentforge_csrf")
+            fields = {"confirm": "yes", "csrf": token}
+            assert (
+                await browser.post(path, data=fields, headers={"Origin": "null"})
+            ).status_code == 403
+            response = await browser.post(
+                path,
+                data=fields,
+                headers={"HX-Request": "true", "Origin": "http://127.0.0.1"}
+                if htmx
+                else {},
+            )
+            assert response.status_code == (200 if htmx else 303)
+            assert response.headers["HX-Redirect" if htmx else "location"] == detail
+            assert (await wait(app, job)).state == "cancelled"
+
+    run(scenario())
+
+
 def test_formats_reject_external_resources_and_splats():
     for format in ("blend", "stl", "gaussian_splat", "png", "gltf"):
         with pytest.raises(SpecialistError, match="artifact_format_invalid"):

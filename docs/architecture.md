@@ -419,7 +419,10 @@ optional restricted Task execution limits. Existing schema/data remain preserved
 Required coder validation uses the latest durable invocation per named validator,
 with pre/post workspace content/mode identity and the existing write counter.
 Only matching final workspace evidence certifies success; incomplete or historical
-evidence fails closed. Local Director reserves workflow attempt budgets atomically
+evidence fails closed. Completed required-validation steps are rechecked while
+the workflow remains active, including after review waits, pause and restart;
+stale or removed workspaces cannot authorize a successor. Terminal Task history
+remains retained. Local Director reserves workflow attempt budgets atomically
 with the pending idempotent request before I/O, then binds the response in one
 journal checkpoint. Recovery observes/reuses that charge and never resets it.
 Director CLI/browser journal deletion shares a core guard retaining every unfinished

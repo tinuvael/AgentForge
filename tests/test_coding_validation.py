@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -248,24 +249,57 @@ def test_timeout_and_cancellation(coding):
 
 
 @pytest.mark.posix
-def test_timeout_kills_descendants(coding, tmp_path):
+@pytest.mark.parametrize("launch_delay", [0.0, 0.8])
+def test_timeout_kills_descendants(coding, tmp_path, monkeypatch, launch_delay):
     setup = coding.create()
     marker = tmp_path / "child-survived"
-    child = (
-        "import time,pathlib; time.sleep(0.5); "
-        f"pathlib.Path({str(marker)!r}).write_text('bad')"
-    )
-    name = command(
-        coding,
+    ready, release = tmp_path / "child-ready", tmp_path / "child-release"
+    child = f"""import time, pathlib
+ready, release = pathlib.Path({str(ready)!r}), pathlib.Path({str(release)!r})
+ready.write_text('ready')
+deadline = time.monotonic() + 10
+while not release.exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+if release.exists():
+    pathlib.Path({str(marker)!r}).write_text('bad')
+"""
+    parent = (
         "import subprocess,time; "
         f"subprocess.Popen([{str(Path(sys.executable).resolve())!r},"
-        f"'-c',{child!r}]); time.sleep(20)",
-        timeout=0.1,
+        f"'-c',{child!r}], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+        "time.sleep(20)"
     )
-    assert asyncio.run(run_validation(setup, name))["timed_out"]
-    # Wait through the would-be child's action window to prove process-group kill.
-    asyncio.run(asyncio.sleep(0.6))
-    assert not marker.exists()
+    name = command(coding, parent, timeout=0.1)
+    popen = subprocess.Popen
+
+    def started(argv, **kwargs):
+        process = popen(argv, **kwargs)
+        if parent in argv:
+            # Prove a descendant exists before testing group termination. Charge
+            # startup/scheduling delay to the unchanged production timeout too.
+            deadline = time.monotonic() + 5
+            while not ready.exists() and process.poll() is None:
+                if time.monotonic() >= deadline:
+                    release.touch()
+                    process.kill()
+                    process.wait()
+                    pytest.fail("Validation descendant did not become ready")
+                time.sleep(0.01)
+            assert ready.exists()
+            time.sleep(launch_delay)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", started)
+    try:
+        assert asyncio.run(run_validation(setup, name))["timed_out"]
+        assert ready.exists()
+        # The action is possible ONLY after supervision returned. A wall-clock
+        # marker could have been written before a delayed timeout killed anyone.
+        release.touch()
+        asyncio.run(asyncio.sleep(0.6))
+        assert not marker.exists()
+    finally:
+        release.touch()  # Any surviving fixture child also has a bounded lifetime.
 
 
 def test_repository_executable_shadowing_and_shell_false(coding, monkeypatch):

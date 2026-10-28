@@ -715,7 +715,8 @@ def test_workflow_deadline_and_dispatch_failure_preserve_attempt(setup, monkeypa
     run(scenario())
 
 
-def test_dashboard_scope_review_csrf_and_lifecycle(setup):
+@pytest.mark.parametrize("htmx", [False, True])
+def test_dashboard_scope_review_csrf_and_lifecycle(setup, htmx):
     from tests.test_web import client_for
 
     async def scenario():
@@ -735,6 +736,10 @@ def test_dashboard_scope_review_csrf_and_lifecycle(setup):
             assert (await browser.get("/workflows")).status_code == 200
             scope = value.steps[-1].attempts[-1].scope_hash
             path = f"/workflows/{value.workflow_id}/review/mesh/{scope}/approve"
+            assert f'hx-post="{path}"' in page.text
+            for operation in ("pause", "resume", "cancel"):
+                control = f"/workflows/{value.workflow_id}/{operation}"
+                assert f'hx-post="{control}"' in page.text
             assert (
                 await browser.post(path, data={"confirm": "yes"})
             ).status_code == 403
@@ -747,8 +752,23 @@ def test_dashboard_scope_review_csrf_and_lifecycle(setup):
                 )
             ).status_code == 403
             assert (
-                await browser.post(path, data={"confirm": "yes", "csrf": csrf})
-            ).status_code == 303
+                await browser.post(
+                    path,
+                    headers={"origin": "null"},
+                    data={"confirm": "yes", "csrf": csrf},
+                )
+            ).status_code == 403
+            response = await browser.post(
+                path,
+                headers={"HX-Request": "true", "Origin": "http://127.0.0.1"}
+                if htmx
+                else {},
+                data={"confirm": "yes", "csrf": csrf},
+            )
+            assert response.status_code == (200 if htmx else 303)
+            assert response.headers["HX-Redirect" if htmx else "location"] == (
+                f"/workflows/{value.workflow_id}"
+            )
             assert (
                 await browser.post(path, data={"confirm": "yes", "csrf": csrf})
             ).status_code == 409

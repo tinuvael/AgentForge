@@ -40,6 +40,7 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_EVENT_BYTES = 256 * 1024
 MAX_STREAM_BYTES = 4 * 1024 * 1024
 MAX_TOOL_CALLS = 200
+_FINISH_REASONS = {"stop", "length", "tool_calls"}
 _OPTIONS = {
     "temperature",
     "top_p",
@@ -289,6 +290,10 @@ class OpenAICompatibleProvider:
             try:
                 parsed = _Response.model_validate(data)
                 choice = parsed.choices[0]
+                if choice.finish_reason not in _FINISH_REASONS:
+                    # Filtered/unsupported termination cannot certify complete
+                    # text or calls, even when their JSON is syntactically valid.
+                    raise _invalid()
                 if choice.message.function_call is not None:
                     raise _invalid()
                 calls = _calls(choice.message.tool_calls)
@@ -433,7 +438,7 @@ class OpenAICompatibleProvider:
                         self._assemble(assembled, call)
                     reason = choice.get("finish_reason")
                     if reason is not None:
-                        if not isinstance(reason, str) or not reason:
+                        if not isinstance(reason, str) or reason not in _FINISH_REASONS:
                             raise _invalid()
                         finish = reason
                     if content or reasoning:

@@ -393,6 +393,38 @@ async def collect(p, worker, generation_request):
         await p.aclose()
 
 
+@pytest.mark.parametrize("reason", ["content_filter", "function_call", "unknown"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_incomplete_terminal_signal_is_not_success(
+    worker, generation_request, reason, streaming
+):
+    document = completion(content="Only a partial answer", calls=[call()])
+    document["choices"][0]["finish_reason"] = reason
+    body = BytesStream(
+        [
+            event({"content": "Only a partial answer"}),
+            event(finish=reason),
+            b"data: [DONE]\n\n",
+        ]
+    )
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return (
+            httpx.Response(200, stream=body)
+            if streaming
+            else httpx.Response(200, json=document)
+        )
+
+    p = provider(handler)
+    with pytest.raises(InvalidProviderResponse):
+        run((collect if streaming else generate)(p, worker, generation_request))
+    assert len(requests) == 1 and p._http.is_closed and not p._active
+    if streaming:
+        assert body.closed
+
+
 @pytest.mark.parametrize(
     "usage", [None, {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10}]
 )

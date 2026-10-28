@@ -522,8 +522,15 @@ class WorkflowService:
         for index, (step, run) in enumerate(
             zip(workflow.definition.steps, workflow.steps, strict=True)
         ):
-            if not run.attempts or run.state in {"completed", "failed", "cancelled"}:
+            if (
+                not run.attempts
+                or run.state in {"failed", "cancelled"}
+                or run.state == "completed"
+                and not (step.kind == "inference" and step.required_validators)
+            ):
                 continue
+            # A completed coding step can wait through approval/pause/restart.
+            # Recheck its required evidence before accepting any successor too.
             attempt = run.attempts[-1]
             child = self.child(workflow, step, attempt)
             if child is None:

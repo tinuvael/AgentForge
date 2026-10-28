@@ -135,3 +135,94 @@ def test_required_validator_final_invocation_and_workspace(
 
     asyncio.run(scenario())
     assert primary_state(coding.root) == before
+
+
+@pytest.mark.parametrize("change", ["edit", "cleanup", "restart", "unchanged"])
+def test_required_validation_stays_fresh_while_successor_awaits_review(
+    coding, database, change
+):
+    provider = Provider([("run_validation", {"name": "check"})])
+    before = primary_state(coding.root)
+
+    async def scenario():
+        app, _ = application(coding, database, provider, concurrency=1)
+        provider.app = None
+        await app.start()
+        try:
+            workflow = app.submit_workflow(
+                definition=Definition(
+                    project_id=coding.project.id,
+                    steps=(
+                        InferenceStep(
+                            step_id="code",
+                            kind="inference",
+                            agent_id="coder",
+                            worker_id="one",
+                            request="Run the trusted check",
+                            intended_effect="Validate isolated code",
+                            required_validators=("check",),
+                        ),
+                        InferenceStep(
+                            step_id="publish-result",
+                            kind="inference",
+                            agent_id="general_agent",
+                            worker_id="one",
+                            depends_on=("code",),
+                            request="Report the validated result",
+                            intended_effect="Use accepted code",
+                            approval_required=True,
+                        ),
+                    ),
+                ),
+                idempotency_key="validation-wait",
+            )
+            review = await until(app, workflow.workflow_id)
+            app.workflows.review(
+                workflow_id=workflow.workflow_id,
+                step_id="code",
+                scope_hash=review.steps[0].attempts[-1].scope_hash,
+            )
+            async with asyncio.timeout(8):
+                while True:
+                    review = app.get_workflow(workflow_id=workflow.workflow_id)
+                    if review.steps[1].state == "approval":
+                        break
+                    await asyncio.sleep(0.005)
+            assert review.steps[0].state == "completed"
+            assert review.steps[1].state == "approval"
+            task_id = review.steps[0].attempts[-1].task_id
+            child = app.tasks.get_task(task_id)
+            assert child.coding_result.validators_succeeded(("check",))
+            if change == "cleanup":
+                app.cleanup_coding_workspace(
+                    task_id=task_id, workspace_id=child.coding_result.workspace_id
+                )
+            elif change != "unchanged":
+                _, root = app.coding._paths(app.coding._record(task_id))
+                (root / "source.py").write_text("changed during human review\n")
+            if change == "restart":
+                app.pause_workflow(workflow_id=workflow.workflow_id)
+                await app.close()
+                app, _ = application(coding, database, provider, concurrency=1)
+                provider.app = None
+                await app.start()
+                app.resume_workflow(workflow_id=workflow.workflow_id)
+            app.workflows.review(
+                workflow_id=workflow.workflow_id,
+                step_id="publish-result",
+                scope_hash=review.steps[1].attempts[-1].scope_hash,
+            )
+            final = await until(app, workflow.workflow_id, ("completed", "failed"))
+            if change == "unchanged":
+                assert final.state == "completed"
+                assert len(app.tasks.history()) == 2
+            else:
+                assert final.state == "failed"
+                assert final.steps[0].failure_category == "validation_required"
+                assert final.steps[1].attempts[-1].task_id is None
+                assert len(app.tasks.history()) == 1
+        finally:
+            await app.close()
+
+    asyncio.run(scenario())
+    assert primary_state(coding.root) == before

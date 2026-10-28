@@ -188,6 +188,13 @@ def create_app(
             context={"csrf": getattr(request.state, "csrf", ""), **context},
         )
 
+    def detail_redirect(request, path):
+        # XHR preserves Origin under no-referrer. Reload through GET after the
+        # mutation so forms show fresh state without nesting a page in a form.
+        if request.headers.get("HX-Request") == "true":
+            return HTMLResponse(headers={"HX-Redirect": path})
+        return RedirectResponse(path, status_code=303)
+
     def failure(request, code, status):
         _LOG.warning("Dashboard operation failed: %s", code)
         response = render(
@@ -381,7 +388,7 @@ def create_app(
             raise HTTPException(404)
         await check_cancellation(request)
         getattr(core(), operation + "_workflow")(workflow_id=workflow_id)
-        return RedirectResponse(f"/workflows/{workflow_id}", status_code=303)
+        return detail_redirect(request, f"/workflows/{workflow_id}")
 
     @web.post("/workflows/{workflow_id}/review/{step_id}/{scope_hash}/{decision}")
     async def workflow_review(
@@ -400,7 +407,7 @@ def create_app(
             scope_hash=scope_hash,
             approve=decision == "approve",
         )
-        return RedirectResponse(f"/workflows/{workflow_id}", status_code=303)
+        return detail_redirect(request, f"/workflows/{workflow_id}")
 
     @web.get("/tool-jobs", response_class=HTMLResponse)
     async def tool_jobs(request: Request):
@@ -433,7 +440,7 @@ def create_app(
     async def cancel_tool_job(request: Request, tool_job_id: UUID):
         await check_cancellation(request)
         core().cancel_tool_job(tool_job_id=tool_job_id)
-        return RedirectResponse(f"/tool-jobs/{tool_job_id}", status_code=303)
+        return detail_redirect(request, f"/tool-jobs/{tool_job_id}")
 
     @web.get("/tasks/{task_id}/fragment", response_class=HTMLResponse)
     async def task_fragment(request: Request, task_id: UUID):
