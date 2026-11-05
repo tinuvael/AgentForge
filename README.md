@@ -153,17 +153,26 @@ index instead of installing arbitrary old pins. See the checked
 private absolute paths and one authenticated Gateway for all clients.
 
 Edit `workers.local.toml` for your installed model and reachable endpoint. The
-minimal supported Ollama configuration is:
+default local configuration uses llama.cpp's `llama-server`:
 
 ```toml
+[[providers]]
+id = "local-llama"
+type = "openai_compatible"
+base_url = "http://127.0.0.1:8080/v1"
+trust = "local"
+
 [[workers]]
 id = "local-4080"
-provider = "ollama"
-endpoint = "http://127.0.0.1:11434"
-model = "gpt-oss:20b"
+provider = "local-llama"
+model = "local-model"
 supports_tools = true
-context_window = 32768
+supports_streaming = true
+context_window = 8192
 ```
+
+Follow [llama.cpp setup](docs/llama-cpp.md) for the server, GGUF, alias and tool-loop acceptance.
+Ollama remains an optional [alternative configuration](config/workers.ollama.example.toml).
 
 The Worker ID is just a name; no RTX 4080 or localhost deployment is assumed.
 `supports_tools` is operator configuration, not a compatibility probe. For named
@@ -216,10 +225,12 @@ agentforge worker list --workers workers.local.toml
 agentforge agent list
 ```
 
-For an explicit bounded Ollama model-availability check, run
-`agentforge worker check local-4080 --workers workers.local.toml`.
-OpenAI-compatible connections report `not_probed`; their current contract cannot
-verify generic backend/model availability. Config validation and listing perform
+For the default llama.cpp connection,
+`agentforge worker check local-4080 --workers workers.local.toml` reports
+`not_probed`; the compatible health contract cannot verify generic backend/model
+availability. Use the [llama.cpp acceptance steps](docs/llama-cpp.md) for real
+generation and tool-loop checks. The optional Ollama backend also supports a
+bounded model-availability health check. Config validation and listing perform
 no network probes. See `agentforge --help` and the
 [operator command guide](docs/operator-cli.md) for administration and exit codes.
 The installed wheel includes the CLI, migrations and web assets; it does not need
@@ -312,7 +323,7 @@ source/tool results, diffs and validation output gathered during their selected
 execution. Consider endpoint trust and retention before selecting them.
 
 This is the first implementation / initial release candidate, pending real
-Windows/Ollama/GPU acceptance testing. Automated tests use synthetic repositories and mocked
+Windows/llama.cpp/GPU acceptance testing. Automated tests use synthetic repositories and mocked
 inference, with no live network, cloud API or GPU. Native Windows tests are skipped
 on Linux; mocks do not establish physical Windows validation. Windows rejects UNC,
 reparse/junction paths, hardlinks, ambiguous aliases and unsupported volumes.

@@ -1032,7 +1032,7 @@ def test_ollama_runtime_preserves_assistant_state_through_real_tool_loop(
 
     # Use the real example's explicit local-4080/gpt-oss:20b configuration with
     # a MockTransport. No live Ollama/GPU/network is involved.
-    workers = load_workers("config/workers.example.toml")
+    workers = load_workers("config/workers.ollama.example.toml")
     requests = []
     native_call = {
         "function": {
@@ -1126,3 +1126,79 @@ def test_recoverable_tool_error_does_not_include_reasoning_state(setup):
         == "path_not_found"
     )
     assert provider.requests[1].messages[-2].reasoning == opaque
+
+
+def test_llama_default_example_executes_compatible_tool_round_trip(setup):
+    import httpx
+
+    from agentforge.providers.openai_compatible import OpenAICompatibleProvider
+    from agentforge.workers.config import load_workers
+
+    config = load_workers("config/workers.example.toml")
+    requests = []
+
+    def handler(request):
+        assert str(request.url) == "http://127.0.0.1:8080/v1/chat/completions"
+        body = json.loads(request.content)
+        requests.append(body)
+        assert body["model"] == "local-model" and body["stream"] is False
+        message = {"role": "assistant", "content": "Inspected source.py:1-2."}
+        reason = "stop"
+        if len(requests) == 1:
+            message.update(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "read-source",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": json.dumps(
+                                {
+                                    "path": "source.py",
+                                    "start_line": 1,
+                                    "end_line": 2,
+                                }
+                            ),
+                        },
+                    }
+                ],
+            )
+            reason = "tool_calls"
+        else:
+            assert len(requests) == 2
+            tool = body["messages"][-1]
+            assert tool["role"] == "tool" and tool["tool_call_id"] == "read-source"
+            assert (
+                json.loads(tool["content"])["result"]["content"]
+                == "def helper():\n    pass\n"
+            )
+        return httpx.Response(
+            200,
+            json={
+                "model": "local-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": message,
+                        "finish_reason": reason,
+                    }
+                ],
+            },
+        )
+
+    provider = OpenAICompatibleProvider(
+        config.providers[0], transport=httpx.MockTransport(handler)
+    )
+    runtime = AgentRuntime(
+        projects=setup.registry,
+        workers=config,
+        agents=[REPO_EXPLORER],
+        providers={"local-llama": provider},
+        tools=setup.tools,
+        clock=setup.clock,
+    )
+    result = setup.run(runtime, worker_id="local-4080")
+    asyncio.run(provider.aclose())
+    assert len(requests) == 2 and result.reason == "completed"
+    assert result.tool_call_count == 1

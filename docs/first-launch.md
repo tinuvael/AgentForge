@@ -1,12 +1,14 @@
 # Fresh Windows first launch
 
 Use Windows 11 x64, Python **3.13.x**, current Git for Windows and ordinary local
-NTFS. The owner installs Windows/drivers/apps and the desired Ollama model as
+NTFS. The owner installs Windows/drivers/apps and the selected llama.cpp GGUF model as
 specified in [physical acceptance #31](https://github.com/tinuvael/AgentForge/issues/31).
 No CUDA Toolkit, compiler, OpenSSL development kit or model download is part of
 AgentForge installation. Every path below is an **operator-selected example**.
 Use private storage outside Git/OneDrive and quote paths, including paths with spaces.
 Stop existing executors before registration, migration or other administrative writes.
+
+Use [llama.cpp setup](llama-cpp.md) for the local inference server and model.
 
 ## Build and install
 
@@ -51,7 +53,7 @@ $afDb = 'sqlite:///' + (Join-Path $afState 'gateway.db').Replace('\', '/')
 $afWorkers = Join-Path $afState 'workers.toml'
 Copy-Item (Join-Path $afSource 'config/workers.example.toml') $afWorkers
 # Edit workers.toml: exact installed model, endpoint and factual host metadata.
-# The shipped local-4080/gpt-oss:20b is a configuration, not observed GPU readiness.
+# The local-4080/local-model alias must match llama-server; no GPU readiness is implied.
 & $afPython -m agentforge worker config-check --workers $afWorkers
 & $afPython -m agentforge worker list --workers $afWorkers
 & $afPython -m agentforge agent list
@@ -154,5 +156,5 @@ local inference/executable fixtures. Native Windows jobs additionally execute
 `verify_windows_setup.ps1`; `verify_workflows.py` executes the configured first-run
 chain, named validator, Companion approval, CLI Director and restart. Neither test
 downloads a model or invokes a paid endpoint. The [audit report](release-readiness-audit.md)
-records results. Actual Ollama tool behavior, GPU/offload/memory, Windows browser,
+records results. Actual llama.cpp/model tool behavior, GPU/offload/memory, Windows browser,
 Mac/Tailscale, real ComfyUI and Windows Blender GUI acceptance remain **unchecked** in #31.

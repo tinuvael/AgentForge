@@ -9,7 +9,7 @@ names, `agentforge_mac` and `agentforge_windows`, and explicitly select the inte
 instance before discovering its IDs. An uncommitted Mac edit is visible only locally.
 
 Hosted macOS CI is code-level acceptance. **Physical MacBook, FieldForge, Xcode,
-simulator/device and Windows RTX 4080/Ollama/Tailscale acceptance remains pending
+simulator/device and Windows RTX 4080/llama.cpp/Tailscale acceptance remains pending
 in [#31](https://github.com/tinuvael/AgentForge/issues/31).** No local model is needed.
 
 ## Install and register a checkout
@@ -46,19 +46,19 @@ Create `$AF_STATE/workers.toml` with operator-approved endpoint/model values:
 ```toml
 [[providers]]
 id = "windows_inference"
-type = "ollama"
-base_url = "http://windows-ollama.private:11434"
+type = "openai_compatible"
+base_url = "http://windows-inference.private:8080/v1"
 trust = "local" # Explicitly authorized private Windows inference host.
 
 [[workers]]
 id = "windows_4080"
 provider = "windows_inference"
-model = "operator-installed-tool-model"
+model = "local-model" # Match the explicit llama-server alias.
 supports_tools = true
 timeout_seconds = 60
 ```
 
-The hostname is a placeholder. Restrict Windows Ollama to the authorized private
+The hostname is a placeholder. Restrict Windows llama-server to the authorized private
 LAN/Tailscale connection and firewall. Plain HTTP requires a trusted encrypted
 network when source crosses hosts; use HTTPS for authenticated remote endpoints.
 For compatible cloud inference, use the existing `openai_compatible` configuration
@@ -181,7 +181,7 @@ Unavailable native capabilities are failures or specifically documented skips;
 mocked Providers demonstrate protocol behavior, not real Windows inference.
 
 Physical #31 still requires actual MacBook APFS alias/race tests, a dirty FieldForge
-checkout, Xcode simulator/device builds, real Windows Ollama over Tailscale,
+checkout, Xcode simulator/device builds, real Windows llama-server over Tailscale,
 Windows sleep/network loss, disposable isolated coding with primary preservation,
 and explicit comparison with the remote Windows Gateway workflow. Record versions,
 SHA, sanitized Task evidence and outcomes without marking unperformed rows complete.
