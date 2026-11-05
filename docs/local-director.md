@@ -10,7 +10,8 @@ upgrade private storage, register the Windows checkout, configure explicit
 Workers and provision client credentials. Keep **one** Gateway running against
 that database. Do not start standalone `web` or another executor on the same DB.
 
-Start local Ollama and install a model supporting native tool calls. The Director
+Start local llama-server with a GGUF model and template supporting native tool calls
+(see [llama.cpp setup](llama-cpp.md)). The Director
 and Workers may share the same RTX 4080 endpoint; memory contention and quality
 require physical measurement under #31. No inference health/quality is inferred
 from configuration. Windows cannot inspect uncommitted Mac-local files.
@@ -46,12 +47,12 @@ Example `C:/AgentForge/private/director.toml` (replace placeholder paths/IDs):
 gateway_url = "http://127.0.0.1:8766/mcp"
 token_env = "AGENTFORGE_DIRECTOR_TOKEN"
 journal = "C:/AgentForge/private/director-cli-history"
-model = "your-installed-tool-model"
+model = "local-model" # Same explicit alias as llama-server.
 
 [inference]
-id = "director-ollama"
-type = "ollama"
-base_url = "http://127.0.0.1:11434"
+id = "director-llama"
+type = "openai_compatible"
+base_url = "http://127.0.0.1:8080/v1"
 trust = "local"
 
 [limits]
@@ -63,8 +64,8 @@ sessions = 32
 active = 2
 ```
 
-For a deliberately configured local compatible server use
-`type = "openai_compatible"`, its `base_url` and optionally
+The default example uses [llama.cpp](llama-cpp.md). For an authenticated local
+compatible server, optionally configure
 `api_key_env = "LOCAL_INFERENCE_KEY"`. Authenticated remote endpoints require
 HTTPS. This release requires `trust = "local"` for **Director inference** so
 repository material cannot reach a cloud Director outside Project egress policy.
@@ -201,10 +202,10 @@ clearable, and stale browser revisions remain rejected.
 
 ## Outages and physical acceptance
 
-If Ollama is unavailable or returns 429, the request stops with a bounded error;
+If llama-server is unavailable or returns 429, the request stops with a bounded error;
 there is no paid fallback or automatic inference retry. Gateway read loss has a
 bounded reconnect allowance; mutations are never blindly retried. A lost Internet
-connection or unavailable Codex does not stop local Gateway/Ollama. Configured cloud
+connection or unavailable Codex does not stop local Gateway/llama-server. Configured cloud
 Workers still need their own Internet/API access. Gateway restart interrupts work
 according to the existing durable Task recovery rules.
 

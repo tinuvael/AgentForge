@@ -86,7 +86,10 @@ def test_load_example_configuration():
     example = Path(__file__).parents[1] / "config" / "workers.example.toml"
     worker = load_workers(example).workers[0]
     assert worker.id == "local-4080"
-    assert worker.context_window == 32768
+    assert worker.provider == "openai_compatible"
+    assert worker.provider_connection == "local-llama"
+    assert worker.model == "local-model"
+    assert worker.context_window == 8192
     assert worker.options == {"temperature": 0.1}
     assert worker.supports_streaming
 

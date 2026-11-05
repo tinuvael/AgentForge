@@ -1,13 +1,18 @@
-# Copy and edit for your deployment; this file is not loaded automatically.
+# Main local setup: llama-server with --alias local-model --jinja -c 8192.
+# Copy to private configuration; verify the actual GGUF/template/tool loop.
+[[providers]]
+id = "local-llama"
+type = "openai_compatible"
+base_url = "http://127.0.0.1:8080/v1"
+trust = "local"
+
 [[workers]]
 id = "local-4080"
-provider = "ollama"
-model = "gpt-oss:20b"
-endpoint = "http://localhost:11434"
-context_window = 32768
+provider = "local-llama"
+model = "local-model"
+context_window = 8192
 supports_streaming = true
-# Explicitly configured native tool-use capability; the director selects this Worker.
-supports_tools = true
+supports_tools = true # Declaration only, not observed model quality.
 deployment_label = "RTX 4080"
 timeout_seconds = 120.0
 

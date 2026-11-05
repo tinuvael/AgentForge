@@ -388,7 +388,7 @@ def test_explicit_ollama_health_uses_contract(
         "check",
         "local-4080",
         "--workers",
-        ROOT / "config/workers.example.toml",
+        ROOT / "config/workers.ollama.example.toml",
         expected=expected,
     )
     assert result["status"] == status
@@ -446,7 +446,7 @@ def test_health_exception_safe_and_provider_closed(capsys, monkeypatch):
         "check",
         "local-4080",
         "--workers",
-        ROOT / "config/workers.example.toml",
+        ROOT / "config/workers.ollama.example.toml",
         expected=7,
     )
     assert provider.closed
