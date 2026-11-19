@@ -135,6 +135,9 @@ button:active, .button:active { border-color: var(--focus); }
 .scroll { overflow: auto; max-width: 100%; overscroll-behavior-x: contain; scrollbar-color: var(--line) var(--panel); }
 table { width: 100%; border-collapse: collapse; text-align: left; font-size: var(--font-detail); }
 th, td { padding: 14px 20px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; min-width: 110px; max-width: 360px; }
+.projects-table th:first-child { min-width: 162px; }
+.projects-table th:nth-child(2) { min-width: 210px; }
+.projects-table th:nth-child(3) { min-width: 128px; }
 th { color: var(--muted); background: var(--raised); font-weight: 500; font-size: var(--font-meta); letter-spacing: .35px; }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: var(--raised); }
@@ -454,7 +457,7 @@ img { max-width: 100%; }
 .artifact-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 225px), 1fr)); gap: 12px; }
 .artifact { min-width: 0; border: 1px solid var(--operator-border); border-radius: 7px; background: var(--operator-shell); }
 .artifact-preview { display: block; }
-.artifact-preview img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #0a1016; border-radius: 7px 7px 0 0; }
+.artifact-preview img { display: block; width: 100%; max-height: 280px; aspect-ratio: 16 / 9; object-fit: contain; background: #0a1016; border-radius: 7px 7px 0 0; }
 .artifact-content { display: grid; gap: 7px; padding: 12px; }
 .artifact-content > a { justify-self: start; }
 .director-approval { border-color: #936b36; }
