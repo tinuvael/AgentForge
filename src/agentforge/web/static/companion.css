@@ -15,7 +15,7 @@
 .companion .task-row:has(.completed) { border-left-color:#8ce0b5; }
 .companion .row-heading>a { font-weight:650; }
 .companion .progress { color:var(--text); font-weight:600; }
-.companion .meta { font-size:12px; color:var(--muted); }
+.companion .meta, .companion .local { font-size:12px; color:var(--muted); }
 .companion .meta { display:flex; flex-wrap:wrap; gap:6px 12px; }
 .companion .connection { color:#8ce0b5; font-size:12px; }
 .companion .binding { overflow-wrap:anywhere; }
