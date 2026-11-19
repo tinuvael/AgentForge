@@ -1,63 +1,75 @@
-{% from "macros.html" import badge, icon %}
-<section id="director-session" hx-sync="this:drop" data-state="{{ conversation.state }}"{% if working %} hx-get="/director/{{ conversation.id }}/fragment" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %} aria-label="Current conversation">
-  <div class="director-session-heading"><h2>{{ conversation.title }}</h2><span class="director-state {{ conversation.state }}"><span class="badge">{{ conversation.state }}</span></span></div>
-  {% if conversation.error %}<div role="alert" class="director-alert"><strong>Request needs attention</strong><p>{{ conversation.error }}. Check the configured Gateway or model, then restore known Tasks. An ambiguous submission requires operator reconciliation.</p><a href="/tasks">Inspect Task history</a></div>{% endif %}
+{% from "macros.html" import badge, icon with context %}
+<section id="director-session" hx-sync="this:drop" data-state="{{ conversation.state }}" data-state-label="{{ tr(conversation.state) }}"{% if working %} hx-get="/director/{{ conversation.id }}/fragment" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %} aria-label="{{ tr('Current conversation') }}">
+  <div class="director-session-heading"><h2>{{ tr("New conversation") if conversation.title == "New conversation" else conversation.title }}</h2>{{ badge(conversation.state) }}</div>
+  {% if conversation.error %}<div role="alert" class="director-alert"><strong>{{ tr('Request needs attention') }}</strong><p>{{ error_message(conversation.error) }}</p><a href="/tasks">{{ tr('Inspect Task history') }}</a></div>{% endif %}
   <div class="director-workspace">
     <div class="conversation-main">
-      <div class="director-messages" aria-label="Conversation messages">
-        {% for message in conversation.messages %}<article class="director-message {{ message.role }}"><span class="message-avatar" aria-hidden="true">{{ 'Y' if message.role == 'user' else icon('director') }}</span><div class="message-body"><strong>{{ "You" if message.role == "user" else "Local Director" }}</strong>{% if message.content|length > 2400 %}<details class="long-message"><summary>Read full message · {{ message.content|length }} characters</summary><div class="director-text" role="region" aria-label="Full message" tabindex="0">{{ message.content }}</div></details>{% else %}<div class="director-text">{{ message.content }}</div>{% endif %}</div></article>{% else %}<div class="director-empty"><span class="empty-symbol">{{ icon('director') }}</span><h3>Ready for your request</h3><p>Select a Project and Worker below, or let the Director choose explicitly from authorized candidates.</p></div>{% endfor %}
+      <div class="director-messages" aria-label="{{ tr('Conversation messages') }}">
+        {% for message in conversation.messages %}<article class="director-message {{ message.role }}"><span class="message-avatar" aria-hidden="true">{{ tr('You')[0] if message.role == 'user' else icon('director') }}</span><div class="message-body"><strong>{{ tr("You" if message.role == "user" else "Local Director") }}</strong>{% if message.content|length > 2400 %}<details class="long-message"><summary>{{ tr('Read full message') }}</summary><div class="director-text" role="region" aria-label="{{ tr('Full message') }}" tabindex="0">{{ message.content }}</div></details>{% else %}<div class="director-text">{{ message.content }}</div>{% endif %}</div></article>{% endfor %}
       </div>
       {% if conversation.pending %}
-      <section class="director-approval" aria-label="Approval required"><p class="eyebrow">Human decision</p><h3>{{ icon('shield') }} Approval required</h3><p>{{ conversation.pending.reason }}</p><dl><dt>Action</dt><dd>{{ conversation.pending.operation|replace('_', ' ') }}</dd><dt>Project</dt><dd>{{ conversation.pending.project_id }}</dd><dt>Task</dt><dd>{{ conversation.pending.task_id or "Allocated only after approval" }}</dd>{% for key, value in conversation.pending.arguments.items() %}<dt>{{ key|replace('_', ' ') }}</dt><dd class="director-text">{{ value }}</dd>{% endfor %}<dt>Expires (UTC)</dt><dd><time data-epoch="{{ conversation.pending.expires }}">{{ conversation.pending.expires|utc_epoch }}</time></dd></dl><p class="director-hint">Valid for five minutes from the request. Approval applies once to these exact arguments.</p>
-      <form method="post" action="/director/{{ conversation.id }}/approval" hx-post="/director/{{ conversation.id }}/approval" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><input type="hidden" name="nonce" value="{{ conversation.pending.nonce }}"><button class="primary" name="decision" value="approve" type="submit">Approve this action</button><button name="decision" value="reject" type="submit">Reject</button></form></section>
+      <section class="director-approval" aria-label="{{ tr('Approval required') }}"><h3>{{ icon('shield') }} {{ tr('Approval required') }}</h3>{% set descriptions = {
+      "delegate_task": "Run the requested task on the selected worker, then show the result in this conversation.",
+      "coder": "Run the coding task in an isolated workspace. Review its diff and validation results in the task.",
+      "submit_workflow": "Start the workflow. Each step shows its expected files and requests approval when required.",
+      "cancel_task": "Request cancellation of the task. Inference already running may continue until it stops.",
+      "delegate_council": "Run the selected agents on the specified workers and collect their separate replies.",
+      "cancel_council": "Request cancellation of the council’s active tasks."
+      } %}
+      {% set operation = "coder" if conversation.pending.operation == "delegate_task" and conversation.pending.arguments.get("agent_id") == "coder" else conversation.pending.operation %}
+      <p>{{ tr(descriptions.get(operation, "Run the action shown below.")) }}</p>
+      <p>{{ tr("Action") }} <code>{{ conversation.pending.operation }}</code> · {{ tr("Project") }} <code>{{ conversation.pending.project_id }}</code></p>
+      <details><summary>{{ tr("Approval details") }}</summary><p>{{ conversation.pending.reason }}</p><dl><dt>{{ tr('Action') }}</dt><dd>{{ conversation.pending.operation|replace('_', ' ') }}</dd><dt>{{ tr('Project') }}</dt><dd>{{ conversation.pending.project_id }}</dd><dt>{{ tr('Task') }}</dt><dd>{{ conversation.pending.task_id or tr("Allocated only after approval") }}</dd>{% for key, value in conversation.pending.arguments.items() %}<dt>{{ key|replace('_', ' ') }}</dt><dd class="director-text">{{ value }}</dd>{% endfor %}<dt>{{ tr('Expires (UTC)') }}</dt><dd><time data-epoch="{{ conversation.pending.expires }}">{{ conversation.pending.expires|utc_epoch }}</time></dd></dl></details><p class="director-hint">{{ tr('Approval applies once to these inputs.') }}</p>
+      <form method="post" action="/director/{{ conversation.id }}/approval" hx-post="/director/{{ conversation.id }}/approval" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><input type="hidden" name="nonce" value="{{ conversation.pending.nonce }}"><button class="primary" name="decision" value="approve" type="submit">{{ tr('Approve this action') }}</button><button name="decision" value="reject" type="submit">{{ tr('Reject') }}</button></form></section>
       {% elif working %}
-      <div class="director-running"><div class="director-loading" role="status"><span class="status-dot" aria-hidden="true"></span><strong>Director request active</strong><p>Worker Task states appear in the activity feed.</p></div><form method="post" action="/director/{{ conversation.id }}/stop" hx-post="/director/{{ conversation.id }}/stop" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ conversation.request_id }}"><button type="submit" class="danger">Stop Director request</button><p class="director-hint">Submitted Tasks continue at Gateway. Task cancellation requires a separate approval.</p></form></div>
+      <div class="director-running"><div class="director-loading" role="status"><span class="status-dot" aria-hidden="true"></span><strong>{{ tr('Director request active') }}</strong><p>{{ tr('Worker Task states appear in the activity feed.') }}</p></div><form method="post" action="/director/{{ conversation.id }}/stop" hx-post="/director/{{ conversation.id }}/stop" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ conversation.request_id }}"><button type="submit" class="danger">{{ tr('Stop Director request') }}</button><p class="director-hint">{{ tr('Submitted Tasks continue at Gateway. Task cancellation requires a separate approval.') }}</p></form></div>
       {% else %}
       <form class="director-compose" method="post" action="/director/{{ conversation.id }}/send" hx-post="/director/{{ conversation.id }}/send" hx-sync="this:drop" hx-disabled-elt="find button">
         <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}">
-        <div class="director-selection"><label>Project<select name="project"><option value="">Director selects an authorized Project</option>{% for project in catalog.get('projects', []) %}<option value="{{ project.project_id }}"{% if conversation.project_id|string == project.project_id %} selected{% endif %}>{{ project.name }}</option>{% endfor %}</select></label><label>Worker<select name="worker"><option value="">Director evaluates eligible Workers</option>{% for worker in catalog.get('workers', []) %}<option value="{{ worker.worker_id }}"{% if conversation.worker_id == worker.worker_id %} selected{% endif %}>{{ worker.worker_id }} · {{ worker.model }} · {{ worker.trust }}</option>{% endfor %}</select></label></div>
-        <label for="director-message">Your request</label><textarea id="director-message" name="message" rows="4" maxlength="{{ input_limit }}" required placeholder="Inspect this project and cite the evidence…" aria-describedby="compose-hint"{% if conversation.submission or conversation.tasks|rejectattr('state', 'in', ['completed','failed','cancelled','interrupted'])|list %} disabled{% endif %}></textarea><div class="compose-footer"><p id="compose-hint" class="director-hint">Worker eligibility is checked for the selected Project and Agent before submission.</p><button class="primary" type="submit"{% if conversation.submission or conversation.tasks|rejectattr('state', 'in', ['completed','failed','cancelled','interrupted'])|list %} disabled{% endif %}>Send request {{ icon('arrow') }}</button></div>
-        {% if conversation.submission or conversation.tasks|rejectattr('state', 'in', ['completed','failed','cancelled','interrupted'])|list %}<p class="director-hint">Resolve the existing submission or restore known Task results before sending another request.</p>{% endif %}
+        <div class="director-selection"><label>{{ tr('Project') }}<select name="project"><option value="">{{ tr('Director selects an authorized Project') }}</option>{% for project in catalog.get('projects', []) %}<option value="{{ project.project_id }}"{% if conversation.project_id|string == project.project_id %} selected{% endif %}>{{ project.name }}</option>{% endfor %}</select></label><label>{{ tr('Worker') }}<select name="worker"><option value="">{{ tr('Director evaluates eligible Workers') }}</option>{% for worker in catalog.get('workers', []) %}<option value="{{ worker.worker_id }}"{% if conversation.worker_id == worker.worker_id %} selected{% endif %}>{{ worker.worker_id }} · {{ worker.model }} · {{ worker.trust }}</option>{% endfor %}</select></label></div>
+        <label for="director-message">{{ tr('Your request') }}</label><textarea id="director-message" name="message" rows="4" maxlength="{{ input_limit }}" required placeholder="{{ tr('Inspect this project and cite the evidence…') }}" aria-describedby="compose-hint"{% if conversation.submission or conversation.tasks|rejectattr('state', 'in', ['completed','failed','cancelled','interrupted'])|list %} disabled{% endif %}></textarea><div class="compose-footer"><p id="compose-hint" class="director-hint">{{ tr('Worker eligibility is checked for the selected Project and Agent before submission.') }}</p><button class="primary" type="submit"{% if conversation.submission or conversation.tasks|rejectattr('state', 'in', ['completed','failed','cancelled','interrupted'])|list %} disabled{% endif %}>{{ tr('Send request') }} {{ icon('arrow') }}</button></div>
+        {% if conversation.submission or conversation.tasks|rejectattr('state', 'in', ['completed','failed','cancelled','interrupted'])|list %}<p class="director-hint">{{ tr('Resolve the existing submission or restore known Task results before sending another request.') }}</p>{% endif %}
+        <span role="status" data-send-status></span>
       </form>
       {% endif %}
-      <p class="director-connection" role="status">{% if working %}Updates refresh every two seconds. If updates stop, reload this conversation to reconnect.{% else %}This is a saved session snapshot. Reload to reconnect to Gateway.{% endif %}</p>
+      <p class="director-connection" role="status"></p>
     </div>
-    <aside class="director-context" aria-label="Execution and evidence">
-      <h3>Session context</h3>
+    <aside class="director-context" aria-label="{{ tr('Execution and evidence') }}">
+      <details class="operator-details"><summary>{{ tr('Session context') }}</summary>
       <dl class="context-facts">
-        <dt>Director model</dt><dd>{{ model }}</dd>
-        <dt>Your Project pin</dt><dd>{{ conversation.project_id or 'No pin · Director selects' }}</dd>
-        <dt>Your Worker pin</dt><dd>{{ conversation.worker_id or 'No pin · Director selects' }}</dd>
+        <dt>{{ tr('Director model') }}</dt><dd>{{ model }}</dd>
+        <dt>{{ tr('Your Project pin') }}</dt><dd>{{ conversation.project_id or tr('No pin · Director selects') }}</dd>
+        <dt>{{ tr('Your Worker pin') }}</dt><dd>{{ conversation.worker_id or tr('No pin · Director selects') }}</dd>
       </dl>
-      {% for workflow in conversation.workflows %}<section class="panel"><h3>Workflow {{ badge(workflow.state) }}</h3><a href="/workflows/{{ workflow.workflow_id }}">Inspect steps and review {{ workflow.workflow_id }}</a><p>Project {{ workflow.project_id }}</p></section>{% endfor %}
+      </details>{% for workflow in conversation.workflows %}<section class="panel"><h3>{{ tr('Workflow') }} {{ badge(workflow.state) }}</h3><a href="/workflows/{{ workflow.workflow_id }}">{{ tr('Open workflow') }}</a></section>{% endfor %}
       {% if conversation.tasks %}
       <div class="director-tasks">
-        <h3>Task evidence</h3><p>Recorded execution bindings</p>
+        <h3>{{ tr('Task results') }}</h3>
         {% for task in conversation.tasks %}
         <article data-task-id="{{ task.task_id }}">
-          <div class="section-heading">{{ badge(task.state) }}<span class="evidence-label">{{ task.evidence|replace('_', ' ') }}</span></div>
-          <a href="/tasks/{{ task.task_id }}">Task {{ task.task_id }}</a>
+          <div class="section-heading">{{ badge(task.state) }}</div>
+          <a href="/tasks/{{ task.task_id }}">{{ tr('Open task result') }}</a><details><summary>{{ tr('Task details') }}</summary><code>{{ task.task_id }}</code><p>{{ tr(task.evidence|replace("_", " ")) }}</p>
           <dl class="task-binding">
-            <dt>Project</dt><dd><code>{{ task.project_id }}</code></dd>
-            <dt>Worker</dt><dd>{{ task.worker_id }}</dd>
-            <dt>Agent</dt><dd>{{ task.agent_id }}</dd>
-          </dl>
+            <dt>{{ tr('Project') }}</dt><dd><code>{{ task.project_id }}</code></dd>
+            <dt>{{ tr('Worker') }}</dt><dd>{{ task.worker_id }}</dd>
+            <dt>{{ tr('Agent') }}</dt><dd>{{ task.agent_id }}</dd>
+          </dl></details>
           {% if not working and not conversation.pending and task.state not in ['completed','failed','cancelled','interrupted'] %}
           <form method="post" action="/director/{{ conversation.id }}/cancel-task" hx-post="/director/{{ conversation.id }}/cancel-task" hx-sync="this:drop" hx-disabled-elt="find button">
             <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><input type="hidden" name="task" value="{{ task.task_id }}">
-            <button type="submit" class="danger">Request Task cancellation approval</button>
+            <button type="submit" class="danger">{{ tr('Request Task cancellation approval') }}</button>
           </form>
           {% endif %}
         </article>
         {% endfor %}
       </div>
-      {% else %}<p class="director-hint">No delegated Task binding recorded.</p>{% endif %}
-      {% if conversation.progress %}<details class="director-progress" open><summary>Execution activity</summary><ol tabindex="0" aria-label="Recorded execution activity">{% for event in conversation.progress %}<li>{{ event }}</li>{% endfor %}</ol></details>{% endif %}
-      {% for council in conversation.councils %}<p><a href="/councils/{{ council.council_id }}">Council {{ council.council_id }}</a> · independent participant results above</p>{% endfor %}
-      <div class="verification-note">{{ icon('shield') }}<p><strong>Verification boundary</strong>Source-tool use is observed evidence. The Director cannot independently read or verify source. Review linked Task results before accepting findings.</p></div>
-      {% if not working and (conversation.tasks or conversation.workflows) and not conversation.pending %}<form method="post" action="/director/{{ conversation.id }}/resume" hx-post="/director/{{ conversation.id }}/resume" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button type="submit">Restore known execution results</button></form>{% endif %}
-      <details class="session-details"><summary>Conversation details</summary><code>{{ conversation.id }}</code><p class="director-hint">Revision {{ conversation.revision }}</p></details>
-      {% if not working %}<details class="director-clear"><summary>Clear this conversation</summary><p>Deletes its local transcript and approval. Gateway history and coding workspaces remain. Resume to refresh retained Tasks and workflows first; unfinished workflows, including approval and recovery states, prevent clearing.</p><form method="post" action="/director/{{ conversation.id }}/clear" hx-post="/director/{{ conversation.id }}/clear" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button class="danger" type="submit" name="confirm" value="clear">Clear conversation history</button></form></details>{% endif %}
+      {% else %}<p class="director-hint">{{ tr('No delegated Task binding recorded.') }}</p>{% endif %}
+      {% if conversation.progress %}<details class="director-progress"><summary>{{ tr('Execution activity') }}</summary><ol tabindex="0" aria-label="{{ tr('Recorded execution activity') }}">{% for event in conversation.progress %}<li>{{ progress_message(event) }}</li>{% endfor %}</ol></details>{% endif %}
+      {% for council in conversation.councils %}<p><a href="/councils/{{ council.council_id }}">{{ tr('Open council') }}</a></p>{% endfor %}
+
+      {% if not working and (conversation.tasks or conversation.workflows) and not conversation.pending %}<form method="post" action="/director/{{ conversation.id }}/resume" hx-post="/director/{{ conversation.id }}/resume" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button type="submit">{{ tr('Restore known execution results') }}</button></form>{% endif %}
+      <details class="session-details"><summary>{{ tr('Conversation details') }}</summary><code>{{ conversation.id }}</code><p class="director-hint">{{ tr('Revision') }} {{ conversation.revision }}</p></details>
+      {% if not working %}<details class="director-clear"><summary>{{ tr('Clear this conversation') }}</summary><p>{{ tr('Deletes its local transcript and approval. Gateway history and coding workspaces remain. Resume to refresh retained Tasks and workflows first; unfinished workflows, including approval and recovery states, prevent clearing.') }}</p><form method="post" action="/director/{{ conversation.id }}/clear" hx-post="/director/{{ conversation.id }}/clear" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button class="danger" type="submit" name="confirm" value="clear">{{ tr('Clear conversation history') }}</button></form></details>{% endif %}
     </aside>
   </div>
 </section>

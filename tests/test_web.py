@@ -36,7 +36,9 @@ async def client_for(app, **options):
     web = create_app(lambda: app, **options)
     async with web.router.lifespan_context(web):
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=web), base_url="http://127.0.0.1"
+            transport=httpx.ASGITransport(app=web),
+            base_url="http://127.0.0.1",
+            cookies={"agentforge_language": "en"},
         ) as client:
             yield client, web
 
@@ -1056,5 +1058,44 @@ def test_sse_contract_rejects_unknown_internal_notice(setup):
                 assert body == b"event: resync\ndata: {}\n\n"
             setup.provider.release.set()
             await setup.app.tasks.wait_task(identity)
+
+    run(execute())
+
+
+def test_operator_language_defaults_and_persists_without_reflecting_errors(setup):
+    async def execute():
+        async with client_for(setup.app) as (client, _):
+            client.cookies.clear()
+            response = await client.get("/")
+            assert response.headers["Content-Language"] == "ru"
+            assert '<html lang="ru">' in response.text
+            assert "Что нужно сделать?" in response.text
+
+            path = "/language/en"
+            data = {"csrf": client.cookies["agentforge_csrf"], "next": "/tasks"}
+            assert (await client.post(path, data={"next": "/tasks"})).status_code == 403
+            for unsafe in (
+                "//other.invalid",
+                "/\\other.invalid",
+                "https://other.invalid",
+            ):
+                assert (
+                    await client.post(path, data={**data, "next": unsafe})
+                ).status_code == 422
+            updated = await client.post(path, data=data, headers={"HX-Request": "true"})
+            assert updated.headers["HX-Redirect"] == "/tasks"
+            cookie = updated.headers["set-cookie"]
+            assert "agentforge_language=en" in cookie and "HttpOnly" in cookie
+            assert "SameSite=strict" in cookie
+            assert (await client.get("/projects")).headers["Content-Language"] == "en"
+
+            invalid = await client.get("/tasks/disposable-untrusted-value")
+            assert invalid.status_code == 422
+            assert "disposable-untrusted-value" not in invalid.text
+            assert "Check the form values and try again." in invalid.text
+            await client.post("/language/ru", data=data)
+            invalid = await client.get("/tasks?limit=0")
+            assert invalid.headers["Content-Language"] == "ru"
+            assert "Проверьте поля формы и повторите попытку." in invalid.text
 
     run(execute())

@@ -173,13 +173,22 @@ def add_director_routes(web, render, valid_csrf):
 
     @web.post("/director/new")
     async def new(request: Request):
-        if await fields(request):
+        data = await fields(request)
+        if set(data) - {"message"}:
             raise HTTPException(422)
         svc = service(request)
+        message = data.get("message")
+        if message is not None and (
+            not message.strip() or len(message) > svc.director.config.limits.input_chars
+        ):
+            raise HTTPException(413)
         try:
             item = svc.director.create(request.state.director_owner)
         except ValueError:
             raise HTTPException(429) from None
+        if message is not None:
+            svc.start(item, request.state.director_owner, text=message)
+            await asyncio.sleep(0)
         return redirect(request, item)
 
     @web.get("/director/{identity}")

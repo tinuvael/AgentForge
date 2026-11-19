@@ -160,9 +160,12 @@ it does not retroactively undo already authorized submissions.
 
 The trusted loopback operator dashboard adds **ToolJobs** history/detail pages,
 refresh, existing CSRF-protected cancellation and artifact metadata. It labels
-simulation throughout. Binary retrieval is via MCP; there are no inert download
-controls or unauthenticated file routes. Existing Host/Origin/CSP/CSRF controls and
-one-owner Companion lifecycle apply unchanged.
+simulation throughout. A loopback browser with a valid operator session cookie
+can preview a job's validated PNG outputs and download its output files. The file
+route verifies the job/artifact binding and uses the specialist service's existing
+integrity checks. It serves PNG previews inline and other formats as attachments.
+It rejects cross-site browser requests. LAN Companion views show metadata, and
+Gateway clients retrieve bytes through their existing authenticated MCP grants.
 
 ## MCP and Director contract
 

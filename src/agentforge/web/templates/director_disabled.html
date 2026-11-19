@@ -1,5 +1,11 @@
-{% extends "base.html" %}{% from "macros.html" import page_header, icon %}
-{% block title %}Local Director · configuration required{% endblock %}
+{% extends "base.html" %}{% from "macros.html" import page_header with context %}
+{% block title %}{{ tr("Local Director setup") }} · AgentForge{% endblock %}
 {% block content %}
-{{ page_header("Local Director is not configured", "Connect a local model to your authorized Gateway workspace.", "Orchestration workspace") }}<div class="help-panel"><p>Enable the Local Director in the persistent Gateway’s loopback Companion using a private Director configuration and a separately scoped Gateway credential.</p><p>Start Gateway with <code>--companion --director-config PATH</code>. The server holds the credentials and model endpoint. Standalone or LAN-bound dashboards do not expose chat operations.</p><p>See the packaged operator guide <code>docs/local-director.md</code> for setup, limits and authenticated MacBook forwarding.</p></div>
+{{ page_header("Local Director setup") }}
+<div class="panel"><p>{{ tr("Local Director is not configured. Requests from Codex appear in task history.") }}</p><a class="button" href="/tasks">{{ tr("Open task history") }}</a>
+<details class="operator-details"><summary>{{ tr("Setup details") }}</summary>
+  <p>{{ tr("Start the loopback Gateway with a private Director configuration and a separate Gateway credential.") }}</p>
+  <pre>{{ tr('agentforge gateway serve … --companion --director-config PATH') }}</pre>
+  <code>{{ tr('docs/local-director.md') }}</code>
+</details></div>
 {% endblock %}

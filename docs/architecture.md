@@ -434,7 +434,10 @@ credentials never enter workflow records. Every new dispatch revalidates binding
 Project/client authorization, policy and inputs. Trusted operator scope review is
 outside the model catalog; Local Director uses existing authenticated MCP and its
 human approval controls for resume/cancel. Private artifact bytes/paths are absent
-from inference result references. Recovery-required effects never become automatic
+from inference result references. The loopback operator UI can preview or download
+verified output files using the existing specialist service, restricted to a
+matching job and local browser session. This does not grant the Director or LAN
+Companion access to artifact bytes. Recovery-required effects never become automatic
 new attempts; existing ComfyUI receipt observation remains intact. See
 [workflow lifecycle, recovery and limits](workflows.md) and the
 [pre-implementation design](issue-53-design.md).

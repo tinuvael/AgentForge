@@ -9,7 +9,7 @@
   });
   const status = text => {
     const node = document.getElementById('live-status');
-    if (node) node.textContent = text;
+    if (node) node.textContent = window.agentforgeText(text);
   };
   const refresh = () => {
     dirty = true;
@@ -62,7 +62,7 @@
   ['htmx:responseError','htmx:sendError'].forEach(event => document.addEventListener(event, () => {
     status('AgentForge unavailable; reload to reconnect.');
     const node = document.querySelector('.connection');
-    if (node) node.textContent = 'Connection interrupted';
+    if (node) node.textContent = window.agentforgeText('Connection interrupted');
   }));
   window.addEventListener('pagehide', () => {
     if (source) source.close(); source=null; stopped=false;

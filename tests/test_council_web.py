@@ -170,7 +170,7 @@ def test_live_updates_individual_terminal_does_not_close_group(setup, monkeypatc
                 await second_started.wait()
                 await live.expect("refresh")
                 body = (await client.get(path + "/fragment")).text
-                assert "completed: 1" in body and "running: 1" in body
+                assert "completed 1" in body and "running 1" in body
                 assert not setup.app.councils.get(council.council_id).terminal
                 setup.provider.release.set()
                 assert await live.expect("terminal") == b"event: terminal\ndata: {}\n\n"

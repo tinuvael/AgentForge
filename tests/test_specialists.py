@@ -637,7 +637,7 @@ def test_mcp_typed_exchange_and_web_metadata(setup):
                     transport=httpx.ASGITransport(app=web), base_url="http://localhost"
                 ) as http:
                     page = await http.get("/tool-jobs")
-                    assert page.status_code == 200 and "Simulated" in page.text
+                    assert page.status_code == 200 and "Тестовый" in page.text
                     detail = await http.get("/tool-jobs/" + str(job.tool_job_id))
                     assert (
                         detail.status_code == 200
@@ -645,7 +645,7 @@ def test_mcp_typed_exchange_and_web_metadata(setup):
                     )
                     assert (
                         str(setup.directory) not in detail.text
-                        and "download=" not in detail.text
+                        and f"/files/{aid}?download=true" in detail.text
                     )
                     denied = await http.post(
                         "/tool-jobs/" + str(job.tool_job_id) + "/cancel",

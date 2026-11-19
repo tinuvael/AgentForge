@@ -50,7 +50,9 @@ async def browser(setup, f):
     web = create_app(shared_application=setup.app, director_factory=borrowed)
     async with web.router.lifespan_context(web):
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=web), base_url="http://127.0.0.1"
+            transport=httpx.ASGITransport(app=web),
+            base_url="http://127.0.0.1",
+            cookies={"agentforge_language": "en"},
         ) as client:
             yield client, web
 
@@ -487,5 +489,28 @@ def test_approved_coder_changes_only_isolated_workspace(setup, coding, tmp_path)
                     setup.app.get_coding_workspace(task_id=item.tasks[0].task_id).state
                     == "removed"
                 )
+
+    asyncio.run(scenario())
+
+
+def test_overview_request_starts_existing_director_conversation(setup, tmp_path):
+    async def scenario():
+        async with fixture(setup, tmp_path) as f:
+            async with browser(setup, f) as (client, web):
+                home = await client.get("/")
+                assert 'id="first-request"' in home.text
+                response = await client.post(
+                    "/director/new",
+                    headers={"HX-Request": "true", "Origin": "http://127.0.0.1"},
+                    data={**csrf(client), "message": "Disposable operator request."},
+                )
+                assert response.status_code == 200
+                path = response.headers["HX-Redirect"]
+                await idle(web)
+                item = f.director.load(path.split("/")[-1], owner(client))
+                assert item.messages[0].content == "Disposable operator request."
+                assert item.state == "completed"
+                assert len(item.tasks) == 1
+                assert "source.py:1" in item.messages[-1].content
 
     asyncio.run(scenario())
