@@ -1,8 +1,5 @@
-{% extends "base.html" %}{% from "macros.html" import history, page_header, badge with context %}
-{% block title %}{{ tr("Overview") }} · AgentForge<details class="operator-details"><summary>{{ tr("Observed telemetry by Worker") }}</summary><div class="scroll" role="region" aria-label="{{ tr('Worker telemetry table') }}" tabindex="0"><table><thead><tr><th scope="col">{{ tr('Worker / outcomes') }}</th><th scope="col">{{ tr('Execution runtime') }}</th><th scope="col">{{ tr('Prompt / completion tokens') }}</th><th scope="col">{{ tr('Complete accounting') }}</th><th scope="col">{{ tr('Throughput') }}</th></tr></thead>
-<tbody>{% for item in comparisons %}<tr><td><strong>{{ item.value|known }}</strong><span class="secondary">{{ item.execution_count }} {{ tr('total ·') }} {{ item.completed_count }} {{ tr('completed ·') }} {{ item.failed_count }} {{ tr('failed ·') }} {{ item.cancelled_count }} {{ tr('cancelled') }}</span></td><td>{{ item.average_execution_duration_seconds|seconds }}<span class="secondary">{{ item.runtime_observation_count }} / {{ item.execution_count }} {{ tr('Tasks observed') }}</span></td><td>{{ item.observed_prompt_tokens|known }} / {{ item.observed_completion_tokens|known }}<span class="secondary">{{ tr('Observed sums; may be partial') }}</span></td><td>{{ item.token_complete_execution_count }} / {{ item.execution_count }} {{ tr('Tasks') }}</td><td>{{ item.tokens_per_second|known }} {{ tr('tokens/s') }}<span class="secondary">{{ item.throughput_execution_count }} / {{ item.execution_count }} {{ tr('Tasks') }}</span></td></tr>{% else %}<tr><td colspan="5" class="empty-cell"><strong>{{ tr('No terminal telemetry recorded.') }}</strong><p>{{ tr('Recorded metrics will appear after Tasks finish.') }}</p></td></tr>{% endfor %}</tbody></table></div>
-</details>
-{% endblock %}
+{% extends "base.html" %}{% from "macros.html" import history, page_header with context %}
+{% block title %}{{ tr("Overview") }} · AgentForge{% endblock %}
 {% block content %}
 {{ page_header("Overview") }}
 <section class="panel operator-entry">

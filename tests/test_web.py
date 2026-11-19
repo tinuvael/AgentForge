@@ -139,6 +139,30 @@ class LiveConnection:
         await asyncio.wait_for(self.task, 2)
 
 
+@pytest.mark.parametrize(
+    ("language", "title", "telemetry_label"),
+    [
+        ("ru", "Обзор · AgentForge", "Таблица метрик по воркерам"),
+        ("en", "Overview · AgentForge", "Worker telemetry table"),
+    ],
+)
+def test_overview_title_and_telemetry(setup, language, title, telemetry_label):
+    async def execute():
+        async with client_for(setup.app) as (client, _):
+            client.cookies.set("agentforge_language", language)
+            response = await client.get("/")
+            assert response.status_code == 200
+            head, _, body = response.text.partition("</head>")
+            assert re.findall(r"<title>(.*?)</title>", head, re.DOTALL) == [title]
+            table = f'aria-label="{telemetry_label}"'
+            assert "<table" not in head
+            assert response.text.count(table) == 1
+            assert re.search(r"<body\b[^>]*>.*" + re.escape(table), body, re.DOTALL)
+            assert body.count("<table>") == 1
+
+    run(execute())
+
+
 def test_empty_overview_and_lists(database):
     async def execute():
         app = Application(

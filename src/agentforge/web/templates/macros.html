@@ -16,7 +16,7 @@
 {% macro page_header(title, description='') %}
 <div class="page-heading"><div><h1>{{ tr(title) }}</h1>{% if description %}<p>{{ tr(description) }}</p>{% endif %}</div>{% if caller is defined %}<div class="heading-action">{{ caller() }}</div>{% endif %}</div>
 {% endmacro %}
-{% macro badge(state, label=none) %}<span class="badge {{ state }}">{{ tr(label if label is not none else state) }}</span>{% endmacro %}
+{% macro badge(state, count=none) %}<span class="badge {{ state }}">{{ tr(state) }}{% if count is not none %}: {{ count }}{% endif %}</span>{% endmacro %}
 {% macro timestamp(value) %}{% if value %}<time datetime="{{ value.isoformat() }}" title="{{ value }}">{{ value.strftime('%d.%m.%Y · %H:%M:%S' if language == 'ru' else '%d %b %Y · %H:%M:%S') }}</time>{% else %}—{% endif %}{% endmacro %}
 {% macro language_switch() %}
 <div class="language-switch" role="group" aria-label="{{ tr('Interface language') }}">
