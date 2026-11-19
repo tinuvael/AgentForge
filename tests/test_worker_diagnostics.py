@@ -785,9 +785,9 @@ def test_dashboard_separates_partial_observations_and_never_probes(database):
                 transport=httpx.ASGITransport(app=web), base_url="http://localhost"
             ) as client:
                 body = (await client.get("/workers")).text
-                assert "Configuration" in body and "Last observed diagnostics" in body
-                assert "32768" in body and "successful" in body
-                assert "not checked" in body and "unknown" in body and "—" in body
+                assert "Настройки" in body and "Последняя диагностика" in body
+                assert "32768" in body and "Успешно" in body
+                assert "не проверено" in body and "Неизвестно" in body and "—" in body
                 assert "— / 0" in body
                 assert (
                     PRIVATE not in body

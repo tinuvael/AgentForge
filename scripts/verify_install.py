@@ -621,13 +621,28 @@ async def smoke():
                     response = await client.get(path)
                     assert response.status_code == 200, path
                     if path == "/":
+                        assert response.headers["Content-Language"] == "ru"
+                        assert '<html lang="ru">' in response.text
+                        assert "Что нужно сделать?" in response.text
                         assert (
-                            "Configured Agents</span><strong>2</strong>"
+                            "Настроено агентов</span> <strong>2</strong>"
                             in response.text
                         )
                     if path == "/workers":
-                        assert "Configuration" in response.text
-                        assert "Last observed diagnostics" in response.text
+                        assert "Настройки" in response.text
+                        assert "Последняя диагностика" in response.text
+                preference = await client.post(
+                    "/language/en",
+                    data={
+                        "csrf": client.cookies["agentforge_csrf"],
+                        "next": "/workers",
+                    },
+                )
+                assert preference.status_code == 303
+                english = await client.get(preference.headers["location"])
+                assert english.headers["Content-Language"] == "en"
+                assert "Last observed diagnostics" in english.text
+                assert (await client.get("/static/operator.js")).status_code == 200
                 assert (await client.get("/static/dashboard.css")).status_code == 200
         print("Dashboard migrated startup, pages, static assets and shutdown: OK")
         from verify_gateway import installed_gateway, integration

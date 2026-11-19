@@ -1,32 +1,30 @@
-{% from "macros.html" import icon %}
+{% from "macros.html" import icon, language_switch with context %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ language }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"allowScriptTags":false}'>
   <title>{% block title %}AgentForge{% endblock %}</title>
   <link rel="stylesheet" href="/static/dashboard.css">
+  <script src="/static/operator.js" defer></script>
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/dashboard.js" defer></script>
 </head>
 <body class="dashboard" hx-history="false">
-  <a class="skip" href="#main">Skip to content</a>
-  <aside class="app-sidebar" aria-label="Application">
-    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{ icon('forge') }}</span><span>AgentForge<small>ORCHESTRATION</small></span></a>
-    <div class="nav-label">Workspace</div>
-    <nav aria-label="Primary">
-      {% for path, label, symbol in [('/', 'Overview', 'overview'),('/director', 'Local Director', 'director'),('/projects', 'Projects', 'projects'),('/workers', 'Workers', 'workers'),('/tasks', 'Tasks', 'tasks'),('/councils', 'Councils', 'councils'),('/tool-jobs', 'ToolJobs', 'tasks'),('/workflows', 'Workflows', 'councils')] %}
+  <a class="skip" href="#main">{{ tr("Skip to content") }}</a>
+  <aside class="app-sidebar" aria-label="{{ tr('Application') }}">
+    <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{ icon('forge') }}</span>AgentForge</a>
+    <nav aria-label="{{ tr('Primary navigation') }}">
+      {% for path, label, symbol in [('/', 'Overview', 'overview'),('/director', 'Local Director', 'director'),('/tasks', 'Tasks', 'tasks'),('/workflows', 'Workflows', 'councils'),('/tool-jobs', 'Tool jobs', 'tasks'),('/projects', 'Projects', 'projects'),('/workers', 'Workers', 'workers'),('/councils', 'Councils', 'councils')] %}
       {% set active = request.url.path == path if path == '/' else request.url.path == path or request.url.path.startswith(path + '/') %}
-      <a href="{{ path }}"{% if active %} aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span>{% if active %}<span class="nav-current" aria-hidden="true"></span>{% endif %}</a>
+      <a href="{{ path }}"{% if active %} aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ tr(label) }}</span></a>
       {% endfor %}
     </nav>
-    <div class="sidebar-note">{{ icon('shield') }}<div><strong>Operator workspace</strong><small>Explicit Workers. Inspectable evidence.</small></div></div>
+    {{ language_switch() }}
   </aside>
   <div class="app-body">
-    <div class="topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>{% block location %}Operations{% endblock %}</strong></span><span class="topbar-boundary">{{ icon('shield') }} Trusted operator surface</span></div>
     <main id="main" tabindex="-1"><div id="notice" role="alert"></div>{% block content %}{% endblock %}</main>
-    <footer>AgentForge <span aria-hidden="true">/</span> Explicit Worker selection <span aria-hidden="true">·</span> Health is not probed on page load</footer>
   </div>
 </body>
 </html>

@@ -225,13 +225,17 @@ class SpecialistRepository:
             self.commit(session)
             return job
 
-    def jobs(self, *, project_id=None, limit=100, offset=0, states=None):
+    def jobs(self, *, project_id=None, task_id=None, limit=100, offset=0, states=None):
         with self.sessions() as session:
             query = select(ToolJobRecord).order_by(
                 ToolJobRecord.created_at, ToolJobRecord.tool_job_id
             )
             if project_id is not None:
                 query = query.where(ToolJobRecord.project_id == project_id)
+            if task_id is not None:
+                query = query.where(
+                    ToolJobRecord.payload["task_id"].as_string() == str(task_id)
+                )
             if states:
                 query = query.where(ToolJobRecord.state.in_(states))
             return [

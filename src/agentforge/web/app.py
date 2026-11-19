@@ -3,19 +3,26 @@
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import logging
 import secrets
 from collections.abc import Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, quote, urlencode
 from uuid import UUID
 
 import anyio
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -36,6 +43,13 @@ from agentforge.tasks.models import (
 )
 from agentforge.tasks.observation import ObservationUnavailable
 from agentforge.telemetry.models import TelemetryUnavailable
+from agentforge.web.locale import (
+    LANGUAGE_COOKIE,
+    LANGUAGES,
+    error_message,
+    progress_message,
+    translate,
+)
 from agentforge.workers.diagnostics import DiagnosticsUnavailable
 from agentforge.workflows.models import WorkflowError
 
@@ -181,11 +195,31 @@ def create_app(
         expected = hmac.new(csrf_key, nonce.encode(), hashlib.sha256).hexdigest()
         return hmac.compare_digest(signature, expected)
 
+    def local_operator(request):
+        try:
+            peer = request.client.host
+            authority = request.url.hostname
+            return ipaddress.ip_address(peer).is_loopback and (
+                authority == "localhost" or ipaddress.ip_address(authority).is_loopback
+            )
+        except (ValueError, TypeError, AttributeError):
+            return False
+
     def render(request, name, **context):
+        language = getattr(request.state, "language", "ru")
         return templates.TemplateResponse(
             request=request,
             name=name,
-            context={"csrf": getattr(request.state, "csrf", ""), **context},
+            context={
+                "csrf": getattr(request.state, "csrf", ""),
+                "language": language,
+                "language_next": request.url.path,
+                "files_available": local_operator(request),
+                "tr": partial(translate, language),
+                "error_message": partial(error_message, language),
+                "progress_message": partial(progress_message, language),
+                **context,
+            },
         )
 
     def detail_redirect(request, path):
@@ -201,6 +235,7 @@ def create_app(
             request,
             "error.html",
             code=code,
+            language_next="/",
             fragment=request.headers.get("HX-Request") == "true",
         )
         response.status_code = status
@@ -211,6 +246,8 @@ def create_app(
 
     @web.middleware("http")
     async def boundary(request: Request, call_next):
+        language = request.cookies.get(LANGUAGE_COOKIE)
+        request.state.language = language if language in LANGUAGES else "ru"
         token = request.cookies.get(_COOKIE, "")
         new_cookie = not valid_token(token)
         if new_cookie:
@@ -249,6 +286,7 @@ def create_app(
                 secure=request.url.scheme == "https",
                 path="/",
             )
+        response.headers["Content-Language"] = request.state.language
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -265,6 +303,9 @@ def create_app(
             403: "csrf_or_confirmation_required",
             404: "not_found",
             405: "method_not_allowed",
+            409: "request_conflict",
+            413: "request_too_large",
+            429: "too_many_requests",
             422: "invalid_arguments",
         }
         return failure(
@@ -281,6 +322,11 @@ def create_app(
         return render(
             request,
             "overview.html",
+            director_input_limit=(
+                web.state.director.director.config.limits.input_chars
+                if getattr(web.state, "director", None)
+                else None
+            ),
             status=app.status(),
             counts=app.tasks.state_counts(),
             tasks=app.tasks.history(limit=10),
@@ -346,10 +392,22 @@ def create_app(
                     diff = app.get_coding_diff(task_id=task_id)
             except CodingError:
                 pass
+        detail = app.dashboard.detail(task_id)
+        service = app.specialists
+        files = (
+            job_files(
+                service.repository.jobs(
+                    project_id=detail.task.project_id, task_id=task_id
+                )
+            )
+            if service
+            else ()
+        )
         return render(
             request,
             "task_fragment.html" if fragment else "task.html",
-            detail=core().dashboard.detail(task_id),
+            detail=detail,
+            output_files=files,
             council_id=core().councils.for_task(task_id),
             coding_workspace=coding,
             coding_diff=diff,
@@ -372,14 +430,42 @@ def create_app(
             **pagination(request, values, len(items) > values.limit),
         )
 
+    def job_files(jobs):
+        service = core().specialists
+        if service is None:
+            return ()
+        artifacts = []
+        for job in jobs:
+            for aid in job.output_artifact_ids:
+                try:
+                    artifacts.append(service.repository.artifact(job.project_id, aid))
+                except SpecialistError:
+                    continue
+        return tuple(artifacts)
+
     @web.get("/workflows/{workflow_id}", response_class=HTMLResponse)
     async def workflow(request: Request, workflow_id: UUID):
-        value = core().get_workflow(workflow_id=workflow_id)
+        app = core()
+        value = app.get_workflow(workflow_id=workflow_id)
+        files = {}
+        if app.specialists:
+            for step in value.steps:
+                if not step.attempts:
+                    continue
+                attempt = step.attempts[-1]
+                if not attempt.tool_job_id or not attempt.artifact_ids:
+                    continue
+                try:
+                    job = app.specialists.repository.get(attempt.tool_job_id)
+                except SpecialistError:
+                    continue
+                files[step.step_id] = job_files((job,))
         return render(
             request,
             "workflow.html",
             workflow=value,
             rows=tuple(zip(value.definition.steps, value.steps, strict=True)),
+            step_files=files,
         )
 
     @web.post("/workflows/{workflow_id}/{operation}", response_class=HTMLResponse)
@@ -436,6 +522,39 @@ def create_app(
         )
         return render(request, "tool_job.html", job=job, artifacts=artifacts)
 
+    @web.get("/tool-jobs/{tool_job_id}/files/{artifact_id}")
+    def tool_file(
+        request: Request, tool_job_id: UUID, artifact_id: UUID, download: bool = False
+    ):
+        if (
+            not local_operator(request)
+            or request.headers.get("sec-fetch-site")
+            not in {None, "none", "same-origin"}
+            or not valid_token(request.cookies.get(_COOKIE, ""))
+        ):
+            raise HTTPException(403)
+        app = core()
+        try:
+            job = app.get_tool_job(tool_job_id=tool_job_id)
+            if artifact_id not in job.output_artifact_ids:
+                raise HTTPException(404)
+            artifact, data = app.specialist_service().read_artifact(
+                project_id=job.project_id, artifact_id=artifact_id
+            )
+        except (SpecialistError, ProjectStorageError):
+            return failure(request, "artifact_unavailable", 404)
+        inline = artifact.format == "png" and not download
+        disposition = "inline" if inline else "attachment"
+        filename = quote(artifact.name, safe="")
+        return Response(
+            data,
+            media_type=artifact.mime_type if inline else "application/octet-stream",
+            headers={
+                "Content-Disposition": f"{disposition}; filename*=UTF-8''{filename}",
+                "Cross-Origin-Resource-Policy": "same-origin",
+            },
+        )
+
     @web.post("/tool-jobs/{tool_job_id}/cancel", response_class=HTMLResponse)
     async def cancel_tool_job(request: Request, tool_job_id: UUID):
         await check_cancellation(request)
@@ -446,7 +565,7 @@ def create_app(
     async def task_fragment(request: Request, task_id: UUID):
         return detail_response(request, task_id, True)
 
-    async def check_cancellation(request: Request):
+    async def check_cancellation(request: Request, *, confirmation=True):
         if request.headers.get("sec-fetch-site") == "cross-site":
             raise HTTPException(403)
         origin = request.headers.get("origin")
@@ -475,9 +594,38 @@ def create_app(
             or not valid_token(cookie)
             or not valid_token(supplied[0])
             or not hmac.compare_digest(supplied[0], cookie)
-            or fields.get("confirm") != ["yes"]
+            or confirmation
+            and fields.get("confirm") != ["yes"]
         ):
             raise HTTPException(403)
+
+        return fields
+
+    @web.post("/language/{language}")
+    async def select_language(request: Request, language: str):
+        if language not in LANGUAGES:
+            raise HTTPException(404)
+        fields = await check_cancellation(request, confirmation=False)
+        paths = fields.get("next", ["/"])
+        path = paths[0]
+        if (
+            len(paths) != 1
+            or not path.startswith("/")
+            or path.startswith("//")
+            or "\\" in path
+            or any(ord(char) < 32 or ord(char) == 127 for char in path)
+        ):
+            raise HTTPException(422)
+        response = detail_redirect(request, path)
+        response.set_cookie(
+            LANGUAGE_COOKIE,
+            language,
+            httponly=True,
+            samesite="strict",
+            secure=request.url.scheme == "https",
+            max_age=31_536_000,
+        )
+        return response
 
     @web.post("/tasks/{task_id}/cancel", response_class=HTMLResponse)
     async def cancel(request: Request, task_id: UUID):

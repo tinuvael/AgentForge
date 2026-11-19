@@ -1,0 +1,10 @@
+<form class="operator-compose" method="post" action="/director/new" hx-post="/director/new" hx-sync="this:drop" hx-disabled-elt="find button">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="first-request">{{ tr("Your request") }}</label>
+  <textarea id="first-request" name="message" rows="4" maxlength="{{ director_input_limit }}" required placeholder="{{ tr('For example, find where this project validates input.') }}" aria-describedby="first-request-hint"></textarea>
+  <div class="compose-footer">
+    <p id="first-request-hint">{{ tr("The answer and any linked results appear in the conversation.") }}</p>
+    <button type="submit" class="primary">{{ tr("Send request") }}</button>
+  </div>
+  <span role="status" data-send-status></span>
+</form>

@@ -30,7 +30,7 @@ class Navigation(HTMLParser):
 
     def handle_starttag(self, tag, attributes):
         values = dict(attributes)
-        if tag == "nav" and values.get("aria-label") == "Primary":
+        if tag == "nav" and values.get("aria-label") == "Primary navigation":
             self.primary = True
         if tag == "a" and self.primary:
             self.links.append(values)
@@ -62,12 +62,12 @@ def test_navigation_matches_actual_routes(setup, path, active, status):
             assert [link["href"] for link in links] == [
                 "/",
                 "/director",
+                "/tasks",
+                "/workflows",
+                "/tool-jobs",
                 "/projects",
                 "/workers",
-                "/tasks",
                 "/councils",
-                "/tool-jobs",
-                "/workflows",
             ]
             assert [link["href"] for link in links if "aria-current" in link] == [
                 active
@@ -94,15 +94,16 @@ def test_detail_navigation_filters_and_fragments_keep_dom_identity(setup):
             assert fragment.text.count('id="task-detail"') == 1
             assert "<!doctype" not in fragment.text
             assert "&lt;script&gt;" in fragment.text
-            assert '<pre tabindex="0">' in fragment.text
+            assert '<pre class="operator-result" tabindex="0">' in fragment.text
             filtered = await client.get(
                 "/tasks?state=completed", headers={"HX-Request": "true"}
             )
             assert filtered.text.count('id="task-table"') == 1
-            assert '<nav aria-label="Primary"' not in filtered.text
+            assert '<nav aria-label="Primary navigation"' not in filtered.text
             full = await client.get("/tasks")
             assert 'hx-disabled-elt="find button"' in full.text
-            assert 'aria-label="Task history table" tabindex="0"' in full.text
+            assert '<ul class="task-list">' in full.text
+            assert "<details><summary>Task details</summary>" in full.text
 
     asyncio.run(scenario())
 
@@ -142,8 +143,8 @@ def test_director_approval_preserves_exact_fields_and_escaped_arguments(
                 assert "Expires (UTC)" in response.text
                 assert "&lt;script&gt;" in response.text
                 assert '<script>alert("args")' not in response.text
-                assert "Verification boundary" in response.text
-                assert "cannot independently read or verify source" in response.text
+                assert "Run the coding task in an isolated workspace." in response.text
+                assert "<summary>Approval details</summary>" in response.text
                 assert not setup.app.tasks.history()
 
     asyncio.run(scenario())

@@ -13,28 +13,58 @@
 {% else %}<circle cx="12" cy="12" r="8"/><path d="M12 8v5 M12 16h.01"/>{% endif %}
 </svg>
 {%- endmacro %}
-{% macro page_header(title, description, eyebrow='Operations') %}
-<div class="page-heading"><div><p class="eyebrow">{{ eyebrow }}</p><h1>{{ title }}</h1><p>{{ description }}</p></div>{% if caller is defined %}<div class="heading-action">{{ caller() }}</div>{% endif %}</div>
+{% macro page_header(title, description='') %}
+<div class="page-heading"><div><h1>{{ tr(title) }}</h1>{% if description %}<p>{{ tr(description) }}</p>{% endif %}</div>{% if caller is defined %}<div class="heading-action">{{ caller() }}</div>{% endif %}</div>
 {% endmacro %}
-{% macro badge(state, label=none) %}<span class="badge {{ state }}">{{ label if label is not none else state }}</span>{% endmacro %}
-{% macro timestamp(value) %}{% if value %}<time datetime="{{ value.isoformat() }}" title="{{ value }}">{{ value.strftime('%d %b %Y · %H:%M:%S') }}</time>{% else %}—{% endif %}{% endmacro %}
+{% macro badge(state, count=none) %}<span class="badge {{ state }}">{{ tr(state) }}{% if count is not none %}: {{ count }}{% endif %}</span>{% endmacro %}
+{% macro timestamp(value) %}{% if value %}<time datetime="{{ value.isoformat() }}" title="{{ value }}">{{ value.strftime('%d.%m.%Y · %H:%M:%S' if language == 'ru' else '%d %b %Y · %H:%M:%S') }}</time>{% else %}—{% endif %}{% endmacro %}
+{% macro language_switch() %}
+<div class="language-switch" role="group" aria-label="{{ tr('Interface language') }}">
+{% for code, label in [('ru', 'Русский'), ('en', 'English')] %}
+  {% if language == code %}<span lang="{{ code }}" aria-current="true">{{ tr(label) }}</span>
+  {% else %}<form method="post" action="/language/{{ code }}" hx-post="/language/{{ code }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="{{ language_next }}">
+    <button type="submit" lang="{{ code }}">{{ label }}</button>
+  </form>{% endif %}
+{% endfor %}
+</div>
+{% endmacro %}
 {% macro pager(previous, next, offset, htmx=false) %}
-<nav class="pager" aria-label="Pagination">
-  {% if previous %}<a class="button" href="{{ previous }}" {% if htmx %}hx-get="{{ previous }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Previous page</a>{% endif %}
-  <span>Offset {{ offset }}</span>
-  {% if next %}<a class="button" href="{{ next }}" {% if htmx %}hx-get="{{ next }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>Next page</a>{% endif %}
+<nav class="pager" aria-label="{{ tr('Pagination') }}">
+  {% if previous %}<a class="button" href="{{ previous }}" {% if htmx %}hx-get="{{ previous }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>{{ tr('Previous page') }}</a>{% endif %}
+  {% if next %}<a class="button" href="{{ next }}" {% if htmx %}hx-get="{{ next }}" hx-target="#task-table" hx-swap="outerHTML" hx-push-url="true"{% endif %}>{{ tr('Next page') }}</a>{% endif %}
 </nav>
 {% endmacro %}
 {% macro history(tasks) %}
-<div class="scroll" role="region" aria-label="Task history table" tabindex="0"><table class="task-history">
-  <caption class="sr-only">Task history</caption>
-  <thead><tr><th scope="col">Task / state</th><th scope="col">Project</th><th scope="col">Agent / Worker</th><th scope="col">Created / started / finished (UTC)</th><th scope="col">Execution runtime</th><th scope="col">Error</th></tr></thead>
-  <tbody>{% for task in tasks %}<tr>
-    <td><a class="task-link" href="/tasks/{{ task.task_id }}"><code>{{ task.task_id }}</code></a>{{ badge(task.state) }}</td>
-    <td><strong>{{ task.project_name|known }}</strong><code class="secondary">{{ task.project_id }}</code></td>
-    <td><span>{{ task.agent_id }}</span><span class="secondary">{{ task.worker_id }}</span></td>
-    <td class="dates">{{ timestamp(task.created_at) }}<span class="secondary">{{ timestamp(task.started_at) }}</span><span class="secondary">{{ timestamp(task.finished_at) }}</span></td>
-    <td class="numeric">{{ task.execution_duration_seconds|seconds }}</td><td{% if task.error_code %} class="error-code"{% endif %}>{{ task.error_code|known }}</td>
-  </tr>{% else %}<tr><td colspan="6" class="empty-cell"><strong>No Tasks in this view.</strong><p>Try different filters, or submit work through a configured Director.</p></td></tr>{% endfor %}</tbody>
-</table></div>
+{% if tasks %}
+<ul class="task-list">
+{% for task in tasks %}<li>
+  <div class="task-row-title"><a href="/tasks/{{ task.task_id }}">{{ task.project_name|known }}</a>{{ badge(task.state) }}</div>
+  <div class="task-row-meta"><span>{{ task.agent_id }} · {{ task.worker_id }}</span>{{ timestamp(task.created_at) }}</div>
+  {% if task.error_code %}<p class="operator-error">{{ error_message(task.error_code) }}</p>{% endif %}
+  <details><summary>{{ tr('Task details') }}</summary><code>{{ task.task_id }}</code><dl class="facts"><dt>{{ tr('Started (UTC)') }}</dt><dd>{{ timestamp(task.started_at) }}</dd><dt>{{ tr('Finished (UTC)') }}</dt><dd>{{ timestamp(task.finished_at) }}</dd><dt>{{ tr('Execution runtime') }}</dt><dd>{{ task.execution_duration_seconds|seconds }}</dd></dl></details>
+</li>{% endfor %}
+</ul>
+{% else %}<p class="empty-state">{{ tr('No Tasks in this view.') }}</p>{% endif %}
+{% endmacro %}
+{% macro artifacts(items) %}
+{% if items %}<ul class="artifact-list">
+{% for item in items %}
+  {% set path = "/tool-jobs/" ~ item.tool_job_id ~ "/files/" ~ item.artifact_id %}
+  <li class="artifact">
+    {% if item.status == 'ready' and item.format == 'png' and files_available %}
+    <a class="artifact-preview" href="{{ path }}"><img src="{{ path }}" alt="{{ tr('Preview') }} {{ item.name }}" loading="lazy" decoding="async"></a>
+    {% endif %}
+    <div class="artifact-content">
+      <strong>{{ item.name }}</strong>
+      <span class="secondary">{{ item.format|upper }} · {{ item.size_bytes }} {{ tr("bytes") }}{% if item.simulated %} · {{ tr("Simulated") }}{% endif %}</span>
+      {% if item.status == 'ready' and files_available %}
+      <div class="operator-toolbar">{% if item.format == 'png' %}<a href="{{ path }}">{{ tr("Open image") }}</a>{% endif %}<a class="button" href="{{ path }}?download=true">{{ tr("Download") }}</a></div>
+      {% elif item.status != 'ready' %}<p>{{ tr(item.status) }}</p>{% endif %}
+      <details><summary>{{ tr("File details") }}</summary><pre>{{ item.model_dump_json(indent=2) }}</pre></details>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}<p>{{ tr("No output files yet.") }}</p>{% endif %}
 {% endmacro %}

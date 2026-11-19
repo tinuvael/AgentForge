@@ -264,11 +264,17 @@ class SpecialistService:
         except (OSError, ProjectError):
             raise SpecialistError("artifact_integrity") from None
 
-    def retrieve(self, **fields):
-        query = RetrieveArtifact.model_validate(fields)
+    def read_artifact(self, **fields):
+        query = ArtifactQuery.model_validate(fields)
         self.authorize(query.project_id)
         artifact = self.repository.artifact(query.project_id, query.artifact_id)
-        data = self._bytes(artifact)
+        return artifact, self._bytes(artifact)
+
+    def retrieve(self, **fields):
+        query = RetrieveArtifact.model_validate(fields)
+        artifact, data = self.read_artifact(
+            project_id=query.project_id, artifact_id=query.artifact_id
+        )
         if query.offset > len(data):
             raise SpecialistError("specialist_input_invalid")
         end = min(len(data), query.offset + query.max_bytes)

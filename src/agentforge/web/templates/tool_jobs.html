@@ -1,18 +1,15 @@
-{% extends "base.html" %}{% from "macros.html" import page_header, badge, timestamp, pager %}
-{% block title %}ToolJobs · AgentForge{% endblock %}
-{% block location %}ToolJobs{% endblock %}
+{% extends "base.html" %}{% from "macros.html" import page_header, badge, timestamp, pager with context %}
+{% block title %}{{ tr("Tool jobs") }} · AgentForge{% endblock %}
 {% block content %}
-{{ page_header("Specialist ToolJobs", "Inspect durable file-producing operations and artifact provenance.") }}
-<p class="director-hint">Tools are explicitly configured. Simulated results and observed real executions are labeled separately; physical acceptance remains untested until recorded.</p>
-{% if not enabled %}<section class="panel"><h2>Specialist tools are disabled</h2><p>An operator must configure private artifact storage and explicitly enable a specialist tool before submission.</p></section>{% endif %}
-<div class="scroll" role="region" aria-label="ToolJob history" tabindex="0"><table>
-<caption class="sr-only">Specialist ToolJobs</caption>
-<thead><tr><th scope="col">Job / state</th><th scope="col">Project / tool</th><th scope="col">Created / finished (UTC)</th><th scope="col">Outcome</th></tr></thead>
-<tbody>{% for job in jobs %}<tr>
-<td><a href="/tool-jobs/{{ job.tool_job_id }}"><code>{{ job.tool_job_id }}</code></a>{{ badge(job.state) }}</td>
-<td><code>{{ job.project_id }}</code><span class="secondary">{{ job.tool_id }}</span></td>
-<td>{{ timestamp(job.created_at) }}<span class="secondary">{{ timestamp(job.finished_at) }}</span></td>
-<td>{{ 'Simulated' if job.simulated else 'Real adapter · observed execution' if job.execution.remote_job_id or job.execution.local_exit_code is not none or job.execution.phase == 'outputs_validated' else 'Real adapter · submission outcome unknown' if job.execution.phase == 'submission_unknown' else 'Real adapter · configured, untested' }} · {{ job.output_artifact_ids|length }} artifacts<span class="secondary">{{ job.failure_category|known }}</span></td>
-</tr>{% else %}<tr><td colspan="4" class="empty-cell"><strong>No ToolJobs yet.</strong><p>Submit an explicit ToolJob through authorized MCP or the application API.</p></td></tr>{% endfor %}</tbody></table></div>
+{{ page_header("Tool jobs") }}
+{% if not enabled %}<p class="panel">{{ tr("Specialist tools are disabled.") }}</p>{% endif %}
+<ul class="operator-list job-list">
+{% for job in jobs %}
+  <li class="panel"><div class="section-heading"><h2><a href="/tool-jobs/{{ job.tool_job_id }}">{{ job.tool_id }}</a></h2>{{ badge(job.state) }}</div>
+  <p>{{ timestamp(job.created_at) }} · {{ tr("Output files") }} {{ job.output_artifact_ids|length }}{% if job.simulated %} · {{ tr("Simulated") }}{% endif %}</p>
+  {% if job.failure_category %}<p>{{ error_message(job.failure_category) }}</p>{% endif %}
+  <details><summary>{{ tr("Technical details") }}</summary><code>{{ job.tool_job_id }}</code><p>{{ job.project_id }}</p></details></li>
+{% else %}<li class="panel">{{ tr("No tool jobs yet.") }}</li>{% endfor %}
+</ul>
 {{ pager(previous, next, offset) }}
 {% endblock %}

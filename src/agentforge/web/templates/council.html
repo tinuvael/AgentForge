@@ -1,5 +1,5 @@
-{% extends "base.html" %}{% from "macros.html" import page_header %}
-{% block title %}Council {{ detail.council.council_id }} · AgentForge{% endblock %}
+{% extends "base.html" %}{% from "macros.html" import page_header with context %}
+{% block title %}{{ tr("Council") }} · AgentForge{% endblock %}
 {% block location %}Councils{% endblock %}
-{% block content %}{{ page_header("Council detail", "Independent participant results, preserved for your review.") }}<p><a href="/councils">← Council history</a></p>
+{% block content %}{{ page_header("Council detail", "Independent participant results, preserved for your review.") }}<p><a href="/councils">{{ tr('← Council history') }}</a></p>
 {% include "council_fragment.html" %}{% endblock %}

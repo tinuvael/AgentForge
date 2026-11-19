@@ -76,6 +76,59 @@ def test_history_detail_task_links_escaping_mixed_states_telemetry(setup):
 
 
 @pytest.mark.parametrize(
+    ("language", "yes", "no", "completed", "failed", "cancelled"),
+    [
+        ("ru", "Да", "Нет", "Готово", "Ошибка", "Отменено"),
+        ("en", "yes", "no", "completed", "failed", "cancelled"),
+    ],
+)
+def test_history_localizes_terminal_and_participant_counts(
+    setup, language, yes, no, completed, failed, cancelled
+):
+    async def execute():
+        async with client_for(setup.app) as (client, _):
+            client.cookies.set("agentforge_language", language)
+            setup.provider.turns = [
+                GenerationResult(content="Done", model="fake"),
+                ProviderTimeout(PRIVATE),
+                GenerationResult(content="Done", model="fake"),
+            ]
+            terminal = setup.app.councils.submit(
+                **arguments(setup, ("ai395", "home-i5", "local-4080"))
+            )
+            await finish(setup.app, terminal)
+
+            setup.provider.release.clear()
+            try:
+                active = setup.app.councils.submit(**arguments(setup))
+                page = await client.get("/councils")
+                assert page.status_code == 200
+
+                finished_row = page.text.split(
+                    f'href="/councils/{terminal.council_id}"', 1
+                )[1].split("</tr>", 1)[0]
+                assert f"<td>{yes}</td>" in finished_row
+                assert (
+                    f'<span class="badge completed">{completed}: 2</span>'
+                    in finished_row
+                )
+                assert f'<span class="badge failed">{failed}: 1</span>' in finished_row
+                assert (
+                    f'<span class="badge cancelled">{cancelled}: 0</span>'
+                    in finished_row
+                )
+
+                active_row = page.text.split(
+                    f'href="/councils/{active.council_id}"', 1
+                )[1].split("</tr>", 1)[0]
+                assert f"<td>{no}</td>" in active_row
+            finally:
+                setup.provider.release.set()
+
+    run(execute())
+
+
+@pytest.mark.parametrize(
     "params", ["limit=0", "limit=101", "offset=-1", "offset=1000001", "limit=1&limit=2"]
 )
 def test_bounded_history(setup, params):
@@ -170,7 +223,7 @@ def test_live_updates_individual_terminal_does_not_close_group(setup, monkeypatc
                 await second_started.wait()
                 await live.expect("refresh")
                 body = (await client.get(path + "/fragment")).text
-                assert "completed: 1" in body and "running: 1" in body
+                assert "completed 1" in body and "running 1" in body
                 assert not setup.app.councils.get(council.council_id).terminal
                 setup.provider.release.set()
                 assert await live.expect("terminal") == b"event: terminal\ndata: {}\n\n"

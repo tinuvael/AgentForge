@@ -1150,3 +1150,59 @@ def test_default_review_flag_preserves_existing_worker_fingerprints(setup):
         assert app.worker_policy.binding(changed)["target_fingerprint"] != expected
     finally:
         app.database.dispose()
+
+
+def test_operator_artifacts_preview_download_and_scope(setup):
+    from tests.test_web import client_for
+
+    async def scenario():
+        app = setup.make(concurrency=1)
+        async with client_for(app) as (browser, _):
+            value = app.submit_workflow(
+                definition=chain(setup.project, approval=True),
+                idempotency_key="ui-files",
+            )
+            value = await until(app, value.workflow_id)
+            page = f"/workflows/{value.workflow_id}"
+            pending = await browser.get(page)
+            assert "will use the selected PNG" in pending.text
+            assert "I reviewed this action" in pending.text
+            attempt = value.steps[0].attempts[0]
+            png = f"/tool-jobs/{attempt.tool_job_id}/files/{attempt.artifact_ids[0]}"
+            assert f'<img src="{png}"' in pending.text
+            assert (
+                await browser.get(png, headers={"Sec-Fetch-Site": "cross-site"})
+            ).status_code == 403
+            preview = await browser.get(png)
+            assert preview.status_code == 200
+            assert preview.headers["Content-Type"] == "image/png"
+            assert preview.headers["Content-Disposition"].startswith("inline;")
+            assert preview.content.startswith(b"\x89PNG\r\n\x1a\n")
+            assert preview.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+            download = await browser.get(png + "?download=true")
+            assert download.headers["Content-Disposition"].startswith("attachment;")
+            assert download.content == preview.content
+
+            app.workflows.review(
+                workflow_id=value.workflow_id,
+                step_id="mesh",
+                scope_hash=value.steps[1].attempts[0].scope_hash,
+                approve=True,
+            )
+            value = await until(app, value.workflow_id, ("completed",))
+            mesh = value.steps[1].attempts[0]
+            assert str(attempt.artifact_ids[0]) in str(mesh.inputs)
+            gltf = f"/tool-jobs/{mesh.tool_job_id}/files/{mesh.artifact_ids[0]}"
+            result = await browser.get(gltf)
+            assert result.status_code == 200
+            assert result.headers["Content-Disposition"].startswith("attachment;")
+            assert result.json()["asset"]["version"] == "2.0"
+            assert (
+                await browser.get(
+                    f"/tool-jobs/{mesh.tool_job_id}/files/{attempt.artifact_ids[0]}"
+                )
+            ).status_code == 404
+            browser.cookies.clear()
+            assert (await browser.get(png)).status_code == 403
+
+    run(scenario())

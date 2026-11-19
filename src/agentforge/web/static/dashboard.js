@@ -11,7 +11,7 @@
   let generation = 0;
   const status = (text) => {
     const node = document.getElementById('live-status');
-    if (node) node.textContent = text;
+    if (node) node.textContent = window.agentforgeText(text);
   };
   const editing = (node) => node && (
     node.contains(document.activeElement) &&
@@ -47,7 +47,7 @@
   const connect = () => {
     const session = document.getElementById('director-session');
     const conversationState = document.querySelector('.director-conversation[aria-current="page"] small');
-    if (session && conversationState) conversationState.textContent = session.dataset.state;
+    if (session && conversationState) conversationState.textContent = session.dataset.stateLabel;
     const node = document.getElementById('task-detail') || document.getElementById('council-detail');
     if (!node) return;
     const active = ['queued', 'running'].includes(node.dataset.state);
@@ -102,7 +102,7 @@
   const directorDisconnected = (event) => {
     if (event.detail.elt && event.detail.elt.id === 'director-session') {
       const node = document.querySelector('.director-connection');
-      if (node) node.textContent = 'Disconnected. Reload to restore the saved conversation; submitted Tasks remain at Gateway.';
+      if (node) node.textContent = window.agentforgeText('Disconnected. Reload to restore the saved conversation; submitted Tasks remain at Gateway.');
     }
   };
   document.addEventListener('htmx:sendError', directorDisconnected);
@@ -115,7 +115,7 @@
     if (node?.id === 'director-session' && editing(node)) {
       event.preventDefault();
       const hint = node.querySelector('.director-connection');
-      if (hint) hint.textContent = 'Updates paused while you use the controls. Move focus outside the session to resume.';
+      if (hint) hint.textContent = window.agentforgeText('Updates paused while you use the controls. Move focus outside the session to resume.');
     }
   });
   document.addEventListener('htmx:afterSwap', (event) => {

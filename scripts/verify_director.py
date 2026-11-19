@@ -219,6 +219,7 @@ async def integration(root, *, web_chat=False):
                     base_url=f"http://127.0.0.1:{companion.port}",
                     trust_env=False,
                     timeout=20,
+                    cookies={"agentforge_language": "en"},
                 ) as browser:
                     home = await browser.get("/director")
                     assert home.status_code == 200, home.text
@@ -241,9 +242,9 @@ async def integration(root, *, web_chat=False):
                     async with asyncio.timeout(20):
                         while True:
                             page = await browser.get(path + "/fragment")
-                            if 'class="badge">completed' in page.text:
+                            if 'data-state="completed"' in page.text:
                                 break
-                            assert 'class="badge">failed' not in page.text, page.text
+                            assert 'data-state="failed"' not in page.text, page.text
                             await asyncio.sleep(0.05)
                     assert "source tools observed" in page.text
                     task_id = re.search(r'href="/tasks/([a-f0-9-]+)"', page.text).group(

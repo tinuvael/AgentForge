@@ -1,5 +1,7 @@
-{% extends "base.html" %}{% from "macros.html" import page_header %}
-{% block title %}Task {{ detail.task.task_id }} · AgentForge{% endblock %}
-{% block location %}Tasks{% endblock %}
-{% block content %}{{ page_header("Task detail", "Inspect lifecycle, evidence and the exact execution binding.") }}<p><a href="/tasks">← Task history</a></p>
-{% include "task_fragment.html" %}{% endblock %}
+{% extends "base.html" %}{% from "macros.html" import page_header with context %}
+{% block title %}{{ tr("Task") }} · AgentForge{% endblock %}
+{% block content %}
+{{ page_header("Task") }}
+<p><a href="/tasks">{{ tr("Back to tasks") }}</a></p>
+{% include "task_fragment.html" %}
+{% endblock %}
