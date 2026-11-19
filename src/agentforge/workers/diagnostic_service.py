@@ -34,6 +34,8 @@ from agentforge.workers.diagnostics import (
 from agentforge.workers.policy import connection_id
 
 PROBE_TIMEOUT_SECONDS = 30.0
+# The provider's completion budget can include reasoning before visible output.
+PROBE_MAX_OUTPUT_TOKENS = 64
 MAX_OUTPUT_BYTES = 16_384
 MAX_CHUNKS = 256
 _SAFE_FAILURES = {
@@ -316,11 +318,9 @@ class WorkerDiagnosticsService:
             ],
             temperature=0.0,
             timeout_seconds=timeout,
-            max_output_tokens=min(64 if kind == "tools" else 32, remaining_tokens)
+            max_output_tokens=min(PROBE_MAX_OUTPUT_TOKENS, remaining_tokens)
             if remaining_tokens is not None
-            else 64
-            if kind == "tools"
-            else 32,
+            else PROBE_MAX_OUTPUT_TOKENS,
             tools=[
                 ToolDefinition(
                     name="diagnostic_echo",

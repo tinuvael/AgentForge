@@ -57,8 +57,10 @@ No prompt, tool definition or Project argument can be supplied to the command.
 ## Fixed probe contract and bounds
 
 - Generation/streaming send `Reply with the word agentforge.` with temperature 0
-  and a 32-token output budget. Any nonempty generation verifies generation;
-  there is no answer grading. Streaming requires visible output and a terminal
+  and a 64-token output budget. Some Providers count reasoning tokens against
+  that budget. If the model exhausts it before emitting visible text, the probe
+  fails even if the Provider returns a well-formed response. Any nonempty
+  visible generation verifies generation. Streaming also requires a terminal
   chunk. Tools in the generation/streaming response are invalid.
 - Tools send `Call diagnostic_echo exactly once with value 'agentforge'.` with
   temperature 0, a 64-token budget and one fixed schema. Exactly one native call
