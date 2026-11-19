@@ -163,6 +163,32 @@ def test_overview_title_and_telemetry(setup, language, title, telemetry_label):
     run(execute())
 
 
+@pytest.mark.parametrize(
+    ("language", "chat_label"), [("ru", "Локальный чат"), ("en", "Local chat")]
+)
+def test_dashboard_and_companion_link_directly_to_chat(setup, language, chat_label):
+    async def execute():
+        async with client_for(setup.app) as (client, _):
+            client.cookies.set("agentforge_language", language)
+            for path in ("/", "/companion"):
+                response = await client.get(path)
+                assert response.status_code == 200
+                nav = response.text.split("<nav", 1)[1].split("</nav>", 1)[0]
+                assert re.search(
+                    rf'<a [^>]*href="/director"[^>]*>(?:<svg.*?</svg>)?'
+                    rf"(?:<span>)?{chat_label}",
+                    nav,
+                    re.DOTALL,
+                )
+                assert 'class="chat-link"' in nav
+            response = await client.get("/director")
+            assert 'href="/director" class="chat-link" aria-current="page"' in (
+                response.text
+            )
+
+    run(execute())
+
+
 def test_empty_overview_and_lists(database):
     async def execute():
         app = Application(

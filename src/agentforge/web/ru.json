@@ -208,6 +208,7 @@
   "Local Director": "Локальный директор",
   "Local Director is not configured. Requests from Codex appear in task history.": "Локальный директор не настроен. Запросы из Codex видны в истории задач.",
   "Local Director setup": "Настроить локального директора",
+  "Local chat": "Локальный чат",
   "Local operator": "Локальный оператор",
   "Long request/result text truncated for display.": "Длинный запрос или результат показан частично.",
   "loopback": "Локальный",

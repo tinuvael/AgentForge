@@ -37,8 +37,9 @@ large gradients, decorative metrics or entrance animations. Hover transitions
 
 ## Patterns and responsive hierarchy
 
-- One sidebar with the six actual destinations; Local Director is second.
-  Current routes and their details share `aria-current=page`.
+- The sidebar leads with Local chat, which opens Local Director. The execution
+  monitor also links directly to the chat. Current routes and their details
+  share `aria-current=page`.
 - A page heading gives purpose; panels group actual information, not decoration.
   One dominant action where a real action exists. Never invent controls.
 - Overview separates service availability, configuration counts, lifecycle counts,
@@ -48,13 +49,15 @@ large gradients, decorative metrics or entrance animations. Hover transitions
   Request pins are labelled separately from the immutable Project/Worker/Agent
   recorded on each delegated Task; incomplete evidence
   stays labelled. Large messages use native disclosures with the full escaped text.
+- Bordered content panels carry 16–28px of padding. Header rows inside a card
+  use that same inset. Output file cards keep download links close to filenames.
 - History tables keep complete engineering fields in labelled, keyboard-focusable
   overflow regions. Worker probe detail uses expandable rows; declarations never
   become measurements. Resource/quota data absent from this view stays unknown.
 - At 1279px the Director evidence rail follows the conversation. At 900px its
   conversation navigation moves above it and initially collapses. At 640px the
-  primary sidebar becomes a six-link, two-row navigation, selections stack, forms
-  use 16px text and 44px controls, and facts become single-column lists.
+  chat link spans the navigation above a two-column grid, selections stack,
+  forms use 16px text and 44px controls, and facts become single-column lists.
 
 ## Interaction and accessibility
 
