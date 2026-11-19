@@ -231,7 +231,7 @@ def test_compatible_health_not_probed_and_probe_is_synthetic(database, monkeypat
     def respond(request):
         requests.append(request)
         body = json.loads(request.content)
-        assert body["max_tokens"] == 32 and body["temperature"] == 0
+        assert body["max_tokens"] == 64 and body["temperature"] == 0
         assert PRIVATE not in request.content.decode()
         assert body["messages"] == [
             {"role": "user", "content": "Reply with the word agentforge."}
@@ -342,7 +342,7 @@ def test_generation_metrics_use_only_normalized_observations(usage, timing, thro
     projected = observed.model_dump(mode="json")
     assert "usage" not in projected and "timing" not in projected
     target, request = provider.requests[0]
-    assert target.options == {} and request.max_output_tokens == 32
+    assert target.options == {} and request.max_output_tokens == 64
     assert observed.configuration.model == "configured"  # Never backend alias.
 
 
@@ -373,6 +373,9 @@ def test_safe_failure_projection(error, code):
     [
         "bad",
         GenerationResult(content="", model="model"),
+        GenerationResult(
+            content="", reasoning=PRIVATE, model="model", finish_reason="length"
+        ),
         GenerationResult(content="x" * 16385, model="model"),
         GenerationResult(content="ok", model="model", reasoning="x" * 16385),
     ],
@@ -487,7 +490,12 @@ def test_streaming_measures_first_visible_content_and_terminal_usage(monkeypatch
         ([], "stream_failed"),
         ([GenerationChunk(content="ok", model="m")], "stream_failed"),
         (
-            [GenerationChunk(content="", reasoning=PRIVATE, model="m", done=True)],
+            [
+                GenerationChunk(content="", reasoning=PRIVATE, model="m"),
+                GenerationChunk(
+                    content="", model="m", done=True, finish_reason="length"
+                ),
+            ],
             "stream_failed",
         ),
         (
@@ -826,7 +834,7 @@ def test_real_adapters_run_small_diagnostics(protocol, kind):
             }
         }
         if protocol == "ollama":
-            assert body["options"]["num_predict"] == (64 if kind == "tools" else 32)
+            assert body["options"]["num_predict"] == 64
             result = {
                 "model": "configured",
                 "message": {"content": "" if kind == "tools" else "agentforge"},
@@ -838,12 +846,22 @@ def test_real_adapters_run_small_diagnostics(protocol, kind):
             if kind == "tools":
                 result["message"]["tool_calls"] = [call]
             return httpx.Response(200, content=json.dumps(result) + "\n")
-        assert body["max_tokens"] == (64 if kind == "tools" else 32)
+        # GPT-OSS can consume the old 32-token cap before producing visible text.
+        assert body["max_tokens"] == 64
         if kind == "tools":
             call.update(id="native-id", type="function")
             call["function"]["arguments"] = json.dumps(call["function"]["arguments"])
         if kind == "streaming":
             frames = [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"reasoning_content": PRIVATE},
+                            "finish_reason": None,
+                        }
+                    ]
+                },
                 {
                     "choices": [
                         {
@@ -854,7 +872,7 @@ def test_real_adapters_run_small_diagnostics(protocol, kind):
                     ]
                 },
                 {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
-                {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}},
+                {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 36}},
             ]
             return httpx.Response(
                 200,
@@ -869,6 +887,8 @@ def test_real_adapters_run_small_diagnostics(protocol, kind):
         }
         if kind == "tools":
             message["tool_calls"] = [call]
+        else:
+            message["reasoning_content"] = PRIVATE
         return httpx.Response(
             200,
             json={
@@ -878,7 +898,7 @@ def test_real_adapters_run_small_diagnostics(protocol, kind):
                         "finish_reason": "tool_calls" if kind == "tools" else "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+                "usage": {"prompt_tokens": 5, "completion_tokens": 36},
             },
         )
 
@@ -900,7 +920,9 @@ def test_real_adapters_run_small_diagnostics(protocol, kind):
                 True if kind == "streaming" else None
             )
             assert observation.tool_call_success is (True if kind == "tools" else None)
-            assert observation.token_usage.output_tokens == 2
+            assert observation.token_usage.output_tokens == (
+                2 if protocol == "ollama" else 36
+            )
             assert observation.tokens_per_second == (
                 4.0 if protocol == "ollama" else None
             )
