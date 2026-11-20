@@ -49,6 +49,9 @@ def stop_group(process):
         except ProcessLookupError:
             process.poll()
             return True
+        except PermissionError:
+            # A denied signal says nothing about whether the group has stopped.
+            pass
         deadline = monotonic() + 0.6
         while monotonic() < deadline:
             process.poll()
@@ -56,6 +59,8 @@ def stop_group(process):
                 os.killpg(process.pid, 0)
             except ProcessLookupError:
                 return True
+            except PermissionError:
+                pass
             sleep(0.025)
     return False
 
@@ -146,6 +151,10 @@ def execute(control, interrupted, launcher):
 
 
 def main():
+    if sys.platform != "linux":
+        print(json.dumps({"status": "stop_unconfirmed"}), flush=True)
+        return 1
+
     interrupted = False
 
     def interrupt(*_):

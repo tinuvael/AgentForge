@@ -1,8 +1,12 @@
 import asyncio
 import json
 import os
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
@@ -33,6 +37,10 @@ if mode == "timeout":
 if mode == "cancel":
     assert sys.stdin.buffer.readline() == b"cancel\\n"
     print(json.dumps({"status": "cancelled"}))
+elif mode == "cancel_unconfirmed":
+    assert sys.stdin.buffer.readline() == b"cancel\\n"
+    print(json.dumps({"status": "stop_unconfirmed"}))
+    raise SystemExit(1)
 elif mode == "malformed":
     print("private diagnostic")
 elif mode == "oversized":
@@ -141,6 +149,7 @@ def gateway_app(database, registry, tmp_path, monkeypatch):
         ("disconnect", "failed", "provider_error", True),
         ("timeout", "failed", "timeout", True),
         ("cancel", "cancelled", "cancelled", False),
+        ("cancel_unconfirmed", "cancelled", "cancelled", True),
         ("cancel_disconnect", "cancelled", "cancelled", True),
         ("malformed", "failed", "invalid_response", True),
         ("oversized", "failed", "output_limit", True),
@@ -149,7 +158,7 @@ def gateway_app(database, registry, tmp_path, monkeypatch):
 )
 def test_claim_execute_and_persist(gateway_app, mode, state, reason, unconfirmed):
     build, project, _, seen = gateway_app
-    cancel = mode in {"cancel", "cancel_disconnect"}
+    cancel = mode in {"cancel", "cancel_disconnect", "cancel_unconfirmed"}
     app = build(
         "timeout" if mode == "cancel_disconnect" else mode,
         timeout=1 if mode == "timeout" else 5,
@@ -295,21 +304,72 @@ def test_codex_jsonl_requires_final_message_and_turn(events, expected):
     assert ssh_codex_runner.codex_answer(encoded) == expected
 
 
-@pytest.mark.posix
-def test_linux_launcher_cancels_group(tmp_path):
-    import subprocess
-    import time
+def test_launcher_rejects_unsupported_platform(monkeypatch, capsys):
+    monkeypatch.setattr(ssh_codex_runner.sys, "platform", "darwin")
+    assert ssh_codex_runner.main() == 1
+    assert json.loads(capsys.readouterr().out) == {"status": "stop_unconfirmed"}
 
+
+@pytest.mark.parametrize("group_disappears", [False, True])
+def test_stop_group_requires_esrch_after_eperm(monkeypatch, group_disappears):
+    monkeypatch.setattr(signal, "SIGKILL", 9, raising=False)
+    signals = []
+    now = 0.0
+
+    def killpg(pid, sig):
+        assert pid == 123
+        signals.append(sig)
+        if sig == 0:
+            if group_disappears and signal.SIGKILL in signals:
+                raise ProcessLookupError
+            raise PermissionError
+        if sig == signal.SIGTERM:
+            raise PermissionError
+
+    def sleep(seconds):
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr(ssh_codex_runner.os, "killpg", killpg, raising=False)
+    monkeypatch.setattr(ssh_codex_runner, "monotonic", lambda: now)
+    monkeypatch.setattr(ssh_codex_runner, "sleep", sleep)
+    process = SimpleNamespace(pid=123, poll=lambda: 0)
+    assert ssh_codex_runner.stop_group(process) is group_disappears
+    assert [sig for sig in signals if sig] == [signal.SIGTERM, signal.SIGKILL]
+
+
+@pytest.mark.linux
+@pytest.mark.parametrize("mode", ["descendant", "ignore_term", "success", "nonzero"])
+def test_linux_launcher_contract(tmp_path, mode):
     launcher = tmp_path / "fake_codex"
     pid_file = tmp_path / "started"
     launcher.write_text(
         f"#!{sys.executable}\n"
-        "import os, sys, time\n"
+        "import json, os, signal, subprocess, sys, time\n"
         "from pathlib import Path\n"
-        "assert sys.argv[1:4] == ['--ask-for-approval', 'on-request', 'exec']\n"
-        "assert sys.argv[4:6] == ['--sandbox', 'read-only']\n"
+        "assert sys.argv[1:] == ['--ask-for-approval', 'on-request', 'exec',\n"
+        "    '--sandbox', 'read-only', '--ignore-user-config',\n"
+        "    '--skip-git-repo-check', '--ephemeral', '--json', '-']\n"
         f"assert sys.stdin.read() == {PROMPT + chr(10)!r}\n"
-        f"Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "assert Path.cwd().name.startswith('agentforge-codex-')\n"
+        "assert not list(Path.cwd().iterdir())\n"
+        f"mode = {mode!r}\n"
+        "if mode in {'success', 'nonzero'}:\n"
+        "    print(json.dumps({'type': 'item.completed', 'item':\n"
+        f"        {{'type': 'agent_message', 'text': {ANSWER!r}}}}}))\n"
+        "    print(json.dumps({'type': 'turn.completed'}))\n"
+        "    sys.exit(23 if mode == 'nonzero' else 0)\n"
+        "pids = [os.getpid()]\n"
+        "if mode == 'descendant':\n"
+        "    child = subprocess.Popen(['/bin/sleep', '30'])\n"
+        "    signal.signal(signal.SIGTERM, lambda *_: sys.exit(child.wait(3)))\n"
+        "    pids.append(child.pid)\n"
+        "else:\n"
+        "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        f"started = Path({str(pid_file)!r})\n"
+        "pending = started.with_suffix('.tmp')\n"
+        "pending.write_text(json.dumps(pids))\n"
+        "pending.replace(started)\n"
         "time.sleep(30)\n",
         encoding="utf-8",
     )
@@ -332,16 +392,28 @@ def test_linux_launcher_cancels_group(tmp_path):
         try:
             runner.stdin.write((PROMPT + "\n").encode())
             runner.stdin.flush()
-            deadline = time.monotonic() + 5
-            while not pid_file.exists():
-                assert time.monotonic() < deadline
-                time.sleep(0.025)
-            runner.stdin.write(b"cancel\n")
-            runner.stdin.flush()
+            cancelling = mode in {"descendant", "ignore_term"}
+            if cancelling:
+                deadline = time.monotonic() + 5
+                while not pid_file.exists():
+                    assert runner.poll() is None and time.monotonic() < deadline
+                    time.sleep(0.025)
+                pids = json.loads(pid_file.read_text())
+                runner.stdin.write(b"cancel\n")
+                runner.stdin.flush()
             assert runner.wait(timeout=5) == 0
-            assert json.load(runner.stdout) == {"status": "cancelled"}
-            with pytest.raises(ProcessLookupError):
-                os.kill(int(pid_file.read_text()), 0)
+            result = json.load(runner.stdout)
+            if cancelling:
+                assert result == {"status": "cancelled"}
+                with pytest.raises(ProcessLookupError):
+                    os.killpg(pids[0], 0)
+                for pid in pids:
+                    with pytest.raises(ProcessLookupError):
+                        os.kill(pid, 0)
+            elif mode == "success":
+                assert result == {"status": "completed", "answer": ANSWER}
+            else:
+                assert result == {"status": "execution_error"}
         finally:
             if runner.poll() is None:
                 runner.stdin.close()

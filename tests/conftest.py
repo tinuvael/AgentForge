@@ -18,6 +18,8 @@ from agentforge.projects.service import ProjectRegistry
 
 def pytest_collection_modifyitems(items):
     for item in items:
+        if item.get_closest_marker("linux") and sys.platform != "linux":
+            item.add_marker(pytest.mark.skip(reason="Requires native Linux"))
         if item.get_closest_marker("macos") and sys.platform != "darwin":
             item.add_marker(pytest.mark.skip(reason="Requires native macOS/APFS"))
         if item.get_closest_marker("windows") and os.name != "nt":

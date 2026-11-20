@@ -40,6 +40,7 @@ packages = ["src/agentforge"]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
 markers = [
+    "linux: requires native Linux process or filesystem semantics",
     "windows: requires actual native Windows execution",
     "posix: exercises POSIX-specific descriptors, symlink semantics or race seams",
     "macos: requires actual native Darwin and local APFS",

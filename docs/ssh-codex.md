@@ -2,7 +2,8 @@
 
 The Windows Gateway owns the Task queue and SQLite. A configured `ssh_codex`
 Worker uses one existing TaskEngine slot to open one SSH connection to Linux.
-The Ubuntu host needs Python 3, SSH and its own authenticated Codex CLI. It
+The remote launcher requires Linux process-group semantics. The Ubuntu host
+needs Python 3, SSH and its own authenticated Codex CLI. It
 receives a single fixed synthetic prompt over stdin. The SSH transport does not
 receive the Gateway credential, project files, project paths or Task metadata.
 
@@ -12,7 +13,10 @@ receive the Gateway credential, project files, project paths or Task metadata.
    repositories, operator permissions or service credentials. Authenticate
    Codex on Ubuntu using that account's own credentials. Verify that its trusted
    `~/bin/codex-remote` wrapper forwards top-level and exec arguments, uses
-   the current working directory, and leaves stdin and stdout to Codex.
+   the current working directory, and preserves stdin, stdout and the exit
+   status. After making the installed Codex binary available on `PATH`, the
+   wrapper should end with `exec codex "$@"`. Check `--version`, `--help` and
+   `exec --help` on that installation before the smoke.
 2. Install the reviewed
    [Python launcher](../src/agentforge/execution/ssh_codex_runner.py) as
    `~/bin/agentforge-codex-worker` under that account. Keep the launcher
@@ -103,7 +107,10 @@ establish a confirmed remote outcome, the Task timeline records
 `remote_stop_unconfirmed`. A terminal `cancelled` Task alone
 indicates cancellation in Gateway, so check the timeline. The Linux launcher
 also attempts cleanup on SSH EOF, receipt of a shutdown signal, or its own
-120-second deadline. Process-group tracking covers descendants that stay in
+120-second deadline. A permission error during signalling or probing cannot
+confirm termination. The launcher can still escalate from SIGTERM to SIGKILL
+and confirm the stop if the group subsequently disappears.
+Process-group tracking covers descendants that stay in
 the group. The protocol has no reconnect or automatic retry. If the Gateway
 itself shuts down or crashes, use the existing interrupted-Task handling and
 verify remote state before any manual resubmission.
