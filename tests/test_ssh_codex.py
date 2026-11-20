@@ -37,6 +37,9 @@ if mode == "timeout":
 if mode == "cancel":
     assert sys.stdin.buffer.readline() == b"cancel\\n"
     print(json.dumps({"status": "cancelled"}))
+elif mode == "cancel_completed":
+    assert sys.stdin.buffer.readline() == b"cancel\\n"
+    print(json.dumps({"status": "completed", "answer": "AGENTFORGE_SSH_OK"}))
 elif mode == "cancel_unconfirmed":
     assert sys.stdin.buffer.readline() == b"cancel\\n"
     print(json.dumps({"status": "stop_unconfirmed"}))
@@ -149,6 +152,7 @@ def gateway_app(database, registry, tmp_path, monkeypatch):
         ("disconnect", "failed", "provider_error", True),
         ("timeout", "failed", "timeout", True),
         ("cancel", "cancelled", "cancelled", False),
+        ("cancel_completed", "cancelled", "cancelled", False),
         ("cancel_unconfirmed", "cancelled", "cancelled", True),
         ("cancel_disconnect", "cancelled", "cancelled", True),
         ("malformed", "failed", "invalid_response", True),
@@ -158,7 +162,7 @@ def gateway_app(database, registry, tmp_path, monkeypatch):
 )
 def test_claim_execute_and_persist(gateway_app, mode, state, reason, unconfirmed):
     build, project, _, seen = gateway_app
-    cancel = mode in {"cancel", "cancel_disconnect", "cancel_unconfirmed"}
+    cancel = mode.startswith("cancel")
     app = build(
         "timeout" if mode == "cancel_disconnect" else mode,
         timeout=1 if mode == "timeout" else 5,
@@ -187,6 +191,11 @@ def test_claim_execute_and_persist(gateway_app, mode, state, reason, unconfirmed
                 for event in progress.timeline
             )
             assert diagnostic == unconfirmed
+            if mode == "cancel_completed":
+                assert [event.reason for event in progress.timeline] == [
+                    "completed",
+                    "cancelled",
+                ]
             assert result.final_answer == (ANSWER if state == "completed" else None)
             assert result.reason == reason
             assert "private diagnostic" not in result.model_dump_json()

@@ -103,6 +103,10 @@ async def request_stop(process, reply, *, reason):
             outcome = await asyncio.shield(reply)
     except (OSError, TimeoutError):
         return Outcome(reason, detail=STOP_UNCONFIRMED)
+    if reason == "cancelled" and outcome.detail is None:
+        # Preserve a normal terminal reply that raced with cancellation. The
+        # repository still honors the cancellation but retains the actual trace.
+        return outcome
     return Outcome(reason, detail=outcome.detail)
 
 

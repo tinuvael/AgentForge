@@ -105,9 +105,12 @@ same SSH connection. The launcher terminates Codex's process group and
 responds only after checking that the group is gone. If the Gateway cannot
 establish a confirmed remote outcome, the Task timeline records
 `remote_stop_unconfirmed`. A terminal `cancelled` Task alone
-indicates cancellation in Gateway, so check the timeline. The Linux launcher
-also attempts cleanup on SSH EOF, receipt of a shutdown signal, or its own
-120-second deadline. A permission error during signalling or probing cannot
+indicates cancellation in Gateway, so check the timeline. The launcher can
+return a normal terminal reply while the Gateway is cancelling. In that
+case the timeline retains the remote outcome before the Gateway's cancellation
+event. Only a remote cancellation reply confirms cancellation on Ubuntu.
+The launcher also attempts cleanup on SSH EOF, receipt of a shutdown signal,
+or its own 120-second deadline. A permission error during signalling or probing cannot
 confirm termination. The launcher can still escalate from SIGTERM to SIGKILL
 and confirm the stop if the group subsequently disappears.
 Process-group tracking covers descendants that stay in
