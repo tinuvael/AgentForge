@@ -156,7 +156,6 @@ def add_director_routes(web, render, valid_csrf):
             model=svc.director.config.model,
             catalog=svc.catalogs.get(item.id, {}) if item else {},
             working=item.id in svc.jobs if item else False,
-            director_web_research=svc.director.config.web_research,
             input_limit=svc.director.config.limits.input_chars,
         )
 
