@@ -6,6 +6,8 @@ import httpx
 import pytest
 
 from agentforge.director import web_research as web
+from agentforge.director.journal import Journal
+from agentforge.director.models import VisibleMessage
 
 
 def test_only_operator_text_and_search_result_urls_can_leave(monkeypatch):
@@ -110,3 +112,22 @@ def test_redirect_is_validated_before_connecting(monkeypatch):
 def test_invalid_url_forms_are_rejected(url):
     with pytest.raises(web.WebError, match="invalid_web_url"):
         web.public_url(url)
+
+
+def test_source_urls_count_toward_private_history_budget(tmp_path):
+    journal = Journal(tmp_path / "journal")
+    journal.open()
+    try:
+        item = journal.create("operator", "gateway")
+        sources = [f"https://example.com/{index}/" + "a" * 1900 for index in range(8)]
+        item.messages = [
+            VisibleMessage(role="assistant", content=f"Result {index}", sources=sources)
+            for index in range(12)
+        ]
+        journal.save(item)
+        restored = journal.read(item.id, "operator", "gateway")
+        assert len(restored.messages) == 6
+        assert restored.messages[-1].content == "Result 11"
+        assert restored.messages[-1].sources == sources
+    finally:
+        journal.close()
