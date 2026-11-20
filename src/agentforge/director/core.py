@@ -335,6 +335,7 @@ class Director:
             )
         except ValidationError:
             raise DirectorError("invalid_arguments") from None
+        self.event(item, f"Running tool {name}")
         if name == "submit_workflow":
             definition = arguments["definition"]
             steps = definition["steps"]
