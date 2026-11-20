@@ -9,6 +9,49 @@ from agentforge.director import web_research as web
 from agentforge.director.journal import Journal
 from agentforge.director.models import VisibleMessage
 
+PARENTHESIZED_URL = "https://en.wikipedia.org/wiki/Python_(programming_language)"
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "Read {url}",
+        "Read [Python]({url}).",
+        "Read ({url}).",
+        "Read the reference (see {url}).",
+        "Read {url}, please.",
+        "Read {url}!",
+    ],
+)
+def test_read_preserves_parentheses_in_the_authorized_url(monkeypatch, request_text):
+    calls = []
+
+    async def fetch(url):
+        calls.append(url)
+        return url, "text/plain", "Python is a programming language."
+
+    monkeypatch.setattr(web, "fetch", fetch)
+    research = web.WebResearch(request_text.format(url=PARENTHESIZED_URL), 1024)
+
+    async def operation():
+        result = await research.call("web_read", {"url": PARENTHESIZED_URL})
+        assert result["url"] == PARENTHESIZED_URL
+        for other_url in (PARENTHESIZED_URL[:-1], "https://example.com/unrelated"):
+            assert await research.call("web_read", {"url": other_url}) == {
+                "error": "web_url_not_authorized_for_this_request"
+            }
+
+    asyncio.run(operation())
+    assert calls == [PARENTHESIZED_URL]
+    assert research.sources == [PARENTHESIZED_URL]
+
+
+@pytest.mark.parametrize("request_text", ["Read [link]({url}).", "Read <{url}>."])
+def test_explicit_url_delimiters_preserve_trailing_punctuation(request_text):
+    url = "https://example.com/?q=what!"
+    research = web.WebResearch(request_text.format(url=url), 1024)
+    assert research.allowed_urls == {url}
+
 
 def test_only_operator_text_and_search_result_urls_can_leave(monkeypatch):
     async def operation():

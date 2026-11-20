@@ -7,8 +7,6 @@
     "Live updates interrupted; reconnecting…": "Связь прервалась. Подключаемся снова…",
     "Server stopped; reload to reconnect.": "Сервер остановлен. Обновите страницу.",
     "Task executor unavailable; reload to resync.": "Исполнитель недоступен. Обновите страницу.",
-    "Disconnected. Reload to restore the saved conversation; submitted Tasks remain at Gateway.": "Связь с Gateway потеряна. Обновите страницу, чтобы восстановить беседу.",
-    "Updates paused while you use the controls. Move focus outside the session to resume.": "Обновления приостановлены. Выйдите из формы, чтобы продолжить.",
     "Snapshot unavailable; reload to reconnect.": "Данные недоступны. Обновите страницу.",
     "Live progress connected": "Обновления подключены",
     "Live progress interrupted; reconnecting…": "Связь прервалась. Подключаемся снова…",

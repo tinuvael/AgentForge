@@ -146,18 +146,26 @@ def add_director_routes(web, render, valid_csrf):
         return RedirectResponse(target, 303)
 
     def page(request, svc, item=None, *, fragment=False):
-        return render(
+        working = item.id in svc.jobs if item else False
+        snapshot = f"{item.revision}:{int(working)}" if item else ""
+        response = render(
             request,
             "director_fragment.html" if fragment else "director.html",
             conversation=item,
-            conversations=svc.director.journal.list(
+            conversations=[]
+            if fragment
+            else svc.director.journal.list(
                 request.state.director_owner, svc.director.identity
             ),
             model=svc.director.config.model,
             catalog=svc.catalogs.get(item.id, {}) if item else {},
-            working=item.id in svc.jobs if item else False,
+            working=working,
+            snapshot=snapshot,
             input_limit=svc.director.config.limits.input_chars,
         )
+        if fragment:
+            response.headers["X-AgentForge-Director-Snapshot"] = snapshot
+        return response
 
     def research_allowed(svc, data):
         if "web_research" not in data:

@@ -56,6 +56,38 @@ class WebError(Exception):
     pass
 
 
+def _url_from_text(text, match):
+    url = match[0]
+    before = text[match.start() - 1 : match.start()]
+    after = text[match.end() : match.end() + 1]
+    # Explicit delimiters can distinguish URL punctuation from prose.
+    if (before, after) in {("<", ">"), ('"', '"'), ("`", "`")}:
+        return url
+    if before == "'" and "'" in url:
+        return url.rsplit("'", 1)[0]
+
+    if before == "(":
+        # An outer prose or Markdown parenthesis closes only after the
+        # parentheses within the URL have balanced.
+        depth = 0
+        for index, char in enumerate(url):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    return url[:index]
+                depth -= 1
+        if text.endswith("](", 0, match.start()):
+            return url
+
+    url = url.rstrip(".,;!?")
+    extra_closers = url.count(")") - url.count("(")
+    if extra_closers > 0:
+        trailing_closers = len(url) - len(url.rstrip(")"))
+        return url[: len(url) - min(extra_closers, trailing_closers)]
+    return url
+
+
 def public_url(value):
     if len(value) > 2048 or any(c.isspace() or ord(c) < 32 for c in value):
         raise WebError("invalid_web_url")
@@ -240,7 +272,7 @@ class WebResearch:
         self.allowed_urls = set()
         for match in URL_PATTERN.finditer(text):
             try:
-                self.allowed_urls.add(str(public_url(match[0].rstrip(".,;!?)'"))))
+                self.allowed_urls.add(str(public_url(_url_from_text(text, match))))
             except WebError:
                 continue
         self.sources = []

@@ -267,6 +267,7 @@ summary:hover { color: var(--text); }
 .compose-footer p { margin: 0; font-size: var(--font-meta); }
 .compose-footer button { flex: 0 0 auto; }
 .director-connection { font-size: var(--font-meta); margin: 20px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+.director-connection:empty { display: none; }
 .director-running { margin-top: 28px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); }
 .director-loading { color: var(--link); font-size: 12px; }
 .director-loading .status-dot { margin-right: 8px; }

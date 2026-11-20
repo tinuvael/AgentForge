@@ -129,12 +129,21 @@ def test_chat_real_task_progress_reconnect_and_safe_rendering(setup, tmp_path):
                 assert (await client.post(path + "/send", data=data)).status_code == 409
                 progress = await client.get(path + "/fragment")
                 assert 'hx-trigger="every 2s"' in progress.text
+                snapshot = progress.headers["X-AgentForge-Director-Snapshot"]
+                assert snapshot.endswith(":1")
+                assert f'data-snapshot="{snapshot}"' in progress.text
+                assert 'id="director-session-toggle"' in progress.text
+                assert 'id="director-stop"' in progress.text
                 assert (
                     "Analyzing" in progress.text
                     or "analyzing" in progress.text
                     or "Discovering" in progress.text
                 )
                 await idle(web)
+                finished = await client.get(path + "/fragment")
+                assert finished.headers["X-AgentForge-Director-Snapshot"].endswith(":0")
+                assert 'hx-trigger="every 2s"' not in finished.text
+                assert 'data-state="completed"' in finished.text
                 response = await client.get(path)
                 assert (
                     "&lt;script&gt;" in response.text
