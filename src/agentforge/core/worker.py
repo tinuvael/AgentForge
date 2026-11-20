@@ -9,6 +9,7 @@ from pydantic import (
     HttpUrl,
     JsonValue,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -86,13 +87,19 @@ class Worker(BaseModel):
             )
         return self
 
-    def binding_payload(self):
-        # Preserve persisted fingerprints of Workers configured before SSH support.
-        exclude = set()
-        if not self.workflow_review_required:
-            exclude.add("workflow_review_required")
+    @model_serializer(mode="wrap")
+    def serialize_worker(self, serialize):
+        values = serialize(self)
         if self.ssh_codex is None:
-            exclude.add("ssh_codex")
+            # Existing inference Workers retain their serialized shape.
+            values.pop("ssh_codex", None)
+        return values
+
+    def binding_payload(self):
+        # The default review flag predates some persisted fingerprints.
+        exclude = (
+            {"workflow_review_required"} if not self.workflow_review_required else set()
+        )
         return self.model_dump(mode="json", exclude=exclude)
 
 
