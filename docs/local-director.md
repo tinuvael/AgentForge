@@ -3,6 +3,32 @@
 Local Director is an independent MCP client. Codex remains a separate CLI/IDE
 Director. There is no Codex browser mode or subscription API dependency.
 
+## Optional public web research
+
+Set `web_research = true` at the root of the private Director TOML and restart
+the Gateway at an idle boundary. The browser's **Allow public web research
+using text from this request** checkbox is off by default for each message.
+The one-shot CLI equivalent is `director run --web-research`. The permission
+applies to the current request only. Approval and recovery do not renew it.
+
+`web_search` sends an exact phrase from the current request to DuckDuckGo's
+public HTML search and returns up to five result links. It uses no API key or
+paid account. The HTML interface can be throttled, blocked, or changed by the
+service. `web_read` accepts a public URL supplied by the operator or returned
+by this request's search. It returns bounded text from plain text and HTML
+pages, with the final source URL. Pages requiring JavaScript, sign-in or a
+non-text format may be unavailable. The chat links to pages actually read.
+
+Only opt in for content authorized for public disclosure. The search service
+sees the selected phrase and the public website sees the page request. Local
+repository files, previous messages, Worker replies and page text cannot supply
+search phrases or add URLs to the request's authorized set. The network client
+revalidates each redirect, rejects non-public DNS addresses, pins the validated
+address for the connection and retains hostname verification for HTTPS. It
+sends no credentials or cookies and applies byte, time and operation limits.
+Retrieved text remains untrusted. The Gateway's Project and Worker policies
+continue to govern delegated work independently.
+
 ## Prepare the Windows host
 
 Install AgentForge in a Python 3.12+ venv. Follow [Gateway setup](gateway.md) to

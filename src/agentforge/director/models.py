@@ -1,6 +1,6 @@
 """Private recovery records and hard resource bounds."""
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +27,9 @@ class Limits(Record):
 class VisibleMessage(Record):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=16_000)
+    sources: list[Annotated[str, Field(pattern=r"^https?://", max_length=2048)]] = (
+        Field(default_factory=list, max_length=8)
+    )
 
 
 class Action(Record):

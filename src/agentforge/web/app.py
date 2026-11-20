@@ -207,6 +207,7 @@ def create_app(
 
     def render(request, name, **context):
         language = getattr(request.state, "language", "ru")
+        director = getattr(web.state, "director", None)
         return templates.TemplateResponse(
             request=request,
             name=name,
@@ -215,6 +216,9 @@ def create_app(
                 "language": language,
                 "language_next": request.url.path,
                 "files_available": local_operator(request),
+                "director_web_research": bool(
+                    director and director.director.config.web_research
+                ),
                 "tr": partial(translate, language),
                 "error_message": partial(error_message, language),
                 "progress_message": partial(progress_message, language),
@@ -319,13 +323,12 @@ def create_app(
     @web.get("/", response_class=HTMLResponse)
     async def overview(request: Request):
         app = core()
+        director = getattr(web.state, "director", None)
         return render(
             request,
             "overview.html",
             director_input_limit=(
-                web.state.director.director.config.limits.input_chars
-                if getattr(web.state, "director", None)
-                else None
+                director.director.config.limits.input_chars if director else None
             ),
             status=app.status(),
             counts=app.tasks.state_counts(),

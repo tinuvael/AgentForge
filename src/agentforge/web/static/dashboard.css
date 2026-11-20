@@ -234,6 +234,7 @@ summary:hover { color: var(--text); }
 .context-facts { margin: 0 0 24px; }
 .context-facts dt { font-size: var(--font-meta); color: var(--muted); margin: 12px 0 3px; }
 .context-facts dd { margin: 0; overflow-wrap: anywhere; font: var(--font-meta)/1.6 var(--font-mono); }
+.director-sources { margin-top: 12px; overflow-wrap: anywhere; }
 .director-progress { margin: 20px 0; border-top: 1px solid var(--line); padding-top: 8px; }
 .director-progress summary { font-size: var(--font-detail); color: var(--text); }
 .director-progress ol { list-style: none; padding-left: 12px; margin: 8px 0; border-left: 1px solid var(--line); max-height: 320px; overflow: auto; }

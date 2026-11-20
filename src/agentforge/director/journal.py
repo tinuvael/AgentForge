@@ -85,7 +85,12 @@ class Journal:
     def save(self, item):
         while (
             len(item.messages) > 1
-            and sum(len(m.content.encode()) for m in item.messages) > 96_000
+            and sum(
+                len(message.content.encode())
+                + sum(len(url.encode()) for url in message.sources)
+                for message in item.messages
+            )
+            > 96_000
         ):
             item.messages.pop(0)
         item.revision += 1
