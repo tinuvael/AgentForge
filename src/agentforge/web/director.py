@@ -156,8 +156,16 @@ def add_director_routes(web, render, valid_csrf):
             model=svc.director.config.model,
             catalog=svc.catalogs.get(item.id, {}) if item else {},
             working=item.id in svc.jobs if item else False,
+            director_web_research=svc.director.config.web_research,
             input_limit=svc.director.config.limits.input_chars,
         )
+
+    def research_allowed(svc, data):
+        if "web_research" not in data:
+            return False
+        if data["web_research"] != "yes" or not svc.director.config.web_research:
+            raise HTTPException(403)
+        return True
 
     @web.get("/director")
     async def home(request: Request):
@@ -174,9 +182,10 @@ def add_director_routes(web, render, valid_csrf):
     @web.post("/director/new")
     async def new(request: Request):
         data = await fields(request)
-        if set(data) - {"message"}:
+        if set(data) - {"message", "web_research"}:
             raise HTTPException(422)
         svc = service(request)
+        web_research = research_allowed(svc, data)
         message = data.get("message")
         if message is not None and (
             not message.strip() or len(message) > svc.director.config.limits.input_chars
@@ -187,7 +196,12 @@ def add_director_routes(web, render, valid_csrf):
         except ValueError:
             raise HTTPException(429) from None
         if message is not None:
-            svc.start(item, request.state.director_owner, text=message)
+            svc.start(
+                item,
+                request.state.director_owner,
+                text=message,
+                web_research=web_research,
+            )
             await asyncio.sleep(0)
         return redirect(request, item)
 
@@ -223,8 +237,9 @@ def add_director_routes(web, render, valid_csrf):
     @web.post("/director/{identity}/send")
     async def send(request: Request, identity: UUID):
         svc, item, data = await mutation(
-            request, identity, {"message", "project", "worker"}
+            request, identity, {"message", "project", "worker", "web_research"}
         )
+        web_research = research_allowed(svc, data)
         text = data.get("message", "")
         if not text.strip() or len(text) > svc.director.config.limits.input_chars:
             raise HTTPException(413)
@@ -247,7 +262,9 @@ def add_director_routes(web, render, valid_csrf):
         item.project_id = UUID(project) if project else None
         item.worker_id = worker or None
         svc.director.journal.save(item)
-        svc.start(item, request.state.director_owner, text=text)
+        svc.start(
+            item, request.state.director_owner, text=text, web_research=web_research
+        )
         await asyncio.sleep(0)
         return redirect(request, item)
 

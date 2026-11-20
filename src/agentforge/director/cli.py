@@ -21,6 +21,11 @@ def add_parser(groups):
             command.add_argument("--session", required=True)
         if name == "run":
             command.add_argument("request")
+            command.add_argument(
+                "--web-research",
+                action="store_true",
+                help="Authorize a public search using text or URLs from this request.",
+            )
         if name in {"approve", "reject"}:
             command.add_argument("--nonce", required=True)
         if name == "cancel":
@@ -108,6 +113,7 @@ async def execute(args):
                 item.id,
                 "cli",
                 getattr(args, "request", None),
+                web_research=getattr(args, "web_research", False),
                 resume=args.operation == "resume",
                 nonce=getattr(args, "nonce", None),
                 approve=args.operation == "approve"

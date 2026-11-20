@@ -20,6 +20,7 @@ class DirectorConfig(Record):
     model: str = Field(min_length=1, max_length=512)
     options: dict = Field(default_factory=dict, repr=False)
     limits: Limits = Field(default_factory=Limits)
+    web_research: bool = False
 
     @model_validator(mode="after")
     def safe_configuration(self):

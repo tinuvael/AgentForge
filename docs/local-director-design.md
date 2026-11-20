@@ -13,7 +13,12 @@ reach a cloud director outside the Gateway's worker egress checks. Workers remai
 explicit selections, checked against authorized discovery and advisory candidates.
 
 Each request has finite model, tool, task, context and wall-time budgets. Only
-typed, allowlisted MCP operations are callable. Worker agents cannot delegate;
+typed, allowlisted MCP operations and opt-in public web research are callable.
+The web reader belongs to the Director client and connects only to validated
+public destinations. It receives user-authored query phrases and authorized
+public URLs through a request-scoped tool catalog. It has no access to Project
+files, Gateway credentials, or adapters in the Worker runtime.
+Worker agents cannot delegate;
 there is no nested director tool or scheduler. Journals retain bounded visible
 messages, exact bindings/task IDs and recovery/approval checkpoints, excluding
 opaque reasoning and protocol responses. Submission intent is flushed before

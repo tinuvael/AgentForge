@@ -1,4 +1,9 @@
 {
+  "Allow public web research using text from this request": "Разрешить поиск в интернете по тексту этого запроса",
+  "Sources read": "Прочитанные источники",
+  "Public webpage read.": "Публичная страница прочитана.",
+  "Public search results received.": "Получены результаты поиска.",
+  "Web research failed.": "Не удалось получить данные из интернета.",
   ". Metrics are recorded at terminal completion. Unknown values are —; durations are seconds.": ". Метрики записываются при завершении. Время указано в секундах.",
   ". Other metrics not reported.": ". Другие метрики недоступны.",
   "Action": "Действие",

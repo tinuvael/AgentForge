@@ -15,6 +15,7 @@ import pytest
 from agentforge.application.definitions import shipped_agents
 from agentforge.core.inference import GenerationResult
 from agentforge.core.provider_errors import BackendUnavailable
+from agentforge.director import web_research
 from agentforge.web.app import create_app
 from agentforge.web.director import COOKIE
 from tests.test_coding_workspaces import coding as coding_fixture
@@ -168,6 +169,56 @@ def test_chat_real_task_progress_reconnect_and_safe_rendering(setup, tmp_path):
                 )
                 assert len(setup.app.tasks.history()) == 1
             assert setup.app.status().available
+
+    asyncio.run(scenario())
+
+
+def test_web_research_requires_config_and_per_request_consent(
+    setup, tmp_path, monkeypatch
+):
+    url = "https://example.com/release"
+    calls = []
+
+    async def fetch(target, *, search=False):
+        calls.append((target, search))
+        return target, "text/html", "<p>Current release evidence</p>"
+
+    monkeypatch.setattr(web_research, "fetch", fetch)
+
+    async def scenario():
+        async with fixture(
+            setup,
+            tmp_path,
+            turns=[
+                tool("web_read", {"url": url}),
+                GenerationResult(
+                    content="The release is documented.", model="director"
+                ),
+            ],
+        ) as f:
+            async with browser(setup, f) as (client, web):
+                form = await client.get("/director")
+                assert 'name="web_research"' not in form.text
+                denied = await client.post(
+                    "/director/new",
+                    data={**csrf(client), "message": url, "web_research": "yes"},
+                )
+                assert denied.status_code == 403
+                assert calls == []
+                f.director.config.web_research = True
+                form = await client.get("/director")
+                assert 'name="web_research" value="yes"' in form.text
+                accepted = await client.post(
+                    "/director/new",
+                    data={**csrf(client), "message": url, "web_research": "yes"},
+                )
+                assert accepted.status_code == 303
+                await idle(web)
+                final = await client.get(accepted.headers["location"])
+                assert calls == [(url, False)]
+                assert f'href="{url}" rel="noopener noreferrer"' in final.text
+                assert "The release is documented." in final.text
+                assert "Public webpage read." in final.text
 
     asyncio.run(scenario())
 

@@ -319,14 +319,16 @@ def create_app(
     @web.get("/", response_class=HTMLResponse)
     async def overview(request: Request):
         app = core()
+        director = getattr(web.state, "director", None)
         return render(
             request,
             "overview.html",
             director_input_limit=(
-                web.state.director.director.config.limits.input_chars
-                if getattr(web.state, "director", None)
-                else None
+                director.director.config.limits.input_chars if director else None
             ),
+            director_web_research=director.director.config.web_research
+            if director
+            else False,
             status=app.status(),
             counts=app.tasks.state_counts(),
             tasks=app.tasks.history(limit=10),
