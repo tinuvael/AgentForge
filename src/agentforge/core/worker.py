@@ -14,6 +14,7 @@ from pydantic import (
 
 from agentforge.core.capabilities import Capability
 from agentforge.core.rate_limits import RateLimitObservation
+from agentforge.core.ssh_codex import SSHCodexConfig
 
 NonBlank = Annotated[str, Field(min_length=1, pattern=r"\S")]
 
@@ -31,7 +32,8 @@ class Worker(BaseModel):
     provider_connection: NonBlank | None = None
     # Inline connection; preferred configurations use provider_connection.
     endpoint: HttpUrl | None = Field(default=None, repr=False)
-    kind: Literal["inference_worker"] = "inference_worker"
+    kind: Literal["inference_worker", "ssh_codex"] = "inference_worker"
+    ssh_codex: SSHCodexConfig | None = Field(default=None, repr=False)
     # Specialist executable Tools will have separate contracts in Issue #52.
     capabilities: dict[Capability, bool | None] = Field(default_factory=dict)
     # Inline Workers only; named connections own trust metadata.
@@ -57,6 +59,25 @@ class Worker(BaseModel):
     def connection_binding(self):
         if "tool_calling" in self.capabilities:
             raise ValueError("Use supports_tools for tool_calling declarations")
+        if self.kind == "ssh_codex":
+            if (
+                self.ssh_codex is None
+                or self.provider != "ssh_codex"
+                or self.model != "codex-cli"
+                or self.trust != "cloud"
+                or self.endpoint is not None
+                or self.provider_connection is not None
+                or self.supports_tools is not False
+                or self.supports_streaming
+                or self.capabilities
+                or self.options
+                or self.context_window is not None
+                or self.timeout_seconds > 120
+            ):
+                raise ValueError("Invalid synthetic SSH Codex Worker")
+            return self
+        if self.ssh_codex is not None or self.provider == "ssh_codex":
+            raise ValueError("SSH settings require an SSH Codex Worker")
         if self.provider_connection is not None and self.trust != "unknown":
             raise ValueError("Named connection owns trust classification")
         if (self.endpoint is None) == (self.provider_connection is None):
@@ -64,6 +85,15 @@ class Worker(BaseModel):
                 "Supply exactly one connection reference or inline endpoint"
             )
         return self
+
+    def binding_payload(self):
+        # Preserve persisted fingerprints of Workers configured before SSH support.
+        exclude = set()
+        if not self.workflow_review_required:
+            exclude.add("workflow_review_required")
+        if self.ssh_codex is None:
+            exclude.add("ssh_codex")
+        return self.model_dump(mode="json", exclude=exclude)
 
 
 class WorkerHealth(BaseModel):

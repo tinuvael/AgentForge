@@ -98,7 +98,10 @@ class Application:
         agents = (
             tuple(agents)
             if agents is not None
-            else shipped_agents(coding_enabled=coding_config is not None)
+            else shipped_agents(
+                coding_enabled=coding_config is not None,
+                ssh_codex_enabled=any(w.kind == "ssh_codex" for w in workers.workers),
+            )
         )
         self.database = database
         sessions = create_session_factory(database)
@@ -151,6 +154,7 @@ class Application:
         self._worker_info = tuple(
             WorkerInfo(
                 worker_id=w.id,
+                kind=w.kind,
                 provider=w.provider,
                 model=w.model,
                 context_window=w.context_window,

@@ -23,11 +23,14 @@ def validate_provider_bindings(config: WorkersConfig) -> None:
         if connection.type not in PROVIDER_TYPES:
             raise ConfigurationError("Unsupported Provider type")
         connection.bearer_token()
-    if any(
-        w.provider_connection is None and w.provider != "ollama" for w in config.workers
-    ):
+    inline = [
+        w
+        for w in config.workers
+        if w.kind == "inference_worker" and w.provider_connection is None
+    ]
+    if any(w.provider != "ollama" for w in inline):
         raise ConfigurationError("Unsupported inline Provider type")
-    if any(w.provider_connection is None for w in config.workers):
+    if inline:
         if any(p.id == "ollama" for p in config.providers):
             raise ConfigurationError(
                 "Provider ID conflicts with inline Provider binding"
@@ -38,6 +41,6 @@ def create_providers(config: WorkersConfig) -> dict[str, Provider]:
     # Validate everything before creating instances. Constructors open no clients.
     validate_provider_bindings(config)
     providers = {p.id: PROVIDER_TYPES[p.type](p) for p in config.providers}
-    if any(w.provider_connection is None for w in config.workers):
+    if any(w.endpoint is not None for w in config.workers):
         providers["ollama"] = OllamaProvider()
     return providers

@@ -84,6 +84,8 @@ class WorkflowService:
                 raise WorkflowError("incompatible_artifact")
             return tool.fingerprint()
         runtime = self.app.tasks._runtime
+        if runtime.uses_ssh_codex(step.worker_id):
+            raise WorkflowError("invalid_definition")
         runtime.validate_binding(
             project_id=project,
             agent_id=step.agent_id,

@@ -21,6 +21,7 @@ from agentforge.core.policy import DEFAULT_TASK_POLICY, PolicyStorageError, Task
 from agentforge.councils.models import MAX_PARTICIPANTS, Council, InvalidCouncil
 from agentforge.db.ownership import DatabaseOwnership
 from agentforge.db.tasks import TaskRepository
+from agentforge.execution.ssh_codex import run_task as run_ssh_codex_task
 from agentforge.tasks.models import (
     TERMINAL_STATES,
     Task,
@@ -191,6 +192,8 @@ class TaskEngine:
             raise InvalidCouncil("Supply 2 to 16 distinct Workers")
         if self._runtime.workspace_mode(agent_id) == "isolated_write":
             raise InvalidCouncil("Council requires a read-only Agent")
+        if any(self._runtime.uses_ssh_codex(worker_id) for worker_id in worker_ids):
+            raise InvalidCouncil("SSH Codex accepts standalone synthetic Tasks only")
         task_policy = TaskPolicy.model_validate(task_policy)
         # Validate every participant before any write, probe or inference.
         targets = []
@@ -358,6 +361,29 @@ class TaskEngine:
             result = result.model_copy(update={"final_answer": None})
         return result.model_copy(update={"coding_result": None})
 
+    async def _run_task(self, task, *, token, observations, **arguments):
+        if self._runtime.uses_ssh_codex(task.worker_id):
+            return await run_ssh_codex_task(
+                self._runtime, task, cancellation=token, observations=observations
+            )
+        return await self._runtime.run(
+            **arguments,
+            task_policy=task.task_policy,
+            expected_target=(task.provider, task.model),
+            expected_binding={
+                "provider_connection": task.provider_connection,
+                "target_fingerprint": task.target_fingerprint,
+            }
+            if task.target_fingerprint
+            else None,
+            project_id=task.project_id,
+            agent_id=task.agent_id,
+            worker_id=task.worker_id,
+            task=task.request,
+            cancellation=token,
+            observations=observations,
+        )
+
     async def _execute_loop(self):
         specialist_turn = True
         while not self._closed:
@@ -430,7 +456,7 @@ class TaskEngine:
             provisioned = False
             try:
                 try:
-                    coding = (
+                    coding = task.provider != "ssh_codex" and (
                         self._runtime.workspace_mode(task.agent_id) == "isolated_write"
                     )
                     arguments = {}
@@ -454,22 +480,11 @@ class TaskEngine:
                                 )
                             }
                         )
-                    result = await self._runtime.run(
+                    result = await self._run_task(
+                        task,
                         **arguments,
                         limits=limits,
-                        task_policy=task.task_policy,
-                        expected_target=(task.provider, task.model),
-                        expected_binding={
-                            "provider_connection": task.provider_connection,
-                            "target_fingerprint": task.target_fingerprint,
-                        }
-                        if task.target_fingerprint
-                        else None,
-                        project_id=task.project_id,
-                        agent_id=task.agent_id,
-                        worker_id=task.worker_id,
-                        task=task.request,
-                        cancellation=token,
+                        token=token,
                         observations=observations,
                     )
                 except PolicyStorageError:
@@ -493,10 +508,7 @@ class TaskEngine:
                     else:
                         finish(result=result)
             finally:
-                if (
-                    self._workspaces is not None
-                    and self._runtime.workspace_mode(task.agent_id) == "isolated_write"
-                ):
+                if self._workspaces is not None and coding:
                     try:
                         self._workspaces.finalize(self._repository.get(identity))
                         self._repository.attach_coding_result(

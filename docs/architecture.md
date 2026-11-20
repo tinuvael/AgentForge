@@ -441,3 +441,11 @@ Companion access to artifact bytes. Recovery-required effects never become autom
 new attempts; existing ComfyUI receipt observation remains intact. See
 [workflow lifecycle, recovery and limits](workflows.md) and the
 [pre-implementation design](issue-53-design.md).
+
+## Synthetic Codex execution over SSH
+
+An opt-in [synthetic Codex Worker over SSH](ssh-codex.md) executes one fixed
+read-only request from a dedicated Project UUID after the normal Task claim.
+TaskEngine owns the SSH attempt and uses the usual result and observation paths.
+The standalone Linux launcher has no Project or SQLite access. Inference
+Workers still use Provider adapters and local repository tools.

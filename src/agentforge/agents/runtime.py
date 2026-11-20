@@ -28,6 +28,7 @@ from agentforge.core.policy import (
     TaskPolicy,
 )
 from agentforge.core.provider_errors import ProviderTimeout
+from agentforge.execution.ssh_codex_runner import AGENT_ID, PROMPT
 from agentforge.index.models import SymbolNotFound
 from agentforge.projects.errors import ProjectError, UnsafeProjectPath
 from agentforge.projects.service import ProjectRegistry
@@ -107,6 +108,25 @@ class AgentRuntime:
     def check_policy(self, project_id, worker_id, task_policy=DEFAULT_TASK_POLICY):
         self.worker_policy.check(project_id, self._workers[worker_id], task_policy)
 
+    def uses_ssh_codex(self, worker_id: str) -> bool:
+        worker = self._workers.get(worker_id)
+        return worker is not None and worker.kind == "ssh_codex"
+
+    def ssh_worker_for(self, task):
+        self.validate_binding(
+            project_id=task.project_id,
+            agent_id=task.agent_id,
+            worker_id=task.worker_id,
+            task=task.request,
+        )
+        if self.policy_binding(task.worker_id) != {
+            "provider_connection": task.provider_connection,
+            "target_fingerprint": task.target_fingerprint,
+        } or self.execution_target(task.worker_id) != (task.provider, task.model):
+            raise ValueError("SSH execution binding changed")
+        self.check_policy(task.project_id, task.worker_id, task.task_policy)
+        return self._workers[task.worker_id]
+
     def validate_binding(
         self, *, project_id: UUID | str, agent_id: str, worker_id: str, task: str
     ) -> UUID:
@@ -124,13 +144,32 @@ class AgentRuntime:
             or not task.strip()
         ):
             raise ValueError("Invalid execution binding")
+        if worker.ssh_codex is not None:
+            if (
+                agent.id != AGENT_ID
+                or agent.workspace_mode != "project_readonly"
+                or agent.allowed_tools
+                or str(project_id) != str(worker.ssh_codex.project_id)
+                or task != PROMPT
+            ):
+                raise ValueError("Only the configured synthetic binding is supported")
+        elif agent.id == AGENT_ID or not self._valid_inference_binding(worker, agent):
+            raise ValueError("Invalid execution binding")
+        try:
+            identity = self._projects.get_project(project_id).id
+            self.worker_policy.authorize(identity, worker)
+            return identity
+        except ProjectError:
+            raise ValueError("Invalid execution binding") from None
+
+    def _valid_inference_binding(self, worker, agent):
         tools = (
             self._coding_tools
             if agent.workspace_mode == "isolated_write"
             else self._tools
         )
         provider = self._providers.get(worker.provider_connection or worker.provider)
-        if (
+        return not (
             provider is None
             or provider.name != worker.provider
             or len(set(agent.allowed_tools)) != len(agent.allowed_tools)
@@ -139,14 +178,7 @@ class AgentRuntime:
                 for name in agent.allowed_tools
             )
             or (agent.allowed_tools and worker.supports_tools is False)
-        ):
-            raise ValueError("Invalid execution binding")
-        try:
-            identity = self._projects.get_project(project_id).id
-            self.worker_policy.authorize(identity, worker)
-            return identity
-        except ProjectError:
-            raise ValueError("Invalid execution binding") from None
+        )
 
     async def run(
         self,
@@ -213,6 +245,8 @@ class AgentRuntime:
             )
 
         try:
+            if self.uses_ssh_codex(worker_id):
+                raise _Stop("invalid_configuration")
             try:
                 project_id = self.validate_binding(
                     project_id=project_id,
