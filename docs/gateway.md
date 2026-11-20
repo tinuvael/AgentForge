@@ -356,6 +356,8 @@ The Gateway cannot see Mac-local paths or uncommitted changes. Native Codex tool
 can edit the Mac checkout; Git can transfer committed changes to an independently
 authorized Windows checkout. Check branch/commit equality before trusting analysis.
 No automatic synchronization, remote arbitrary shell or file bridge is provided.
+For the separate opt-in synthetic Codex execution path, see
+[Synthetic Codex Worker over SSH](ssh-codex.md).
 Mac-local AgentForge/filesystem support remains **Issue #45**.
 
 ## Shutdown, restart and optional startup

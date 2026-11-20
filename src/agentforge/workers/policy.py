@@ -56,12 +56,7 @@ class WorkerPolicy:
     def binding(self, worker):
         connection = self.connection(worker)
         payload = {
-            "worker": worker.model_dump(
-                mode="json",
-                exclude={"workflow_review_required"}
-                if not worker.workflow_review_required
-                else set(),
-            ),
+            "worker": worker.binding_payload(),
             "connection": connection.model_dump(mode="json") if connection else None,
         }
         return {
@@ -104,6 +99,10 @@ class WorkerPolicy:
 
     def check(self, project_id, worker, task_policy=DEFAULT_TASK_POLICY):
         self.authorize(project_id, worker, task_policy)
+        if worker.kind == "ssh_codex" and (
+            task_policy.max_requests is not None or task_policy.max_tokens is not None
+        ):
+            raise PolicyDenied("unsupported_resource_budget")
         if task_policy.max_requests == 0:
             raise PolicyDenied("request_budget")
         if task_policy.max_tokens == 0:

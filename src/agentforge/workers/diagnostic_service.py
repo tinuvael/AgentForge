@@ -116,12 +116,7 @@ class WorkerDiagnosticsService:
             )
             # Invalidation only; no URL/options/credential names or values persisted.
             value = {
-                "worker": worker.model_dump(
-                    mode="json",
-                    exclude={"workflow_review_required"}
-                    if not worker.workflow_review_required
-                    else set(),
-                ),
+                "worker": worker.binding_payload(),
                 "connection": connection.model_dump(mode="json")
                 if connection
                 else None,
@@ -188,7 +183,11 @@ class WorkerDiagnosticsService:
         self._active[worker_id] = asyncio.current_task()
         try:
             values = {}
-            if (
+            if worker.kind == "ssh_codex":
+                values["status"] = (
+                    "not_probed" if kind == "health" else "not_applicable"
+                )
+            elif (
                 kind == "tools"
                 and worker.supports_tools is not True
                 or kind == "streaming"

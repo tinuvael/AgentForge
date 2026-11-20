@@ -365,6 +365,14 @@ def worker_command(args):
         raise ConfigurationError("Worker configuration file is unavailable") from None
     validate_provider_bindings(config)
     if args.operation == "config-check":
+        for worker in config.workers:
+            if worker.ssh_codex is not None:
+                try:
+                    worker.ssh_codex.check_local_files()
+                except OSError:
+                    raise ConfigurationError(
+                        "SSH executable, key or known_hosts unreadable by this account"
+                    ) from None
         emit({"configuration": "valid", "worker_count": len(config.workers)})
     elif args.operation == "list":
         emit(

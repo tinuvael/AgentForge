@@ -23,7 +23,8 @@ def suggest(app, *, authorized_ids=None, **fields):
         (
             w
             for w in app._workers.values()
-            if authorized_ids is None or w.id in authorized_ids
+            if w.kind == "inference_worker"
+            and (authorized_ids is None or w.id in authorized_ids)
         ),
         key=lambda w: w.id,
     )

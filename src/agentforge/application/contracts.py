@@ -156,7 +156,7 @@ class ProjectInfo(Contract):
 
 class WorkerInfo(Contract):
     worker_id: Identifier
-    kind: Literal["inference_worker"] = "inference_worker"
+    kind: Literal["inference_worker", "ssh_codex"] = "inference_worker"
     transport: Literal["text_and_tools"] = "text_and_tools"
     provider_connection: str | None = None
     trust: Literal["local", "cloud", "unknown"] = "unknown"

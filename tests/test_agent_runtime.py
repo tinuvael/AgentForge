@@ -803,7 +803,8 @@ def test_git_tools_in_registered_project_are_read_only(setup):
 
     command("init", "--initial-branch=main")
     command("add", "source.py")
-    command("commit", "-m", "Fixture")
+    # A detached maintenance run from fixture setup can race the snapshots.
+    command("-c", "maintenance.auto=false", "commit", "-m", "Fixture")
     (setup.root / "source.py").write_text("def helper():\n    return 1\n")
     before = {
         p.relative_to(setup.root): p.read_bytes()

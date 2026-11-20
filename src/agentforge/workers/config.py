@@ -79,6 +79,10 @@ class WorkersConfig(BaseModel):
         if inline_ids.intersection(connections):
             raise ValueError("Provider identity conflicts with an inline Worker")
         for worker in self.workers:
+            if worker.kind == "ssh_codex":
+                if "inline:" + worker.id in connections:
+                    raise ValueError("Provider identity conflicts with SSH Worker")
+                continue
             if worker.provider_connection is not None:
                 connection = connections.get(worker.provider_connection)
                 if connection is None or connection.type != worker.provider:
@@ -113,6 +117,9 @@ def load_workers(path: str | Path) -> WorkersConfig:
                 raise ConfigurationError(
                     "Use provider to reference a configured connection"
                 )
+            if entry.get("kind") == "ssh_codex":
+                resolved.append(Worker.model_validate(entry))
+                continue
             if "endpoint" not in entry:
                 if reference not in by_id:
                     raise ConfigurationError("Unknown Provider reference")
