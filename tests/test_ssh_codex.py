@@ -58,7 +58,7 @@ def worker_config(tmp_path, project_id, *, timeout=5):
         "supports_tools": False,
         "timeout_seconds": timeout,
         "ssh_codex": {
-            "host": "100.80.108.91",
+            "host": "192.0.2.10",
             "user": "synthetic",
             "project_id": str(project_id),
             "ssh_executable": sys.executable,
@@ -89,7 +89,7 @@ def test_static_config_and_literal_ssh_arguments(tmp_path):
     assert "ForwardAgent=no" in args
     assert "GlobalKnownHostsFile=none" in args
     assert f'UserKnownHostsFile="{ssh.known_hosts_file.as_posix()}"' in args
-    assert args[-2:] == ("100.80.108.91", ssh_codex_runner.LAUNCH_COMMAND)
+    assert args[-2:] == ("192.0.2.10", ssh_codex_runner.LAUNCH_COMMAND)
     assert PROMPT not in args
     ssh.identity_file.unlink()
     with pytest.raises(OSError, match="Required SSH file"):
