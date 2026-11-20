@@ -13,7 +13,10 @@
     </details>
   </aside>
   <div class="director-content">
-    {% if conversation %}{% include "director_fragment.html" %}{% else %}
+    {% if conversation %}
+    <p class="director-connection" role="status"></p>
+    {% include "director_fragment.html" %}
+    {% else %}
     <section class="panel operator-entry"><h2>{{ tr("What would you like to do?") }}</h2>
       {% set director_input_limit = input_limit %}{% include "new_request.html" %}
     </section>

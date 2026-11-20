@@ -1,6 +1,6 @@
 {% from "macros.html" import badge, icon with context %}
-<section id="director-session" hx-sync="this:drop" data-state="{{ conversation.state }}" data-state-label="{{ tr(conversation.state) }}"{% if working %} hx-get="/director/{{ conversation.id }}/fragment" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %} aria-label="{{ tr('Current conversation') }}">
-  <div class="director-session-heading"><h2>{{ tr("New conversation") if conversation.title == "New conversation" else conversation.title }}</h2>{{ badge(conversation.state) }}</div>
+<section id="director-session" hx-sync="this:drop" data-state="{{ conversation.state }}" data-state-label="{{ tr(conversation.state) }}" data-snapshot="{{ snapshot }}"{% if working %} hx-get="/director/{{ conversation.id }}/fragment" hx-trigger="every 2s" hx-swap="outerHTML" hx-request='{"timeout":5000}'{% endif %} aria-label="{{ tr('Current conversation') }}">
+  <div class="director-session-heading"><h2 id="director-heading" tabindex="-1">{{ tr("New conversation") if conversation.title == "New conversation" else conversation.title }}</h2>{{ badge(conversation.state) }}</div>
   {% if conversation.error %}<div role="alert" class="director-alert"><strong>{{ tr('Request needs attention') }}</strong><p>{{ error_message(conversation.error) }}</p><a href="/tasks">{{ tr('Inspect Task history') }}</a></div>{% endif %}
   <div class="director-workspace">
     <div class="conversation-main">
@@ -22,7 +22,7 @@
       <details><summary>{{ tr("Approval details") }}</summary><p>{{ conversation.pending.reason }}</p><dl><dt>{{ tr('Action') }}</dt><dd>{{ conversation.pending.operation|replace('_', ' ') }}</dd><dt>{{ tr('Project') }}</dt><dd>{{ conversation.pending.project_id }}</dd><dt>{{ tr('Task') }}</dt><dd>{{ conversation.pending.task_id or tr("Allocated only after approval") }}</dd>{% for key, value in conversation.pending.arguments.items() %}<dt>{{ key|replace('_', ' ') }}</dt><dd class="director-text">{{ value }}</dd>{% endfor %}<dt>{{ tr('Expires (UTC)') }}</dt><dd><time data-epoch="{{ conversation.pending.expires }}">{{ conversation.pending.expires|utc_epoch }}</time></dd></dl></details><p class="director-hint">{{ tr('Approval applies once to these inputs.') }}</p>
       <form method="post" action="/director/{{ conversation.id }}/approval" hx-post="/director/{{ conversation.id }}/approval" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><input type="hidden" name="nonce" value="{{ conversation.pending.nonce }}"><button class="primary" name="decision" value="approve" type="submit">{{ tr('Approve this action') }}</button><button name="decision" value="reject" type="submit">{{ tr('Reject') }}</button></form></section>
       {% elif working %}
-      <div class="director-running"><div class="director-loading" role="status"><span class="status-dot" aria-hidden="true"></span><strong>{{ tr('Director request active') }}</strong><p>{{ tr('Worker Task states appear in the activity feed.') }}</p></div><form method="post" action="/director/{{ conversation.id }}/stop" hx-post="/director/{{ conversation.id }}/stop" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ conversation.request_id }}"><button type="submit" class="danger">{{ tr('Stop Director request') }}</button><p class="director-hint">{{ tr('Submitted Tasks continue at Gateway. Task cancellation requires a separate approval.') }}</p></form></div>
+      <div class="director-running"><div class="director-loading" role="status"><span class="status-dot" aria-hidden="true"></span><strong>{{ tr('Director request active') }}</strong>{% if conversation.progress %}<p>{{ progress_message(conversation.progress[-1]) }}</p>{% endif %}</div><form method="post" action="/director/{{ conversation.id }}/stop" hx-post="/director/{{ conversation.id }}/stop" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ conversation.request_id }}"><button id="director-stop" type="submit" class="danger">{{ tr('Stop Director request') }}</button><p class="director-hint">{{ tr('Submitted Tasks continue at Gateway. Task cancellation requires a separate approval.') }}</p></form></div>
       {% else %}
       <form class="director-compose" method="post" action="/director/{{ conversation.id }}/send" hx-post="/director/{{ conversation.id }}/send" hx-sync="this:drop" hx-disabled-elt="find button">
         <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}">
@@ -32,23 +32,22 @@
         <span role="status" data-send-status></span>
       </form>
       {% endif %}
-      <p class="director-connection" role="status"></p>
     </div>
     <aside class="director-context" aria-label="{{ tr('Execution and evidence') }}">
-      <details class="operator-details"><summary>{{ tr('Session context') }}</summary>
+      <details class="operator-details"><summary id="director-context-toggle">{{ tr('Session context') }}</summary>
       <dl class="context-facts">
         <dt>{{ tr('Director model') }}</dt><dd>{{ model }}</dd>
         <dt>{{ tr('Your Project pin') }}</dt><dd>{{ conversation.project_id or tr('No pin · Director selects') }}</dd>
         <dt>{{ tr('Your Worker pin') }}</dt><dd>{{ conversation.worker_id or tr('No pin · Director selects') }}</dd>
       </dl>
-      </details>{% for workflow in conversation.workflows %}<section class="panel"><h3>{{ tr('Workflow') }} {{ badge(workflow.state) }}</h3><a href="/workflows/{{ workflow.workflow_id }}">{{ tr('Open workflow') }}</a></section>{% endfor %}
+      </details>{% for workflow in conversation.workflows %}<section class="panel"><h3>{{ tr('Workflow') }} {{ badge(workflow.state) }}</h3><a id="director-workflow-{{ workflow.workflow_id }}" href="/workflows/{{ workflow.workflow_id }}">{{ tr('Open workflow') }}</a></section>{% endfor %}
       {% if conversation.tasks %}
       <div class="director-tasks">
         <h3>{{ tr('Task results') }}</h3>
         {% for task in conversation.tasks %}
         <article data-task-id="{{ task.task_id }}">
           <div class="section-heading">{{ badge(task.state) }}</div>
-          <a href="/tasks/{{ task.task_id }}">{{ tr('Open task result') }}</a><details><summary>{{ tr('Task details') }}</summary><code>{{ task.task_id }}</code><p>{{ tr(task.evidence|replace("_", " ")) }}</p>
+          <a id="director-task-{{ task.task_id }}" href="/tasks/{{ task.task_id }}">{{ tr('Open task result') }}</a><details><summary id="director-task-toggle-{{ task.task_id }}">{{ tr('Task details') }}</summary><code>{{ task.task_id }}</code><p>{{ tr(task.evidence|replace("_", " ")) }}</p>
           <dl class="task-binding">
             <dt>{{ tr('Project') }}</dt><dd><code>{{ task.project_id }}</code></dd>
             <dt>{{ tr('Worker') }}</dt><dd>{{ task.worker_id }}</dd>
@@ -64,11 +63,11 @@
         {% endfor %}
       </div>
       {% else %}<p class="director-hint">{{ tr('No delegated Task binding recorded.') }}</p>{% endif %}
-      {% if conversation.progress %}<details class="director-progress"><summary>{{ tr('Execution activity') }}</summary><ol tabindex="0" aria-label="{{ tr('Recorded execution activity') }}">{% for event in conversation.progress %}<li>{{ progress_message(event) }}</li>{% endfor %}</ol></details>{% endif %}
-      {% for council in conversation.councils %}<p><a href="/councils/{{ council.council_id }}">{{ tr('Open council') }}</a></p>{% endfor %}
+      {% if conversation.progress %}<details class="director-progress"><summary id="director-activity-toggle">{{ tr('Execution activity') }}</summary><ol id="director-activity" tabindex="0" aria-label="{{ tr('Recorded execution activity') }}">{% for event in conversation.progress %}<li>{{ progress_message(event) }}</li>{% endfor %}</ol></details>{% endif %}
+      {% for council in conversation.councils %}<p><a id="director-council-{{ council.council_id }}" href="/councils/{{ council.council_id }}">{{ tr('Open council') }}</a></p>{% endfor %}
 
       {% if not working and (conversation.tasks or conversation.workflows) and not conversation.pending %}<form method="post" action="/director/{{ conversation.id }}/resume" hx-post="/director/{{ conversation.id }}/resume" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button type="submit">{{ tr('Restore known execution results') }}</button></form>{% endif %}
-      <details class="session-details"><summary>{{ tr('Conversation details') }}</summary><code>{{ conversation.id }}</code><p class="director-hint">{{ tr('Revision') }} {{ conversation.revision }}</p></details>
+      <details class="session-details"><summary id="director-session-toggle">{{ tr('Conversation details') }}</summary><code>{{ conversation.id }}</code><p class="director-hint">{{ tr('Revision') }} {{ conversation.revision }}</p></details>
       {% if not working %}<details class="director-clear"><summary>{{ tr('Clear this conversation') }}</summary><p>{{ tr('Deletes its local transcript and approval. Gateway history and coding workspaces remain. Resume to refresh retained Tasks and workflows first; unfinished workflows, including approval and recovery states, prevent clearing.') }}</p><form method="post" action="/director/{{ conversation.id }}/clear" hx-post="/director/{{ conversation.id }}/clear" hx-sync="this:drop" hx-disabled-elt="find button"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ conversation.revision }}"><button class="danger" type="submit" name="confirm" value="clear">{{ tr('Clear conversation history') }}</button></form></details>{% endif %}
     </aside>
   </div>

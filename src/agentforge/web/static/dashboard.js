@@ -99,23 +99,30 @@
     }
   });
   document.addEventListener('htmx:afterSwap', connect);
-  const directorDisconnected = (event) => {
-    if (event.detail.elt && event.detail.elt.id === 'director-session') {
-      const node = document.querySelector('.director-connection');
-      if (node) node.textContent = window.agentforgeText('Disconnected. Reload to restore the saved conversation; submitted Tasks remain at Gateway.');
-    }
+  const directorStatus = (text) => {
+    const node = document.querySelector('.director-connection');
+    if (node) node.textContent = window.agentforgeText(text);
   };
-  document.addEventListener('htmx:sendError', directorDisconnected);
-  document.addEventListener('htmx:responseError', directorDisconnected);
+  const directorPoll = (event) => event.detail.elt?.id === 'director-session' &&
+    event.detail.requestConfig?.verb === 'get';
+  let directorInterrupted = false;
+  ['htmx:sendError', 'htmx:responseError', 'htmx:timeout'].forEach(kind => {
+    document.addEventListener(kind, (event) => {
+      if (!directorPoll(event)) return;
+      directorInterrupted = true;
+      directorStatus('Live updates interrupted; reconnecting…');
+    });
+  });
   // Keep disclosures and scroll positions across authoritative fragment refreshes.
   const snapshots = new Map();
   const fragmentId = (node) => ['director-session', 'task-detail', 'council-detail'].includes(node?.id);
+  const detailKey = (item) => {
+    const summary = item.querySelector('summary');
+    return summary?.id || summary?.textContent.trim();
+  };
   document.addEventListener('htmx:beforeRequest', (event) => {
-    const node = event.detail.elt;
-    if (node?.id === 'director-session' && editing(node)) {
+    if (directorPoll(event) && event.detail.elt.querySelector('form[aria-busy="true"]')) {
       event.preventDefault();
-      const hint = node.querySelector('.director-connection');
-      if (hint) hint.textContent = window.agentforgeText('Updates paused while you use the controls. Move focus outside the session to resume.');
     }
   });
   document.addEventListener('htmx:afterSwap', (event) => {
@@ -123,25 +130,46 @@
     const saved = snapshots.get(node?.id);
     if (!saved) return;
     node.querySelectorAll('details').forEach((item) => {
-      const key = item.querySelector('summary')?.textContent.trim();
+      const key = detailKey(item);
       if (saved.details.has(key)) item.open = saved.details.get(key);
     });
     node.querySelectorAll('pre, .director-progress ol, .long-message .director-text').forEach((item, i) => {
       item.scrollTop = saved.scroll[i] || 0;
     });
+    if (saved.focused) {
+      const control = document.getElementById(saved.focused) || document.getElementById('director-heading');
+      control?.focus({preventScroll: true});
+    }
     snapshots.delete(node.id);
   });
   document.addEventListener('htmx:beforeSwap', (event) => {
     const node = event.detail.target;
+    if (directorPoll(event)) {
+      if (event.detail.xhr.status !== 200) {
+        // A failed refresh leaves the live poller and the last snapshot intact.
+        event.detail.shouldSwap = false;
+        return;
+      }
+      if (directorInterrupted) {
+        directorInterrupted = false;
+        directorStatus('Live updates connected');
+      }
+      if (node.querySelector('form[aria-busy="true"]') ||
+          event.detail.xhr.getResponseHeader('X-AgentForge-Director-Snapshot') === node.dataset.snapshot) {
+        event.detail.shouldSwap = false;
+        return;
+      }
+    }
     if (fragmentId(node) && event.detail.xhr.status < 400) {
       // A GET in flight must also leave focused/confirmed mutation controls intact.
-      if (event.detail.requestConfig?.verb === 'get' && editing(node)) {
+      if (!directorPoll(event) && event.detail.requestConfig?.verb === 'get' && editing(node)) {
         event.detail.shouldSwap = false;
-        dirty = node.id !== 'director-session';
+        dirty = true;
         return;
       }
       snapshots.set(node.id, {
-        details: new Map(Array.from(node.querySelectorAll('details'), item => [item.querySelector('summary')?.textContent.trim(), item.open])),
+        details: new Map(Array.from(node.querySelectorAll('details'), item => [detailKey(item), item.open])),
+        focused: directorPoll(event) && node.contains(document.activeElement) ? document.activeElement.id || 'director-heading' : null,
         scroll: Array.from(node.querySelectorAll('pre, .director-progress ol, .long-message .director-text'), item => item.scrollTop)
       });
     }

@@ -561,6 +561,11 @@ def test_reconnect_read_and_reject_recursive_recovery(setup, tmp_path):
             f.provider.turns = [tool("delegate_task", setup.binding)]
             item = await f.director.run(item.id, "cli", resume=True)
             assert item.error == "recovery_read_only"
+            request = f.provider.requests[-1]
+            assert "delegate_task" not in {t.name for t in request.tools}
+            assert any(
+                "This is a recovery request." in m.content for m in request.messages
+            )
             assert len(setup.app.tasks.history()) == 1
 
     asyncio.run(scenario())

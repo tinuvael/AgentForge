@@ -335,6 +335,7 @@ class Director:
             )
         except ValidationError:
             raise DirectorError("invalid_arguments") from None
+        self.event(item, f"Running tool {name}")
         if name == "submit_workflow":
             definition = arguments["definition"]
             steps = definition["steps"]
@@ -554,6 +555,10 @@ class Director:
 
     async def _loop(self, item, *, resume=False, action=None):
         discovery = await self.discover(item)
+        if resume:
+            discovery["tools"] = [
+                name for name in discovery["tools"] if name not in WRITES
+            ]
         messages = [Message(role="system", content=PROMPT)]
         messages.extend(
             Message(role=m.role, content=m.content) for m in item.messages[-12:]
@@ -585,6 +590,15 @@ class Director:
                 )
             )
         elif resume:
+            messages.append(
+                Message(
+                    role="system",
+                    content=(
+                        "This is a recovery request. Report recovered results for the "
+                        "known executions. Do not submit or change work."
+                    ),
+                )
+            )
             if item.pending_workflow:
                 await self.submit_workflow(item, item.pending_workflow, recovery=True)
             for binding in item.workflows:
