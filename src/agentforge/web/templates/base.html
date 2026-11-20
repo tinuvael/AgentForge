@@ -16,9 +16,9 @@
   <aside class="app-sidebar" aria-label="{{ tr('Application') }}">
     <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">{{ icon('forge') }}</span>AgentForge</a>
     <nav aria-label="{{ tr('Primary navigation') }}">
-      {% for path, label, symbol in [('/', 'Overview', 'overview'),('/director', 'Local Director', 'director'),('/tasks', 'Tasks', 'tasks'),('/workflows', 'Workflows', 'councils'),('/tool-jobs', 'Tool jobs', 'tasks'),('/projects', 'Projects', 'projects'),('/workers', 'Workers', 'workers'),('/councils', 'Councils', 'councils')] %}
+      {% for path, label, symbol in [('/director', 'Local chat', 'director'),('/', 'Overview', 'overview'),('/tasks', 'Tasks', 'tasks'),('/workflows', 'Workflows', 'councils'),('/tool-jobs', 'Tool jobs', 'tasks'),('/projects', 'Projects', 'projects'),('/workers', 'Workers', 'workers'),('/councils', 'Councils', 'councils'),('/companion', 'Execution monitor', 'overview')] %}
       {% set active = request.url.path == path if path == '/' else request.url.path == path or request.url.path.startswith(path + '/') %}
-      <a href="{{ path }}"{% if active %} aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ tr(label) }}</span></a>
+      <a href="{{ path }}"{% if path == '/director' %} class="chat-link"{% endif %}{% if active %} aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ tr(label) }}</span></a>
       {% endfor %}
     </nav>
     {{ language_switch() }}

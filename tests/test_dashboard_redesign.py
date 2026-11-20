@@ -60,14 +60,15 @@ def test_navigation_matches_actual_routes(setup, path, active, status):
             assert response.status_code == status
             links = Navigation(response.text).links
             assert [link["href"] for link in links] == [
-                "/",
                 "/director",
+                "/",
                 "/tasks",
                 "/workflows",
                 "/tool-jobs",
                 "/projects",
                 "/workers",
                 "/councils",
+                "/companion",
             ]
             assert [link["href"] for link in links if "aria-current" in link] == [
                 active
