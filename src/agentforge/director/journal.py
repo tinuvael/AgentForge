@@ -9,6 +9,10 @@ from uuid import UUID
 from agentforge.director.models import Conversation
 
 
+class ConversationCapacityError(ValueError):
+    """The private journal has reached its configured conversation limit."""
+
+
 class Journal:
     def __init__(self, root, limit=32):
         root = Path(root).absolute()
@@ -124,7 +128,9 @@ class Journal:
 
     def create(self, owner, gateway_identity):
         if sum(1 for _ in self.root.glob("*.json")) >= self.limit:
-            raise ValueError("Conversation capacity reached; clear old conversations")
+            raise ConversationCapacityError(
+                "Conversation capacity reached; clear old conversations"
+            )
         item = Conversation(
             owner=owner, gateway_identity=gateway_identity, workflow_reservations={}
         )

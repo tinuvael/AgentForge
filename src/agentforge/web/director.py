@@ -198,10 +198,7 @@ def add_director_routes(web, render, valid_csrf):
             not message.strip() or len(message) > svc.director.config.limits.input_chars
         ):
             raise HTTPException(413)
-        try:
-            item = svc.director.create(request.state.director_owner)
-        except ValueError:
-            raise HTTPException(429) from None
+        item = svc.director.create(request.state.director_owner)
         if message is not None:
             svc.start(
                 item,

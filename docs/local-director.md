@@ -67,6 +67,12 @@ account. The journal directory is exclusively owned by one Director process.
 Use separate journal directories for independently running CLI and browser clients
 and provision separate Gateway identities for them.
 
+`limits.sessions` counts every conversation in the journal, including those
+created under other browser identities. A new browser profile may show an empty
+sidebar when the journal is full. To keep existing history, back up the journal,
+raise `limits.sessions` (up to 64), and restart at an idle boundary. You can
+continue a visible conversation without allocating a new journal entry.
+
 Example `C:/AgentForge/private/director.toml` (replace placeholder paths/IDs):
 
 ```toml

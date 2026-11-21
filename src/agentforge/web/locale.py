@@ -23,7 +23,11 @@ _ERRORS = {
         "before trying again."
     ),
     "request_too_large": "Enter a request within the displayed length limit.",
-    "too_many_requests": "The conversation limit has been reached.",
+    "too_many_requests": "The Director is busy. Wait for the active request to finish.",
+    "conversation_capacity": (
+        "The shared conversation journal is full. Continue an existing conversation "
+        "or ask the operator to increase limits.sessions."
+    ),
     "gateway_disconnected": "Could not reach Gateway. Reload to reconnect.",
     "service_unavailable": (
         "The service is unavailable. Check Gateway and the local model."
