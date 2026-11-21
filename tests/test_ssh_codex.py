@@ -14,7 +14,7 @@ import pytest
 
 from agentforge.application.service import Application
 from agentforge.core.policy import EgressPolicy, PolicyDenied, TaskPolicy
-from agentforge.execution import ssh_codex, ssh_codex_runner
+from agentforge.execution import ssh_codex, ssh_codex_repository, ssh_codex_runner
 from agentforge.execution.ssh_codex_runner import AGENT_ID, ANSWER, PROMPT
 from agentforge.providers.ollama import OllamaProvider
 from agentforge.tasks.models import TaskValidationError
@@ -52,6 +52,43 @@ else:
     print(json.dumps({"status": "completed", "answer": "AGENTFORGE_SSH_OK"}))
     if mode == "nonzero":
         raise SystemExit(1)
+"""
+
+REPOSITORY = "owner/project"
+PIN = "a" * 40
+
+PILOT_SSH = """
+import json
+import sys
+from pathlib import Path
+
+mode, seen = sys.argv[1:]
+request = json.loads(sys.stdin.buffer.readline())
+with Path(seen).open("a", encoding="utf-8") as log:
+    log.write(json.dumps(request) + "\\n")
+if mode == "disconnect":
+    raise SystemExit(255)
+if mode == "mismatch":
+    print(json.dumps({"status": "repository_mismatch"}))
+    raise SystemExit(1)
+if mode == "oversized":
+    print("x" * 65537)
+    raise SystemExit(0)
+if mode in ("cancel", "timeout"):
+    assert sys.stdin.buffer.readline() == b"cancel\\n"
+    print(json.dumps({"status": "cancelled"}))
+    raise SystemExit(0)
+print(json.dumps({
+    "status": "completed",
+    "repository": request["repository"],
+    "commit": "b" * 40 if mode == "wrong_commit" else request["commit"],
+    "answer": request["question"],
+    "sources": [{
+        "path": "../secret" if mode == "wrong_path" else "README.md",
+        "start": 1,
+        "end": 2,
+    }],
+}))
 """
 
 
@@ -239,6 +276,221 @@ def test_synthetic_binding_and_http_discovery(gateway_app):
             await app.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("mode", "reason", "detail"),
+    [
+        ("success", "completed", None),
+        ("cancel", "cancelled", None),
+        ("timeout", "timeout", None),
+        ("mismatch", "security_error", "repository_mismatch"),
+        ("disconnect", "provider_error", ssh_codex.STOP_UNCONFIRMED),
+        ("wrong_commit", "invalid_response", ssh_codex.STOP_UNCONFIRMED),
+        ("wrong_path", "invalid_response", ssh_codex.STOP_UNCONFIRMED),
+        ("oversized", "output_limit", ssh_codex.STOP_UNCONFIRMED),
+    ],
+)
+def test_repository_pilot_binding_and_result(
+    database, registry, tmp_path, monkeypatch, mode, reason, detail
+):
+    engine, _ = database
+    root = tmp_path / "local"
+    root.mkdir()
+    project = registry.register_project("pilot", root)
+    other = registry.register_project("other", tmp_path)
+    registry.set_egress_policy(
+        project.id,
+        EgressPolicy(mode="cloud_allowed", allowed_connections=("inline:ubuntu",)),
+    )
+    entry = worker_config(tmp_path, project.id, timeout=1 if mode == "timeout" else 5)
+    entry["ssh_repository"] = {"repository": REPOSITORY, "commit": PIN}
+    fake = tmp_path / "fake_pilot.py"
+    fake.write_text(PILOT_SSH, encoding="utf-8")
+    seen = tmp_path / "seen"
+    monkeypatch.setattr(
+        ssh_codex,
+        "repository_arguments",
+        lambda _: (sys.executable, "-B", str(fake), mode, str(seen)),
+    )
+    app = Application(engine, WorkersConfig(workers=[entry]))
+    binding = {
+        "project_id": project.id,
+        "agent_id": ssh_codex_repository.AGENT_ID,
+        "worker_id": "ubuntu",
+    }
+    requests = ["Где точка входа?\nУкажи строки.", "How is the README organized?"]
+
+    async def run():
+        await app.start()
+        try:
+            assert ssh_codex_repository.AGENT_ID in {
+                agent.agent_id for agent in app.list_agents().agents
+            }
+            assert AGENT_ID not in {
+                agent.agent_id for agent in app.list_agents().agents
+            }
+            for override in (
+                {"project_id": other.id},
+                {"agent_id": "repo_explorer"},
+                {"task": "я" * 2049},
+                {"task": "nul\0byte"},
+            ):
+                with pytest.raises(TaskValidationError):
+                    app.delegate_task(**(binding | {"task": requests[0]} | override))
+            assert not seen.exists()
+            for request in requests if mode == "success" else requests[:1]:
+                snapshot = app.delegate_task(**binding, task=request)
+                if mode == "cancel":
+                    while not seen.exists():
+                        await asyncio.sleep(0.01)
+                    app.cancel_task(task_id=snapshot.task_id)
+                result = await app.tasks.wait_task(snapshot.task_id)
+                assert result.reason == reason
+                assert (
+                    app.task_progress(task_id=result.task_id).timeline[0].error_code
+                    == detail
+                )
+                if mode == "success":
+                    assert result.final_answer == (
+                        f"{request}\n\nSource evidence for {REPOSITORY}@{PIN}\n"
+                        "- README.md:1-2"
+                    )
+                else:
+                    assert result.final_answer is None
+        finally:
+            await app.close()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=15))
+    assert [json.loads(line) for line in seen.read_text().splitlines()] == [
+        {"repository": REPOSITORY, "commit": PIN, "question": request}
+        for request in (requests if mode == "success" else requests[:1])
+    ]
+
+
+@pytest.mark.linux
+def test_repository_sources_are_pinned_committed_regular_files(tmp_path):
+    executable = "/usr/bin/git"
+    if not Path(executable).is_file():
+        pytest.skip("Git required for the repository pilot")
+    root = tmp_path.resolve()
+
+    def git(*args):
+        return subprocess.run(
+            [executable, "-C", str(root), *args],
+            capture_output=True,
+            check=True,
+        ).stdout
+
+    git("init", "-b", "main")
+    document = root / "README.md"
+    document.write_bytes(b"Line one\nLine two\n")
+    git("add", "README.md")
+    oid = git("rev-parse", ":README.md").decode().strip()
+    git("update-index", "--add", "--cacheinfo", f"120000,{oid},symlink.md")
+    git(
+        "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "a"
+    )
+    head = git("rev-parse", "HEAD").decode().strip()
+    git("remote", "add", "origin", f"https://github.com/{REPOSITORY}.git")
+    document.write_bytes(b"Private uncommitted text\n")
+    (root / "untracked.txt").write_text("Private untracked text")
+
+    def sources(repository=REPOSITORY, commit=head, path="README.md"):
+        return ssh_codex_repository.source_files(
+            root,
+            repository,
+            commit,
+            [path],
+            time.monotonic() + 20,
+        )
+
+    snapshot = sources()
+    assert snapshot == {"README.md": ["Line one", "Line two"]}
+    for arguments in (
+        {"repository": "owner/wrong"},
+        {"commit": "f" * 40},
+        {"path": "symlink.md"},
+        {"path": "untracked.txt"},
+    ):
+        with pytest.raises(ValueError):
+            sources(**arguments)
+    with pytest.raises(ValueError):
+        ssh_codex_repository.checked_answer(
+            {
+                "answer": "Wrong lines",
+                "sources": [{"path": "README.md", "start": 1, "end": 3}],
+            },
+            snapshot,
+        )
+
+
+@pytest.mark.linux
+def test_repository_profile_and_launch_are_gated(tmp_path, monkeypatch):
+    import fcntl
+
+    profile = tmp_path / "profile.toml"
+    profile.write_text(
+        f'repository = "{REPOSITORY}"\ncommit = "{PIN}"\n'
+        'root = "/tmp/project"\nfiles = ["README.md"]\n',
+        encoding="utf-8",
+    )
+    profile.chmod(0o600)
+    requested = []
+
+    def read_sources(root, repo, commit, paths, deadline):
+        assert (root, repo, commit, paths) == (
+            Path("/tmp/project"),
+            REPOSITORY,
+            PIN,
+            ["README.md"],
+        )
+        assert deadline > time.monotonic()
+        return {"README.md": ["Real line"]}
+
+    def fake_codex(control, interrupted, launcher, deadline, prompt, *, repository):
+        assert repository
+        requested.append(prompt)
+        return {
+            "status": "completed",
+            "answer": json.dumps(
+                {
+                    "answer": "The document begins with Real line.",
+                    "sources": [{"path": "README.md", "start": 1, "end": 1}],
+                }
+            ),
+        }
+
+    monkeypatch.setattr(ssh_codex_repository, "source_files", read_sources)
+
+    def run(commit, *, cancel=False):
+        reader, writer = os.pipe()
+        with os.fdopen(reader, "rb", buffering=0) as control:
+            try:
+                frame = {"repository": REPOSITORY, "commit": commit, "question": "Why?"}
+                os.write(writer, json.dumps(frame).encode() + b"\n")
+                if cancel:
+                    os.write(writer, b"cancel\n")
+                return ssh_codex_repository.run(
+                    control,
+                    lambda: False,
+                    Path("/unused"),
+                    deadline=time.monotonic() + 5,
+                    run_codex=fake_codex,
+                    profile_path=profile,
+                )
+            finally:
+                os.close(writer)
+
+    assert run("b" * 40) == {"status": "repository_mismatch"}
+    assert run(PIN, cancel=True) == {"status": "cancelled"}
+    with profile.open("rb") as locked:
+        fcntl.flock(locked, fcntl.LOCK_EX)
+        assert run(PIN) == {"status": "busy"}
+    assert not requested
+    reply = run(PIN)
+    assert reply["status"] == "completed" and reply["commit"] == PIN
+    assert b"Real line" in requested[0]
 
 
 def test_ssh_and_ollama_use_the_same_task_engine(gateway_app):

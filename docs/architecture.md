@@ -442,10 +442,19 @@ new attempts; existing ComfyUI receipt observation remains intact. See
 [workflow lifecycle, recovery and limits](workflows.md) and the
 [pre-implementation design](issue-53-design.md).
 
-## Synthetic Codex execution over SSH
+## Codex execution over SSH
 
 An opt-in [synthetic Codex Worker over SSH](ssh-codex.md) executes one fixed
 read-only request from a dedicated Project UUID after the normal Task claim.
 TaskEngine owns the SSH attempt and uses the usual result and observation paths.
-The standalone Linux launcher has no Project or SQLite access. Inference
-Workers still use Provider adapters and local repository tools.
+The standalone Linux launcher has no access to the Gateway registry or SQLite.
+Inference Workers still use Provider adapters and local repository tools.
+
+The opt-in repository pilot has a distinct read-only Agent and pins a GitHub
+repository and full commit in the Worker binding. The Linux launcher compares
+that pin with its own profile, origin and HEAD before projecting a bounded list
+of committed blobs into Codex stdin. The checkout stays outside the Codex
+working directory. The launcher verifies cited paths and line ranges and the
+Gateway checks the repository and commit on the result. Both SSH modes use
+the same TaskEngine cancellation and terminal observation. They are available
+only as standalone Tasks.

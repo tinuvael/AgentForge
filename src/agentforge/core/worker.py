@@ -15,7 +15,7 @@ from pydantic import (
 
 from agentforge.core.capabilities import Capability
 from agentforge.core.rate_limits import RateLimitObservation
-from agentforge.core.ssh_codex import SSHCodexConfig
+from agentforge.core.ssh_codex import SSHCodexConfig, SSHRepositoryPin
 
 NonBlank = Annotated[str, Field(min_length=1, pattern=r"\S")]
 
@@ -35,6 +35,7 @@ class Worker(BaseModel):
     endpoint: HttpUrl | None = Field(default=None, repr=False)
     kind: Literal["inference_worker", "ssh_codex"] = "inference_worker"
     ssh_codex: SSHCodexConfig | None = Field(default=None, repr=False)
+    ssh_repository: SSHRepositoryPin | None = None
     # Specialist executable Tools will have separate contracts in Issue #52.
     capabilities: dict[Capability, bool | None] = Field(default_factory=dict)
     # Inline Workers only; named connections own trust metadata.
@@ -75,9 +76,13 @@ class Worker(BaseModel):
                 or self.context_window is not None
                 or self.timeout_seconds > 120
             ):
-                raise ValueError("Invalid synthetic SSH Codex Worker")
+                raise ValueError("Invalid SSH Codex Worker")
             return self
-        if self.ssh_codex is not None or self.provider == "ssh_codex":
+        if (
+            self.ssh_codex is not None
+            or self.ssh_repository is not None
+            or self.provider == "ssh_codex"
+        ):
             raise ValueError("SSH settings require an SSH Codex Worker")
         if self.provider_connection is not None and self.trust != "unknown":
             raise ValueError("Named connection owns trust classification")
@@ -93,6 +98,8 @@ class Worker(BaseModel):
         if self.ssh_codex is None:
             # Existing inference Workers retain their serialized shape.
             values.pop("ssh_codex", None)
+        if self.ssh_repository is None:
+            values.pop("ssh_repository", None)
         return values
 
     def binding_payload(self):

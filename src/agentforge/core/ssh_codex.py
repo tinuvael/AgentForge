@@ -32,3 +32,14 @@ class SSHCodexConfig(BaseModel):
                 raise OSError("Required SSH file is unavailable")
             with path.open("rb"):
                 pass
+
+
+class SSHRepositoryPin(BaseModel):
+    """Identity agreed independently by the Gateway and the Linux launcher."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    repository: str = Field(
+        max_length=140, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"
+    )
+    commit: str = Field(pattern=r"^[0-9a-f]{40}$")

@@ -18,7 +18,7 @@ MAX_CODEX_OUTPUT = 256 * 1024
 REMOTE_TIMEOUT = 120
 
 
-def codex_answer(output):
+def completed_answer(output):
     answer = None
     completed = False
     for line in output.splitlines():
@@ -38,7 +38,12 @@ def codex_answer(output):
                 answer = item.get("text")
         if kind == "turn.completed":
             completed = answer is not None
-    return ANSWER if completed and answer == ANSWER else None
+    return answer if completed and isinstance(answer, str) else None
+
+
+def codex_answer(output):
+    answer = completed_answer(output)
+    return ANSWER if answer == ANSWER else None
 
 
 def stop_group(process):
@@ -65,7 +70,7 @@ def stop_group(process):
     return False
 
 
-def observe(process, control, interrupted, deadline):
+def observe(process, control, interrupted, deadline, parse_answer):
     output = bytearray()
     with selectors.DefaultSelector() as ready:
         ready.register(control, selectors.EVENT_READ, "control")
@@ -89,7 +94,7 @@ def observe(process, control, interrupted, deadline):
                 if process.returncode:
                     return {"status": "execution_error"}
                 try:
-                    answer = codex_answer(output)
+                    answer = parse_answer(output)
                 except (ValueError, RecursionError):
                     answer = None
                 if answer is None:
@@ -115,37 +120,64 @@ def execute(control, interrupted, launcher):
                 request.extend(chunk)
     if request != expected:
         return {"status": "invalid_response"}
+    return run_codex(control, interrupted, launcher, deadline, expected)
+
+
+def run_codex(control, interrupted, launcher, deadline, prompt, *, repository=False):
+    options = (
+        [
+            "--disable",
+            "shell_tool",
+            "--disable",
+            "shell_snapshot",
+            "-c",
+            'web_search="disabled"',
+            "-c",
+            "mcp_servers={}",
+        ]
+        if repository
+        else []
+    )
     with tempfile.TemporaryDirectory(prefix="agentforge-codex-") as directory:
-        process = subprocess.Popen(
-            [
-                str(launcher),
-                "--ask-for-approval",
-                "on-request",
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--ignore-user-config",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "--json",
-                "-",
-            ],
-            cwd=directory,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env={"HOME": str(Path.home()), "PATH": os.defpath, "LANG": "C.UTF-8"},
-        )
+        # A memory-backed input cannot block on a full stdin pipe before the
+        # cancellation and deadline loop starts.
+        with os.fdopen(os.memfd_create("agentforge-codex-input"), "w+b") as source:
+            source.write(prompt)
+            source.seek(0)
+            process = subprocess.Popen(
+                [
+                    str(launcher),
+                    "--ask-for-approval",
+                    "on-request",
+                    *options,
+                    "exec",
+                    "--sandbox",
+                    "read-only",
+                    "--ignore-user-config",
+                    "--skip-git-repo-check",
+                    "--ephemeral",
+                    "--json",
+                    "-",
+                ],
+                cwd=directory,
+                stdin=source,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                env={"HOME": str(Path.home()), "PATH": os.defpath, "LANG": "C.UTF-8"},
+            )
         try:
-            process.stdin.write(expected)
-            process.stdin.close()
-            result = observe(process, control, interrupted, deadline)
+            result = observe(
+                process,
+                control,
+                interrupted,
+                deadline,
+                completed_answer if repository else codex_answer,
+            )
         except OSError:
             result = {"status": "execution_error"}
         finally:
             stopped = stop_group(process)
-            process.stdin.close()
             process.stdout.close()
         return result if stopped else {"status": "stop_unconfirmed"}
 
@@ -163,13 +195,31 @@ def main():
 
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, interrupt)
+    control = sys.stdin.buffer
+    launcher = Path.home() / "bin/codex-remote"
     try:
-        result = execute(
-            sys.stdin.buffer, lambda: interrupted, Path.home() / "bin/codex-remote"
-        )
+        if sys.argv[1:] == ["--repository"]:
+            # The standalone installation keeps this module next to the launcher.
+            if __package__:
+                from .ssh_codex_repository import run
+            else:
+                from ssh_codex_repository import run
+
+            result = run(
+                control,
+                lambda: interrupted,
+                launcher,
+                deadline=monotonic() + REMOTE_TIMEOUT,
+                run_codex=run_codex,
+                profile_path=Path.home() / ".config/agentforge/ssh-repository.toml",
+            )
+        elif not sys.argv[1:]:
+            result = execute(control, lambda: interrupted, launcher)
+        else:
+            result = {"status": "invalid_response"}
     except (OSError, ValueError):
         result = {"status": "stop_unconfirmed"}
-    print(json.dumps(result), flush=True)
+    print(json.dumps(result, ensure_ascii=False), flush=True)
     return 0 if result["status"] in {"completed", "cancelled"} else 1
 
 

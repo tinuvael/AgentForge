@@ -100,7 +100,13 @@ class Application:
             if agents is not None
             else shipped_agents(
                 coding_enabled=coding_config is not None,
-                ssh_codex_enabled=any(w.kind == "ssh_codex" for w in workers.workers),
+                ssh_codex_enabled=any(
+                    w.kind == "ssh_codex" and w.ssh_repository is None
+                    for w in workers.workers
+                ),
+                ssh_repository_enabled=any(
+                    w.ssh_repository is not None for w in workers.workers
+                ),
             )
         )
         self.database = database
