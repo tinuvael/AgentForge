@@ -28,6 +28,7 @@ from agentforge.core.policy import (
     TaskPolicy,
 )
 from agentforge.core.provider_errors import ProviderTimeout
+from agentforge.execution import ssh_codex_repository
 from agentforge.execution.ssh_codex_runner import AGENT_ID, PROMPT
 from agentforge.index.models import SymbolNotFound
 from agentforge.projects.errors import ProjectError, UnsafeProjectPath
@@ -145,15 +146,27 @@ class AgentRuntime:
         ):
             raise ValueError("Invalid execution binding")
         if worker.ssh_codex is not None:
+            repository_pilot = worker.ssh_repository is not None
+            expected_agent = (
+                ssh_codex_repository.AGENT_ID if repository_pilot else AGENT_ID
+            )
+            valid_request = (
+                ssh_codex_repository.valid_question(task)
+                if repository_pilot
+                else task == PROMPT
+            )
             if (
-                agent.id != AGENT_ID
+                agent.id != expected_agent
                 or agent.workspace_mode != "project_readonly"
                 or agent.allowed_tools
                 or str(project_id) != str(worker.ssh_codex.project_id)
-                or task != PROMPT
+                or not valid_request
             ):
-                raise ValueError("Only the configured synthetic binding is supported")
-        elif agent.id == AGENT_ID or not self._valid_inference_binding(worker, agent):
+                raise ValueError("Only the configured SSH Codex binding is supported")
+        elif agent.id in {
+            AGENT_ID,
+            ssh_codex_repository.AGENT_ID,
+        } or not self._valid_inference_binding(worker, agent):
             raise ValueError("Invalid execution binding")
         try:
             identity = self._projects.get_project(project_id).id

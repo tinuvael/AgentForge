@@ -38,6 +38,8 @@ _ERROR_CODES = frozenset(
     "edit_conflict",
     "coding_limit",
     "coding_unavailable",
+    "repository_mismatch",
+    "remote_busy",
     "remote_stop_unconfirmed",
 }
 

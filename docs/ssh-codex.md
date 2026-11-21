@@ -122,3 +122,68 @@ The Worker does not accept arbitrary prompts, project context, tools supplied
 by AgentForge, Council or workflow calls, or explicit request or token budgets.
 Codex's model identity and internal usage are not reported by this integration.
 To disable the Worker, remove its TOML entry at the next approved Gateway restart.
+
+## Read-only repository pilot
+
+The repository pilot uses the same SSH transport and Task lifecycle, with a
+dedicated `ssh_codex_repository` Agent. Use a separate Gateway database and
+client grants for the pilot. Start with a single Worker, Gateway concurrency
+of one and an independently authenticated Linux Codex account. Grant the
+explicit project and `inline:<worker-id>` egress to that account's inference
+service. SSH only authenticates the transport.
+
+1. Identify an existing Ubuntu checkout. Record the GitHub `owner/repository`,
+   canonical checkout root and the full lowercase 40-digit merged commit.
+   Verify that the checkout has a real `.git` directory, that the local
+   `remote.origin.url` is the matching GitHub HTTPS or SSH URL, and that HEAD
+   resolves to the pinned commit. Update the checkout separately if needed.
+2. Install the reviewed launcher and
+   `src/agentforge/execution/ssh_codex_repository.py` alongside it under
+   `~/bin`. Keep both under the authenticated pilot account. Pin the SSH host
+   key and configure the pilot identity's forced command with OpenSSH
+   `restrict`:
+
+   ```text
+   exec /usr/bin/python3 "$HOME/bin/agentforge-codex-worker" --repository
+   ```
+
+3. Create the private Linux profile
+   `~/.config/agentforge/ssh-repository.toml`, owned by the pilot account and
+   writable by that account alone. Use the actual values agreed with the
+   Gateway.
+
+   ```toml
+   repository = "owner/repository"
+   commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   root = "/srv/checkouts/repository"
+   files = ["README.md", "src/config.py", "tests/test_config.py"]
+   ```
+
+   Authorize the listed files for model access. The launcher reads only regular
+   committed UTF-8 blobs at the pinned SHA. It rejects symlinks, submodules,
+   missing files and mismatched identity. A profile can list up to 24 files,
+   each at most 16 KiB and 64 KiB total. Keep the profile fixed while a Task
+   runs. A lock on the profile permits a single remote run at a time.
+4. To the isolated Worker's configuration above, add the following block.
+   Grant `ssh_codex_repository` to the isolated client. Keep the existing
+   synthetic configuration dedicated to the fixed acceptance prompt.
+
+   ```toml
+   [workers.ssh_repository]
+   repository = "owner/repository"
+   commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ```
+
+On submission, provide a standalone analysis question (up to 4 KiB UTF-8).
+The launcher verifies both pins before starting Codex. It passes the question
+and committed source via memory-backed stdin. Codex runs in an empty temporary
+directory, in read-only mode, with shell, web search and configured MCP disabled.
+Citations are verified against the transmitted paths and inclusive line ranges.
+The Gateway records the answer and evidence with the repository and full commit.
+The reply is capped at 64 KiB and the remote deadline is 120 seconds.
+
+Acceptance uses two distinct questions whose answers can be verified in the
+allowlisted files. Also check mismatched identity, cancellation, lost transport
+and absence of duplicate executions. Treat `remote_stop_unconfirmed` as an
+unknown remote outcome and check it before manually creating another Task.
+The pilot does not modify the checkout, synchronize it or retry automatically.

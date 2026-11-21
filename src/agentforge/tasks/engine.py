@@ -193,7 +193,7 @@ class TaskEngine:
         if self._runtime.workspace_mode(agent_id) == "isolated_write":
             raise InvalidCouncil("Council requires a read-only Agent")
         if any(self._runtime.uses_ssh_codex(worker_id) for worker_id in worker_ids):
-            raise InvalidCouncil("SSH Codex accepts standalone synthetic Tasks only")
+            raise InvalidCouncil("SSH Codex accepts standalone Tasks only")
         task_policy = TaskPolicy.model_validate(task_policy)
         # Validate every participant before any write, probe or inference.
         targets = []
