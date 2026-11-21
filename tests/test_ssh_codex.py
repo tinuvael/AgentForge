@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -369,15 +368,15 @@ def test_repository_pilot_binding_and_result(
     ]
 
 
-def test_repository_sources_are_pinned_committed_regular_files(tmp_path, monkeypatch):
-    executable = shutil.which("git")
-    if not executable:
+@pytest.mark.linux
+def test_repository_sources_are_pinned_committed_regular_files(tmp_path):
+    executable = "/usr/bin/git"
+    if not Path(executable).is_file():
         pytest.skip("Git required for the repository pilot")
-    native_run = subprocess.run
     root = tmp_path.resolve()
 
     def git(*args):
-        return native_run(
+        return subprocess.run(
             [executable, "-C", str(root), *args],
             capture_output=True,
             check=True,
@@ -396,12 +395,6 @@ def test_repository_sources_are_pinned_committed_regular_files(tmp_path, monkeyp
     git("remote", "add", "origin", f"https://github.com/{REPOSITORY}.git")
     document.write_bytes(b"Private uncommitted text\n")
     (root / "untracked.txt").write_text("Private untracked text")
-
-    def use_local_git(args, **kwargs):
-        assert args[0] == "/usr/bin/git"
-        return native_run([executable, *args[1:]], **kwargs)
-
-    monkeypatch.setattr(ssh_codex_repository.subprocess, "run", use_local_git)
 
     def sources(repository=REPOSITORY, commit=head, path="README.md"):
         return ssh_codex_repository.source_files(
