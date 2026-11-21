@@ -33,6 +33,7 @@ from agentforge.application.service import Application, ServiceError
 from agentforge.coding.models import CodingError
 from agentforge.councils.models import CouncilNotFound
 from agentforge.db.ownership import ExecutorOwnershipError
+from agentforge.director.journal import ConversationCapacityError
 from agentforge.projects.errors import ProjectStorageError
 from agentforge.specialists.models import SpecialistError
 from agentforge.tasks.models import (
@@ -319,6 +320,10 @@ def create_app(
     @web.exception_handler(RequestValidationError)
     async def invalid_request(request, _):
         return failure(request, "invalid_arguments", 422)
+
+    @web.exception_handler(ConversationCapacityError)
+    async def conversation_capacity(request, _):
+        return failure(request, "conversation_capacity", 429)
 
     @web.get("/", response_class=HTMLResponse)
     async def overview(request: Request):

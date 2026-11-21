@@ -87,6 +87,28 @@ async def idle(web):
             await asyncio.sleep(0.01)
 
 
+@pytest.mark.parametrize("language", ["en", "ru"])
+def test_full_journal_explains_capacity_to_new_browser(setup, tmp_path, language):
+    async def scenario():
+        async with fixture(setup, tmp_path, limits={"sessions": 1}) as f:
+            retained = f.director.create("another-browser")
+            async with browser(setup, f) as (client, _):
+                client.cookies.set("agentforge_language", language)
+                assert (await client.get("/director")).status_code == 200
+                response = await client.post("/director/new", data=csrf(client))
+                assert response.status_code == 429
+                assert "conversation_capacity" in response.text
+                assert "limits.sessions" in response.text
+                assert (
+                    "Общий журнал бесед заполнен"
+                    if language == "ru"
+                    else "The shared conversation journal is full"
+                ) in response.text
+                assert f.director.load(retained.id, "another-browser").id == retained.id
+
+    asyncio.run(scenario())
+
+
 def test_chat_real_task_progress_reconnect_and_safe_rendering(setup, tmp_path):
     async def scenario():
         turns = [
